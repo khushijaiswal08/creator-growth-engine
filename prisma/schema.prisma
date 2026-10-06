@@ -1,0 +1,588 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Neon pooled
+  directUrl = env("DIRECT_URL") // Neon direct, used by migrate
+}
+
+enum Platform {
+  instagram
+  tiktok
+  youtube
+}
+
+enum Role {
+  admin
+  marketer
+}
+
+enum CampaignStatus {
+  draft
+  active
+  paused
+  completed
+  archived
+}
+
+enum CreatorStatus {
+  discovered
+  scored
+  approved
+  rejected
+  review_later
+  blacklisted
+  outreach_scheduled
+  contacted
+  follow_up_due
+  replied
+  interested
+  not_interested
+  negotiating
+  agreed
+  address_collected
+  product_shipped
+  content_expected
+  content_posted
+  completed
+  no_content // took the product, never posted
+  no_reply
+  invalid_contact
+  bounced
+  unsubscribed
+  duplicate
+  on_hold
+}
+
+enum MessageChannel {
+  email
+  dm
+}
+
+enum MessageDirection {
+  inbound  @map("in")
+  outbound @map("out")
+}
+
+enum TemplatePurpose {
+  first
+  followup
+  agreed
+  other
+  selection
+  reminder
+}
+
+enum CollaborationType {
+  gifted
+  affiliate
+  paid
+}
+
+enum GiftOrderStatus {
+  needs_approval
+  approved
+  ordered
+  shipped
+  delivered
+  exception
+  cancelled
+}
+
+enum DataSource {
+  csv
+  manual
+  meta_free
+  vendor
+  youtube
+}
+
+enum UsSignal {
+  confirmed
+  likely
+  unknown
+  unlikely
+}
+
+enum EmailStatus {
+  found
+  not_found
+}
+
+enum RunStatus {
+  running
+  completed
+  stopped_quota
+  not_configured
+  failed
+}
+
+model User {
+  id                    String    @id @default(cuid())
+  name                  String
+  email                 String    @unique
+  passwordHash          String
+  role                  Role      @default(marketer)
+  // Set after an admin reset; the user must choose a new password at next sign-in.
+  mustChangePassword    Boolean   @default(false)
+  // A temporary password stops working after this moment (24 hours after it was issued).
+  tempPasswordExpiresAt DateTime?
+  // The one brand this person works on (see src/lib/brands.ts). Empty means both brands.
+  // Someone with a brand sees and changes only that brand's campaigns, creators and gift orders.
+  brandId               String?
+  // The built-in "Automation" account that automatic actions are logged under. Cannot sign in.
+  isSystem              Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+
+  ownedCreators CampaignCreator[]
+  messages      Message[]
+  activities    Activity[]
+  feedback      Feedback[]
+  discoveryRuns DiscoveryRun[]
+  scoringRuns   ScoringRun[]
+  approvedGifts GiftOrder[]
+}
+
+model Influencer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?
+  location  String?
+  usSignal  Int? // 0-100, validated in app
+  notes     String?  @db.Text
+  archived  Boolean  @default(false)
+  isSample  Boolean  @default(false) // seed data, archived in one click from /admin
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profiles   SocialProfile[]
+  campaigns  CampaignCreator[]
+  activities Activity[]
+
+  @@index([email])
+  @@index([archived])
+  @@index([name])
+}
+
+model SocialProfile {
+  id             String     @id @default(cuid())
+  influencerId   String
+  platform       Platform
+  handle         String // stored lowercase, no leading @
+  followers      Int?
+  engagementRate Float? // percent
+  bio            String?    @db.Text
+  website        String?
+  lastFetchedAt  DateTime?
+  source         DataSource @default(manual)
+  country        String?
+  lastPostAt     DateTime?
+  lastPostUrl    String?
+  recentCaptions String[]   @default([])
+  fetchNote      String? // why stats are missing, e.g. not a professional account
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  influencer Influencer @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  posts      Post[]
+
+  @@unique([platform, handle])
+  @@index([influencerId])
+}
+
+model Campaign {
+  id                  String         @id @default(cuid())
+  name                String         @unique
+  brandId             String
+  brief               String         @db.Text
+  nicheKeywords       String[]
+  negativeKeywords    String[]
+  targetPosts         Int?
+  deadline            DateTime?
+  status              CampaignStatus @default(draft)
+  isSample            Boolean        @default(false)
+  // Automation timings, in days. Editable per campaign.
+  followUpAfterDays   Int            @default(4) // no reply after a message -> follow-up due
+  maxFollowUps        Int            @default(2)
+  closeAfterDays      Int            @default(7) // after the last follow-up -> No reply
+  selectionWaitDays   Int            @default(5) // link sent, nothing chosen -> nudge
+  deliveryWaitDays    Int            @default(10) // shipped, not delivered -> check
+  contentReminderDays Int            @default(7) // after delivery -> first content reminder
+  contentDueDays      Int            @default(21) // after delivery -> content overdue
+  noContentAfterDays  Int            @default(30) // after content was due -> closed as No content
+  // Product types creators may choose from. Empty means every giftable product of the brand.
+  giftArticles        String[]       @default([])
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  creators      CampaignCreator[]
+  discoveryRuns DiscoveryRun[]
+  scoringRuns   ScoringRun[]
+
+  @@index([status])
+  @@index([brandId])
+}
+
+model CampaignCreator {
+  id                String             @id @default(cuid())
+  campaignId        String
+  influencerId      String
+  status            CreatorStatus      @default(discovered)
+  ownerId           String?
+  fitScore          Int?
+  fitReason         String?            @db.Text
+  lastContactedAt   DateTime?
+  repliedAt         DateTime?
+  // Set by the scoring job for scores of 75 and above. Never an approval.
+  priorityReview    Boolean            @default(false)
+  // The discovery run that found this creator, for source attribution.
+  discoveryRunId    String?
+  collaborationType CollaborationType?
+  requestedFee      Int? // whole US dollars
+  approvedFee       Int?
+  // What happens next, and when. Set by the automation for every open creator.
+  nextAction        String?
+  nextActionDueAt   DateTime?
+  waitingOn         String? // "team" or "creator"
+  followUpsSent     Int                @default(0)
+  reengageAfter     DateTime?
+  // The creator's private product-selection link.
+  selectionToken    String?            @unique
+  selectionSentAt   DateTime?
+  // The link stops working 14 days after it was made, and once a choice has been submitted.
+  selectionExpiresAt DateTime?
+  selectionUsedAt   DateTime?
+  contentDueAt      DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  campaign     Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  influencer   Influencer      @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  owner        User?           @relation(fields: [ownerId], references: [id])
+  discoveryRun DiscoveryRun?   @relation(fields: [discoveryRunId], references: [id])
+  assessments  FitAssessment[]
+  giftOrders   GiftOrder[]
+
+  agreement  Agreement?
+  posts      Post[]
+  feedback   Feedback[]
+  messages   Message[]
+  activities Activity[]
+
+  @@unique([campaignId, influencerId])
+  @@index([campaignId, status])
+  @@index([campaignId, priorityReview, fitScore])
+  @@index([influencerId])
+  @@index([ownerId])
+  @@index([discoveryRunId])
+  @@index([nextActionDueAt])
+}
+
+model Agreement {
+  id                 String    @id @default(cuid())
+  campaignCreatorId  String    @unique
+  postsAgreed        Int
+  deadline           DateTime?
+  productsGifted     String[]
+  discountCode       String?
+  requiresDisclosure Boolean   @default(true)
+  guidelines         String?   @db.Text
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+}
+
+model Post {
+  id                String    @id @default(cuid())
+  campaignCreatorId String
+  socialProfileId   String
+  url               String    @unique
+  postedAt          DateTime?
+  caption           String?   @db.Text
+  hasDisclosure     Boolean?
+  mentionsBrand     Boolean?
+  format            String? // reel, story, post, carousel, video, short, pin
+  productShown      Boolean?
+  collabInvite      Boolean?
+  createdAt         DateTime  @default(now())
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  socialProfile   SocialProfile   @relation(fields: [socialProfileId], references: [id], onDelete: Restrict)
+  metrics         Metric[]
+
+  @@index([campaignCreatorId])
+  @@index([socialProfileId])
+}
+
+model Metric {
+  id         String   @id @default(cuid())
+  postId     String
+  capturedAt DateTime @default(now())
+  views      Int?
+  likes      Int?
+  comments   Int?
+  shares     Int?
+  codeUses   Int?
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Restrict)
+
+  @@index([postId, capturedAt])
+}
+
+model Feedback {
+  id                    String    @id @default(cuid())
+  campaignCreatorId     String
+  byUserId              String
+  easeRating            Int? // 1-5, validated in app
+  qualityRating         Int? // 1-5, validated in app
+  workAgain             Boolean?
+  notes                 String?   @db.Text
+  creatorFormReturnedAt DateTime?
+  createdAt             DateTime  @default(now())
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  byUser          User            @relation(fields: [byUserId], references: [id])
+
+  @@index([campaignCreatorId])
+}
+
+model Message {
+  id                       String           @id @default(cuid())
+  campaignCreatorId        String
+  userId                   String
+  channel                  MessageChannel
+  direction                MessageDirection
+  body                     String           @db.Text
+  templateId               String?
+  sentAt                   DateTime         @default(now())
+  classification           String?
+  classificationConfidence Float?
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  user            User            @relation(fields: [userId], references: [id])
+  template        Template?       @relation(fields: [templateId], references: [id])
+
+  @@index([campaignCreatorId, sentAt])
+}
+
+model Template {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  purpose   TemplatePurpose
+  body      String          @db.Text
+  archived  Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  messages Message[]
+}
+
+model Activity {
+  id                String   @id @default(cuid())
+  campaignCreatorId String?
+  influencerId      String?
+  userId            String
+  kind              String // see src/lib/activity.ts for the kinds in use
+  body              String   @db.Text
+  automated         Boolean  @default(false) // true when the automation did this, not a person
+  createdAt         DateTime @default(now())
+
+  campaignCreator CampaignCreator? @relation(fields: [campaignCreatorId], references: [id])
+  influencer      Influencer?      @relation(fields: [influencerId], references: [id])
+  user            User             @relation(fields: [userId], references: [id])
+
+  @@index([influencerId, createdAt])
+  @@index([campaignCreatorId, createdAt])
+  @@index([kind])
+}
+
+// Checked before any send. A row is either an email or a platform + handle.
+model Suppression {
+  id        String    @id @default(cuid())
+  email     String?   @unique
+  platform  Platform?
+  handle    String?
+  reason    String
+  createdAt DateTime  @default(now())
+
+  @@unique([platform, handle])
+}
+
+model DiscoveryRun {
+  id           String     @id @default(cuid())
+  campaignId   String
+  startedById  String
+  source       DataSource
+  query        Json
+  status       RunStatus  @default(running)
+  startedAt    DateTime   @default(now())
+  finishedAt   DateTime?
+  found        Int        @default(0)
+  added        Int        @default(0)
+  alreadyKnown Int        @default(0)
+  skipped      Int        @default(0)
+  quotaUsed    Int        @default(0) // YouTube quota units, or Meta API calls
+  note         String?    @db.Text // e.g. why the run stopped early
+
+  campaign  Campaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  startedBy User              @relation(fields: [startedById], references: [id])
+  creators  CampaignCreator[]
+
+  @@index([campaignId, startedAt])
+}
+
+// One AI recommendation for a creator in a campaign. It never approves anyone.
+model FitAssessment {
+  id                String      @id @default(cuid())
+  campaignCreatorId String
+  scoringRunId      String?
+  score             Int // 0-100
+  usSignal          UsSignal
+  emailStatus       EmailStatus // set by code from stored data, never by the model
+  reasons           String      @db.Text // the model's reasons, verbatim, one per line
+  model             String
+  promptVersion     String
+  createdAt         DateTime    @default(now())
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  scoringRun      ScoringRun?     @relation(fields: [scoringRunId], references: [id])
+
+  @@index([campaignCreatorId, createdAt])
+  @@index([scoringRunId])
+}
+
+model ScoringRun {
+  id            String    @id @default(cuid())
+  campaignId    String
+  startedById   String
+  model         String
+  promptVersion String
+  status        RunStatus @default(running)
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  scored        Int       @default(0)
+  failed        Int       @default(0)
+  requests      Int       @default(0)
+  inputTokens   Int       @default(0)
+  outputTokens  Int       @default(0)
+  note          String?   @db.Text
+
+  campaign    Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  startedBy   User            @relation(fields: [startedById], references: [id])
+  assessments FitAssessment[]
+
+  @@index([campaignId, startedAt])
+}
+
+// Instagram allows 30 unique hashtags per 7 days per business account.
+// firstUsedAt is the start of the tag's current 7-day window.
+model Hashtag {
+  id          String   @id @default(cuid())
+  tag         String   @unique
+  firstUsedAt DateTime
+}
+
+// Failed sign-in attempts, for rate limiting. `key` is a SHA-256 of email + IP,
+// so neither is stored in readable form.
+// One row per request on a rate-limited public page or action. Keys are hashed.
+model RateLimitHit {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+  @@index([createdAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+  @@index([createdAt])
+}
+
+// What we can gift. Stock comes from Amazon; links point at the Amazon listing and the website.
+model Product {
+  id          String   @id @default(cuid())
+  brandId     String
+  sku         String   @unique
+  asin        String?
+  title       String // product type, e.g. Tablecloth
+  // The listing's full name on Amazon, e.g. "Ridhi Sage Green Hand Block Print Round Tablecloth 60 Inch".
+  listingName String?
+  color       String?
+  size        String?
+  amazonUrl   String?
+  websiteUrl  String?
+  imageUrl    String?
+  // Amazon price in US dollars, for reference when deciding what to offer.
+  price       Decimal? @db.Decimal(10, 2)
+  stock       Int? // null = not known
+  // The team's choice: offered to creators or not.
+  giftable    Boolean  @default(true)
+  // Set by the Amazon listing import: true when the listing is not live on Amazon, so it cannot be shipped.
+  archived    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  giftOrders GiftOrder[]
+
+  @@index([brandId, title])
+  @@index([asin])
+}
+
+// One gifted product for one creator in one campaign: the creator's choice,
+// the approval, the Amazon order and its delivery.
+model GiftOrder {
+  id                String          @id @default(cuid())
+  campaignCreatorId String
+  productId         String
+  quantity          Int             @default(1)
+  status            GiftOrderStatus
+  // Shipping details entered by the creator. Personal data: shown to signed-in staff only.
+  shipName          String
+  address1          String
+  address2          String?
+  city              String
+  state             String
+  postalCode        String
+  country           String
+  phone             String?
+  creatorNote       String?         @db.Text
+  // Why it needs a person, when it does.
+  approvalNote      String?
+  approvedById      String?
+  approvedAt        DateTime?
+  orderNumber       String?
+  carrier           String?
+  trackingNumber    String?
+  trackingStatus    String?
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  approvedBy      User?           @relation(fields: [approvedById], references: [id])
+
+  @@index([status])
+  @@index([campaignCreatorId])
+  @@index([orderNumber])
+}
+
+// Each time the automation ran, and what it changed.
+model AutomationRun {
+  id         String    @id @default(cuid())
+  trigger    String // cron, manual, dashboard
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  summary    Json?
+
+  @@index([startedAt])
+}

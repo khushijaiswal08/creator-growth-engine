@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+/*
+ * Rosewood, the atelier cut: cream paper, plum ink, one rose accent.
+ * Every colour a component uses comes from these tokens. The pairs were
+ * checked for WCAG AA: body and muted text at 4.5:1 on every surface they sit
+ * on, white text on the primary button, and 3:1 for field outlines and the
+ * focus ring.
+ *
+ * Mid-tones are never used as text: each hue has a fill and a darker "-text"
+ * partner. Status is shown as a small dot and plain text, not a tinted pill,
+ * so a page full of statuses still reads as a page of names.
+ */
+:root {
+  --background: #faf6f3;
+  --surface: #ffffff;
+  --surface-2: #f4ecee;
+  --border: #e9dfe2;
+  --border-strong: #d6c6cc;
+  --text: #2b2228;
+  --text-muted: #6a5c63;
+
+  --primary: #b24a6b;
+  --primary-deep: #99395a;
+  --on-primary: #ffffff;
+  --primary-soft: #fbe6ec;
+  --primary-text: #9a3558;
+  --accent-text: #5f5059;
+
+  /* The plum ink, kept for the wordmark and the odd dark surface. */
+  --sidebar: #2e2230;
+  --sidebar-text: #f3e9ed;
+  --sidebar-muted: #bba9b3;
+  --sidebar-active: #47323f;
+
+  --input: #9c8a93;
+}
+
+/* Status hues and radius. */
+:root {
+  --success-soft: #e5ede8;
+  --success-text: #3f6b4f;
+  --warning-soft: #f5ecda;
+  --warning-text: #7a5a12;
+  --danger-soft: #f4e7e7;
+  --danger-text: #96484a;
+
+  --radius: 6px;
+  /* Flat by design. The class names stay so nothing breaks; they draw nothing. */
+  --shadow-card: none;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--text);
+  --color-muted-foreground: var(--text-muted);
+
+  --color-primary: var(--primary);
+  --color-primary-deep: var(--primary-deep);
+  --color-on-primary: var(--on-primary);
+  --color-primary-soft: var(--primary-soft);
+  --color-primary-text: var(--primary-text);
+  --color-accent-text: var(--accent-text);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-text: var(--sidebar-text);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
+
+  --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-text: var(--warning-text);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-text: var(--danger-text);
+
+  --color-input: var(--input);
+  --color-ring: var(--primary);
+
+  /* Names the shadcn/ui components expect, pointed at the palette. */
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text);
+  --color-primary-foreground: var(--on-primary);
+  --color-secondary: var(--surface-2);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface-2);
+  --color-destructive: var(--danger-text);
+
+  --radius-sm: 4px;
+  --radius-md: var(--radius);
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  --shadow-card: var(--shadow-card);
+
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-fraunces), Georgia, serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  h1,
+  h2 {
+    @apply font-heading text-foreground;
+    font-weight: 500;
+    font-optical-sizing: auto;
+    letter-spacing: -0.01em;
+  }
+
+  h1 {
+    font-size: 30px;
+    line-height: 1.15;
+  }
+
+  h2 {
+    font-size: 19px;
+    line-height: 1.25;
+  }
+
+  h3 {
+    @apply text-foreground;
+    font-weight: 500;
+  }
+
+  /* Disclosure headers look like quiet links, not browser defaults. */
+  summary {
+    cursor: pointer;
+    user-select: none;
+  }
+}
+
+@layer components {
+  /* Figures: the serif in the ink colour, nothing underneath. */
+  .stat-number {
+    @apply inline-block font-heading text-foreground tabular-nums;
+    font-weight: 500;
+    font-optical-sizing: auto;
+    line-height: 1.1;
+  }
+
+  /* Small quiet label above a block or beside a figure. */
+  .eyebrow {
+    @apply text-xs text-muted-foreground;
+    letter-spacing: 0.04em;
+  }
+
+  /* In-page links. */
+  .link {
+    @apply font-medium text-primary-text underline-offset-2 hover:underline;
+  }
+
+  /* A quiet white card on the paper. */
+  .card {
+    @apply rounded-lg border bg-surface;
+  }
+
+  /* Filter chips: outlined, the active one in ink. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors;
+  }
+  .chip:hover {
+    @apply border-border-strong text-foreground;
+  }
+  .chip[aria-current] {
+    @apply border-foreground bg-foreground text-background;
+  }
+
+  /* A disclosure whose header reads as a link. */
+  .disclosure > summary {
+    @apply inline-flex items-center gap-1.5 text-sm font-medium text-accent-text;
+    list-style: none;
+  }
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+  .disclosure > summary::before {
+    content: "+";
+    @apply inline-block w-3 text-center text-muted-foreground;
+  }
+  .disclosure[open] > summary::before {
+    content: "\2212";
+  }
+  .disclosure > summary:hover {
+    @apply text-foreground;
+  }
+}

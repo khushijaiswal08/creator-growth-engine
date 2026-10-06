@@ -1,0 +1,21 @@
+# Netlify build settings. The Next.js runtime plugin turns the App Router,
+# Server Actions and the middleware into Netlify Functions and Edge Functions.
+[build]
+  command = "pnpm build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Prisma's engine is downloaded at build time; keep the cache off so a new schema always generates.
+  PRISMA_GENERATE_SKIP_AUTOINSTALL = "false"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Netlify already serves the site over HTTPS. This refuses plain HTTP outright
+# instead of serving the page; the HSTS header in next.config.ts does the rest.
+[[redirects]]
+  from = "http://*"
+  to = "https://:splat"
+  status = 301
+  force = true

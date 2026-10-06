@@ -1,0 +1,30 @@
+{
+  "_readme": [
+    "The rules a creator's gift order must pass to be approved without a person.",
+    "An order that breaks any rule waits in Gift orders under 'Needs approval' with the reason.",
+    "Edit the values, redeploy, and the new rules apply to the next order. Every approved order's",
+    "activity log names the rules it passed; every held order names the rule it failed."
+  ],
+  "rules": {
+    "allowedCountries": {
+      "value": ["United States"],
+      "about": "Ship only to these countries by itself. Anywhere else needs a person."
+    },
+    "maxQuantity": {
+      "value": 1,
+      "about": "Most items a single order may hold."
+    },
+    "maxProductPriceUsd": {
+      "value": 100,
+      "about": "Most expensive product (Amazon price) that goes out without a person. A product with no known price is allowed."
+    },
+    "repeatGiftDays": {
+      "value": 90,
+      "about": "A second gift to the same creator within this many days needs a person."
+    },
+    "paidCollaborationNeedsApprovedFee": {
+      "value": true,
+      "about": "A paid collaboration is only approved by itself once a person has approved the fee."
+    }
+  }
+}
