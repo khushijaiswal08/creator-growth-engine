@@ -116,7 +116,7 @@ between. Accounts should be in the company's name, not a person's.
 3. **Netlify.** Add new site > Import an existing project > GitHub > the repository. Netlify
    reads `netlify.toml` (build `pnpm build`, Node 22, the Next.js plugin). Then Site
    configuration > Environment variables: add every variable from the table above for
-   Production, including `AUTH_TRUST_HOST=true`, `APP_URL=https://<your site>`,
+   Production, including `AUTH_TRUST_HOST=true`, `APP_URL=https://<your site>`, `AUTH_URL` (the same address),
    `ADDRESS_ENCRYPTION_KEY`, `CRON_SECRET` and the `SMTP_*`/`SUMMARY_EMAIL_*` ones. Leave out
    `SEED_USER_PASSWORD`. Deploy.
 4. **Domain and HTTPS.** Domain management > add your domain; Netlify issues the certificate.
