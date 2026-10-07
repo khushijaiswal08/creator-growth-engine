@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -36,12 +36,23 @@ export async function GET(request: Request) {
   await check("creators", () => db.campaignCreator.count());
   await check("rateLimit", () => db.rateLimitHit.count());
 
+  // Which database and which key, without revealing either: host and name only, and a short hash of the key.
+  let database = "not set";
+  try {
+    const url = new URL(process.env.DATABASE_URL ?? "");
+    database = `${url.hostname}${url.pathname}`;
+  } catch {
+    database = "unreadable";
+  }
+  const key = process.env.ADDRESS_ENCRYPTION_KEY?.trim();
+
   return Response.json({
+    database,
+    addressKeyFingerprint: key ? createHash("sha256").update(key).digest("hex").slice(0, 8) : null,
     node: process.version,
     platform: `${process.platform} ${process.arch}`,
     netlify: process.env.NETLIFY === "true",
     timeZone: process.env.APP_TIME_ZONE ?? null,
-    addressKey: Boolean(process.env.ADDRESS_ENCRYPTION_KEY?.trim()),
     results,
   });
 }
