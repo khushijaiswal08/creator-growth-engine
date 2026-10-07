@@ -102,6 +102,8 @@ A real run of a script is logged in the activity log under the Automation accoun
 
 ### Deploying to Netlify
 
+Live at https://creator-growth-engine.netlify.app (repository khushijaiswal08/creator-growth-engine).
+
 The site runs on Netlify (Next.js runtime, `netlify.toml`), the database on Neon, with GitHub in
 between. Accounts should be in the company's name, not a person's.
 
