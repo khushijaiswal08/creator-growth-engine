@@ -4,6 +4,7 @@ import { cn } from "cn";
 import { Gift, Megaphone, Settings, SlidersHorizontal, Sun, Upload, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSidebar } from "@/components/sidebar-context";
 
 const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/today", label: "Today", icon: Sun },
@@ -17,11 +18,12 @@ const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
 const ADMIN_LINK = { href: "/admin", label: "Admin", icon: Settings };
 
 /**
- * Main navigation in the left sidebar. On narrow windows the sidebar shrinks
- * to an icon rail: labels are hidden visually and shown as tooltips.
+ * Main navigation in the left sidebar. In the icon rail (narrow window, or
+ * collapsed by choice) labels are hidden visually and shown as tooltips.
  */
 export function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
+  const ui = useSidebar();
   const links = isAdmin ? [...LINKS, ADMIN_LINK] : LINKS;
 
   return (
@@ -35,13 +37,14 @@ export function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
             title={label}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex h-9 items-center justify-center gap-2.5 rounded-md text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring lg:justify-start lg:px-3",
+              "relative flex h-9 items-center gap-2.5 rounded-md text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ui.align,
               active ? "bg-surface-2 font-medium text-foreground" : "text-muted-foreground hover:bg-surface-2/60 hover:text-foreground",
             )}
           >
             {active ? <span aria-hidden className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" /> : null}
             <Icon aria-hidden className="size-[17px] shrink-0" strokeWidth={1.75} />
-            <span className="sr-only lg:not-sr-only">{label}</span>
+            <span className={ui.label}>{label}</span>
           </Link>
         );
       })}

@@ -1,8 +1,10 @@
 "use client";
 
+import { cn } from "cn";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { setBrandView } from "@/actions/brand-view";
+import { useSidebar } from "@/components/sidebar-context";
 import { BRANDS } from "@/lib/brands";
 
 const SELECT =
@@ -15,6 +17,7 @@ const SELECT =
  */
 export function BrandSwitcher({ current }: { current: string | null }) {
   const router = useRouter();
+  const ui = useSidebar();
   const [pending, startTransition] = useTransition();
 
   const choose = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -27,13 +30,13 @@ export function BrandSwitcher({ current }: { current: string | null }) {
 
   return (
     <div className="grid gap-1">
-      <span className="eyebrow sr-only px-1 lg:not-sr-only">Showing</span>
+      <span className={cn("eyebrow px-1", ui.label)}>Showing</span>
       <select
         aria-label="Brand shown"
         value={current ?? ""}
         onChange={choose}
         disabled={pending}
-        className={`${SELECT} appearance-none px-0 text-center lg:hidden`}
+        className={cn(SELECT, "appearance-none px-0 text-center", ui.railOnly)}
       >
         <option value="">All</option>
         {BRANDS.map((brand) => (
@@ -42,7 +45,7 @@ export function BrandSwitcher({ current }: { current: string | null }) {
           </option>
         ))}
       </select>
-      <select aria-label="Brand shown" value={current ?? ""} onChange={choose} disabled={pending} className={`${SELECT} hidden px-2.5 lg:block`}>
+      <select aria-label="Brand shown" value={current ?? ""} onChange={choose} disabled={pending} className={cn(SELECT, "px-2.5", ui.wideOnly)}>
         <option value="">Both brands</option>
         {BRANDS.map((brand) => (
           <option key={brand.id} value={brand.id}>
@@ -56,12 +59,13 @@ export function BrandSwitcher({ current }: { current: string | null }) {
 
 /** For someone who works on one brand: its name, so it is always clear whose data this is. */
 export function BrandBadge({ name, short }: { name: string; short: string }) {
+  const ui = useSidebar();
   return (
     <div className="grid gap-1" title={`You are working on ${name}`}>
-      <span className="eyebrow sr-only px-1 lg:not-sr-only">Brand</span>
-      <span className="flex h-8 items-center justify-center rounded-full bg-primary-soft px-1 text-xs font-medium text-primary-text lg:justify-start lg:px-2.5">
-        <span className="lg:hidden">{short}</span>
-        <span className="hidden truncate lg:inline">{name}</span>
+      <span className={cn("eyebrow px-1", ui.label)}>Brand</span>
+      <span className={cn("flex h-8 items-center rounded-full bg-primary-soft px-1 text-xs font-medium text-primary-text", ui.align, ui.preference === "expanded" ? "px-2.5" : ui.preference === null ? "lg:px-2.5" : "")}>
+        <span className={ui.railOnly}>{short}</span>
+        <span className={cn("truncate", ui.wideOnly)}>{name}</span>
       </span>
     </div>
   );

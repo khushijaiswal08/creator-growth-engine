@@ -134,6 +134,8 @@ model User {
   // The one brand this person works on (see src/lib/brands.ts). Empty means both brands.
   // Someone with a brand sees and changes only that brand's campaigns, creators and gift orders.
   brandId               String?
+  // A small profile photo chosen by the person, stored as a data URL (resized in the browser before upload).
+  avatarUrl             String?   @db.Text
   // The built-in "Automation" account that automatic actions are logged under. Cannot sign in.
   isSystem              Boolean   @default(false)
   createdAt             DateTime  @default(now())

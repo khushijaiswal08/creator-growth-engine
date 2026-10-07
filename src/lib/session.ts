@@ -18,6 +18,8 @@ export type SessionUser = {
   brandId: string | null;
   /** The brand the lists are narrowed to right now; null means both. See src/lib/brand-scope.ts. */
   viewBrand: string | null;
+  /** Profile photo as a data URL, when the person has set one. */
+  avatarUrl: string | null;
 };
 
 const loadSessionUser = cache(async () => {
@@ -27,7 +29,7 @@ const loadSessionUser = cache(async () => {
 
   const user = await db.user.findUnique({
     where: { id },
-    select: { id: true, name: true, email: true, role: true, brandId: true, mustChangePassword: true },
+    select: { id: true, name: true, email: true, role: true, brandId: true, mustChangePassword: true, avatarUrl: true },
   });
   if (!user) redirect("/logout");
 
