@@ -180,6 +180,9 @@ for (const [mine, theirs] of [
     const own = await get(cookie, `/influencers/${me.influencerId}`);
     assert.equal(own.status, 200, `own creator page should open (redirected to ${own.headers.get("location")})`);
     assert.equal((await get(cookie, `/campaigns/${me.campaignId}`)).status, 200);
+    assert.equal((await get(cookie, "/reports/outreach")).status, 200);
+    assert.equal((await get(cookie, "/settings")).status, 200);
+    assert.equal((await get(cookie, `/reports/outreach/export?campaign=${me.campaignId}`)).status, 200);
     const results: Record<string, number> = {};
     const refused = [
       `/influencers/${other.influencerId}`,
@@ -193,6 +196,8 @@ for (const [mine, theirs] of [
       "/admin/users",
       "/admin/templates",
       "/admin/suppression",
+      "/admin/calibration",
+      `/reports/outreach/export?campaign=${other.campaignId}`,
     ];
     for (const pathname of refused) {
       const status = (await get(cookie, pathname)).status;

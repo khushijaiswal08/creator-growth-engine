@@ -13,6 +13,8 @@ export type Brief = {
   platforms?: Platform[];
   limit?: number;
   input?: string;
+  /** For sources with a daily quota: units this run may still spend. Undefined means no cap. */
+  quotaBudget?: number;
 };
 
 export type ProfileData = {
@@ -43,6 +45,9 @@ export type Candidate = ProfileData;
 /** How a discovery ended. Mirrors the RunStatus values a DiscoveryRun can finish with. */
 export type DiscoveryStatus = "completed" | "stopped_quota" | "not_configured" | "failed";
 
+/** What the live service answered, step by step. Shape differs per source; stored on the run as JSON. */
+export type DiscoveryReport = Record<string, unknown>;
+
 export type DiscoveryResult = {
   candidates: Candidate[];
   status: DiscoveryStatus;
@@ -52,6 +57,17 @@ export type DiscoveryResult = {
   skipped: number;
   /** Plain-language account of anything that cut the run short. */
   note: string | null;
+  report?: DiscoveryReport;
+};
+
+/**
+ * One slice of a resumable discovery. `cursor` is opaque to everyone but the
+ * adapter; `done` means there is nothing left to fetch. A slice is sized to
+ * finish well inside a 10-second request.
+ */
+export type DiscoveryStep = DiscoveryResult & {
+  cursor: Record<string, unknown> | null;
+  done: boolean;
 };
 
 /** The one interface every creator data source implements. */
@@ -64,4 +80,6 @@ export interface CreatorSource {
    * throws for an exhausted quota or missing key, it reports them.
    */
   discover?(brief: Brief): Promise<DiscoveryResult>;
+  /** Optional resumable form: call with the previous cursor until `done`. */
+  discoverStep?(brief: Brief, cursor: Record<string, unknown> | null): Promise<DiscoveryStep>;
 }

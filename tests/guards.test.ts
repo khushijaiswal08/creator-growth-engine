@@ -51,6 +51,10 @@ before(async () => {
     // Shipping details are encrypted with this key; selection links are built on this address.
     ADDRESS_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
     APP_URL: "http://portal.test",
+    YOUTUBE_API_KEY: "test-key",
+    YOUTUBE_API_BASE_URL: `http://127.0.0.1:${STUB_PORT}/youtube`,
+    // 350 units a day: two 100-unit searches fit under 80% (280), a third does not.
+    YOUTUBE_DAILY_QUOTA: "350",
   });
   // Must not block: the database lives in this process, so a synchronous wait would deadlock.
   await promisify(exec)("pnpm exec prisma migrate deploy", { env: process.env });
@@ -67,7 +71,54 @@ before(async () => {
 
       if (url.pathname.startsWith("/graph/")) {
         graphCalls.push(url.pathname + url.search);
+        const path = url.pathname.slice("/graph/".length);
+        if (path === "ig_hashtag_search") return send(200, { data: [{ id: `17841${url.searchParams.get("q")}` }] });
+        if (path.endsWith("/top_media")) {
+          const tag = path.slice(5, -"/top_media".length);
+          return send(200, {
+            data: ["noauthor1", "noauthor2", "noauthor3", "known1"].map((code) => ({
+              id: `${tag}-${code}`,
+              caption: `A ${tag} post ${code}`,
+              permalink: `https://www.instagram.com/p/${tag}-${code}/`,
+              timestamp: "2026-10-01T10:00:00+0000",
+            })),
+          });
+        }
+        if (path === "instagram_oembed") {
+          const link = url.searchParams.get("url") ?? "";
+          return link.includes("known") ? send(200, { author_name: "known_author_x", html: "" }) : send(200, { html: "<blockquote>no author named</blockquote>" });
+        }
+        const fields = url.searchParams.get("fields") ?? "";
+        const named = /business_discovery\.username\(([^)]+)\)/.exec(fields)?.[1];
+        if (named) {
+          return send(200, {
+            business_discovery: { username: named, name: `Name of ${named}`, biography: "Home and textiles.", followers_count: 5000, media: { data: [{ caption: "Spring table", permalink: "https://www.instagram.com/p/x/", timestamp: "2026-09-30T10:00:00+0000", like_count: 100, comments_count: 10 }] } },
+          });
+        }
         return send(200, { data: [] });
+      }
+
+      if (url.pathname.startsWith("/youtube/")) {
+        const path = url.pathname.slice("/youtube/".length);
+        if (path === "search") {
+          const q = (url.searchParams.get("q") ?? "").split(" ")[0];
+          return send(200, { items: [1, 2].map((index) => ({ id: { channelId: `UC-${q}-${index}` } })) });
+        }
+        if (path === "channels") {
+          const ids = (url.searchParams.get("id") ?? "").split(",").filter(Boolean);
+          return send(200, {
+            items: ids.map((id) => ({
+              id,
+              snippet: { title: `Channel ${id}`, description: "Home decor videos.", customUrl: `@${id.toLowerCase()}`, country: "US" },
+              statistics: { subscriberCount: "12000" },
+              contentDetails: { relatedPlaylists: { uploads: `UU-${id}` } },
+            })),
+          });
+        }
+        if (path === "playlistItems") {
+          return send(200, { items: [{ snippet: { title: "Table styling", publishedAt: "2026-10-01T00:00:00Z" }, contentDetails: { videoId: "vid1", videoPublishedAt: "2026-10-01T00:00:00Z" } }] });
+        }
+        return send(404, { error: { message: "unknown path" } });
       }
 
       if (url.pathname === "/v1/messages") {
@@ -1034,4 +1085,170 @@ test("the public selection pages are rate limited per caller, and nothing readab
   assert.ok(RATE_LIMITS.selectionMiss.max < RATE_LIMITS.selectionView.max, "guessing links is limited more tightly than opening them");
   const hit = await db.rateLimitHit.findFirstOrThrow();
   assert.doesNotMatch(hit.key, /1\.2\.3\.4|test-rule/);
+});
+
+test("YouTube discovery stops at 80% of the daily quota, counting every run of the day", async () => {
+  const { runDiscovery } = await import("@/lib/discovery");
+  const { youtubeBudget, pacificDayStart } = await import("@/lib/youtube-quota");
+  assert.ok(pacificDayStart(new Date()).getTime() <= Date.now());
+  assert.deepEqual(await youtubeBudget(), { daily: 350, limit: 280, usedToday: 0, remaining: 280 });
+
+  const { user, campaign } = await makeUserAndCampaign("youtube-quota", ["linen", "quilt", "cushion"]);
+  const first = await runDiscovery({ campaignId: campaign.id, source: "youtube", userId: user.id });
+  const report = first.report as { searches: { keyword: string }[]; searchesSkippedForBudget: string[]; channelsFetched: number; uploadsRead: number };
+  assert.deepEqual(report.searches.map((row) => row.keyword), ["linen", "quilt"], "two searches fit under the allowance");
+  assert.deepEqual(report.searchesSkippedForBudget, ["cushion"], "the third would cross 80% and is not made");
+  assert.equal(first.status, "stopped_quota");
+  assert.match(first.note ?? "", /80% of the YouTube daily quota/);
+  assert.equal(first.found, 4, "the channels of the two searches were still read");
+  assert.equal(first.added, 4);
+  assert.equal(report.uploadsRead, 4);
+  assert.equal(first.quotaUsed, 200 + 1 + 4, "two searches, one channels call, four upload reads");
+  assert.equal(await db.campaignCreator.count({ where: { campaignId: campaign.id, status: "discovered" } }), 4);
+
+  // The ledger counts that run: a second run today has no room for a single search.
+  assert.equal((await youtubeBudget()).remaining, 280 - 205);
+  const { campaign: another } = await makeUserAndCampaign("youtube-quota-2", ["napkin"]);
+  const second = await runDiscovery({ campaignId: another.id, source: "youtube", userId: user.id });
+  assert.equal(second.status, "stopped_quota");
+  assert.equal(second.found, 0);
+  assert.equal(second.quotaUsed, 0, "nothing was spent once the allowance was used up");
+  const stored = await db.discoveryRun.findUniqueOrThrow({ where: { id: second.runId } });
+  assert.equal(stored.status, "stopped_quota");
+  assert.match(stored.note ?? "", /80%/);
+});
+
+test("Instagram posts Meta will not attribute wait for a handle, then pass dedupe and the do-not-contact list", async () => {
+  const { runDiscovery, pendingPosts, attributePost, dismissPost } = await import("@/lib/discovery");
+  // The hashtag-limit test used up the week's 30 tags; this test needs one.
+  await db.hashtag.deleteMany();
+  await db.suppression.create({ data: { platform: "instagram", handle: "blocked_handle", reason: "asked us to stop" } });
+  const { user, campaign } = await makeUserAndCampaign("meta-fallback", ["block print"]);
+
+  graphCalls.length = 0;
+  const summary = await runDiscovery({ campaignId: campaign.id, source: "meta_free", userId: user.id });
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.added, 1, "the one post with a named author became a creator");
+  const report = summary.report as { hashtags: { tag: string; hashtagId: string | null; posts: number }[]; oembed: { calls: number; withAuthor: number; withoutAuthor: number }; businessDiscovery: { attempted: number; succeeded: number }; pending: unknown[] };
+  assert.deepEqual(report.hashtags, [{ tag: "blockprint", hashtagId: "17841blockprint", posts: 4 }]);
+  assert.deepEqual(report.oembed, { calls: 4, withAuthor: 1, withoutAuthor: 3, failed: 0 });
+  assert.deepEqual(report.businessDiscovery, { attempted: 1, succeeded: 1 });
+  assert.equal(report.pending.length, 3, "three posts wait for a reviewer");
+  assert.equal((await db.hashtag.count({ where: { tag: "blockprint" } })), 1, "the hashtag counted against the 7-day allowance");
+  assert.match(summary.note ?? "", /3 are waiting in the review queue/);
+
+  const waiting = await pendingPosts(campaign.id);
+  assert.equal(waiting.length, 3);
+  const [one, two, three] = waiting.map((item) => item.post.permalink);
+
+  // A new handle: looked up, added as Discovered with stats.
+  const added = await attributePost({ runId: summary.runId, permalink: one, handle: "@fresh_handle", userId: user.id, userName: user.name });
+  assert.deepEqual(added, { ok: true, outcome: "added", statsFound: true });
+  const fresh = await db.socialProfile.findUniqueOrThrow({ where: { platform_handle: { platform: "instagram", handle: "fresh_handle" } }, include: { influencer: { include: { campaigns: true } } } });
+  assert.equal(fresh.followers, 5000);
+  assert.equal(fresh.influencer.campaigns[0]?.status, "discovered");
+
+  // A handle already in the portal: nothing new is created.
+  const before = await db.influencer.count();
+  const known = await attributePost({ runId: summary.runId, permalink: two, handle: "known_author_x", userId: user.id, userName: user.name });
+  assert.equal(known.ok && known.outcome, "known");
+  assert.equal(await db.influencer.count(), before);
+
+  // A handle on the do-not-contact list: refused, nothing created.
+  const blocked = await attributePost({ runId: summary.runId, permalink: three, handle: "blocked_handle", userId: user.id, userName: user.name });
+  assert.equal(blocked.ok && blocked.outcome, "blocked");
+  assert.equal(await db.socialProfile.count({ where: { handle: "blocked_handle" } }), 0);
+
+  assert.equal((await pendingPosts(campaign.id)).length, 0, "every post was dealt with");
+  const run = await db.discoveryRun.findUniqueOrThrow({ where: { id: summary.runId } });
+  const final = run.report as { attributed: { outcome: string }[] };
+  assert.deepEqual(final.attributed.map((row) => row.outcome), ["added", "known", "blocked"]);
+  assert.equal(await dismissPost({ runId: summary.runId, permalink: one }), false, "a post already handled cannot be dismissed twice");
+});
+
+test("scoring runs in slices the job tick can continue, records cost and the prompt version, and a brand version takes over", async () => {
+  const { startScoring, scoringSlice, scoreCampaign, BATCH_SIZE } = await import("@/lib/scoring");
+  const { tickJobs } = await import("@/lib/jobs");
+  const { activePromptFor, createPromptVersion, buildSystemPrompt, DEFAULT_WEIGHTS } = await import("@/lib/scoring-prompts");
+  const { user, campaign } = await makeUserAndCampaign("slices", ["home decor"]);
+  for (let index = 0; index < 5; index += 1) await makeCreator(campaign.id, `slice_${index}`, { status: "discovered" });
+
+  const runId = await startScoring({ campaignId: campaign.id, userId: user.id });
+  // Someone else holds the run: a slice does no work and says it is still running.
+  await db.scoringRun.update({ where: { id: runId }, data: { lockedUntil: new Date(Date.now() + 60_000) } });
+  const held = await scoringSlice(runId);
+  assert.equal(held.status, "running");
+  assert.equal(held.totals.scored, 0);
+  await db.scoringRun.update({ where: { id: runId }, data: { lockedUntil: null } });
+
+  // The tick continues the run one slice at a time until it is done.
+  let ticks = 0;
+  for (; ticks < 10; ticks += 1) {
+    const tick = await tickJobs();
+    if (tick.scoring.find((row) => row.runId === runId)?.done) break;
+  }
+  assert.ok(ticks >= Math.ceil(5 / BATCH_SIZE) - 1, "more than one slice was needed");
+  const run = await db.scoringRun.findUniqueOrThrow({ where: { id: runId } });
+  assert.equal(run.status, "completed");
+  assert.equal(run.scored, 5);
+  assert.equal(run.promptVersion, "fit-v1");
+  assert.ok(Number(run.estimatedCostUsd) > 0, "a cost estimate is recorded");
+  assert.equal(run.cursor, null);
+  assert.equal(await db.campaignCreator.count({ where: { campaignId: campaign.id, status: "scored" } }), 5);
+
+  // A brand version of the prompt: saved, active, carried into the next run's assessments.
+  const weights = { ...DEFAULT_WEIGHTS, relevance: 40, usAudience: 10 };
+  await createPromptVersion({ brandId: "test", guidance: "Judge creators for a test brand that sells block-printed linens in the US.", weights, note: "test", userId: user.id });
+  const active = await activePromptFor("test");
+  assert.equal(active.label, "test:v1");
+  assert.match(active.systemPrompt, /Relevance to the campaign brief and niche keywords: 40 points/);
+  assert.equal(buildSystemPrompt(active.guidance, weights), active.systemPrompt);
+  await makeCreator(campaign.id, "slice_after_version", { status: "discovered" });
+  const again = await scoreCampaign(campaign.id, user.id);
+  assert.equal(again.status, "completed");
+  assert.equal(again.promptVersion, "test:v1");
+  const latest = await db.fitAssessment.findFirstOrThrow({ where: { campaignCreator: { campaignId: campaign.id } }, orderBy: { createdAt: "desc" } });
+  assert.equal(latest.promptVersion, "test:v1");
+  assert.equal(latest.scoringPromptId, active.id);
+});
+
+test("the outreach figures mean the same thing everywhere", async () => {
+  const { personStats, brandTargets, replyRate, weeklyStats } = await import("@/lib/outreach-stats");
+  const { user: anna, campaign } = await makeUserAndCampaign("outreach", ["home decor"]);
+  const ben = await db.user.create({ data: { name: "Ben", email: "ben-outreach@example.com", passwordHash: "x", role: "marketer", brandId: "test" } });
+  const followUp = await db.template.create({ data: { name: "Follow-up test", purpose: "followup", body: "Hi {name}" } });
+  const first = await makeCreator(campaign.id, "outreach_one", { status: "contacted", ownerId: anna.id });
+  const second = await makeCreator(campaign.id, "outreach_two", { status: "contacted", ownerId: anna.id });
+  const now = new Date();
+  const at = (minutesAgo: number) => new Date(now.getTime() - minutesAgo * 60_000);
+  await db.message.createMany({
+    data: [
+      { campaignCreatorId: first.id, userId: anna.id, channel: "dm", direction: "outbound", body: "hello", sentAt: at(50) },
+      { campaignCreatorId: first.id, userId: anna.id, channel: "dm", direction: "outbound", body: "following up", templateId: followUp.id, sentAt: at(40) },
+      { campaignCreatorId: second.id, userId: anna.id, channel: "dm", direction: "outbound", body: "hello", sentAt: at(30) },
+      { campaignCreatorId: first.id, userId: anna.id, channel: "dm", direction: "inbound", body: "yes please", sentAt: at(20) },
+      { campaignCreatorId: second.id, userId: ben.id, channel: "dm", direction: "outbound", body: "hi", sentAt: at(10) },
+    ],
+  });
+  await db.activity.create({ data: { userId: anna.id, kind: "status_change", campaignCreatorId: first.id, body: "Status changed from Replied to Agreed." } });
+
+  const stats = await personStats({ from: at(60), to: new Date(now.getTime() + 60_000) }, { id: campaign.id });
+  const annaRow = stats.find((row) => row.userId === anna.id)!;
+  const benRow = stats.find((row) => row.userId === ben.id)!;
+  assert.deepEqual(
+    { messages: annaRow.messages, creators: annaRow.creators, replies: annaRow.replies, followUps: annaRow.followUps, agreed: annaRow.agreed },
+    { messages: 3, creators: 2, replies: 1, followUps: 1, agreed: 1 },
+  );
+  assert.equal(replyRate(annaRow), 50, "replies divided by distinct creators messaged, not by messages");
+  assert.deepEqual({ messages: benRow.messages, creators: benRow.creators, replies: benRow.replies }, { messages: 1, creators: 1, replies: 0 });
+  assert.equal(replyRate(benRow), 0);
+  assert.equal(replyRate({ replies: 0, creators: 0 }), null);
+
+  assert.deepEqual(await brandTargets(["test"]), new Map([["test", { daily: 20, weekly: 100 }]]), "defaults until the team sets targets");
+  await db.brandSettings.create({ data: { brandId: "test", dailyMessageTarget: 15, weeklyMessageTarget: 60 } });
+  assert.deepEqual((await brandTargets(["test"])).get("test"), { daily: 15, weekly: 60 });
+
+  const weeks = await weeklyStats({ id: campaign.id }, 8);
+  assert.equal(weeks.length, 8);
+  assert.ok(weeks[0].people.some((row) => row.userId === anna.id), "this week lists Anna");
 });

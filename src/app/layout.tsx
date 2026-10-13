@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Sans } from "next/font/google";
+import { RegisterServiceWorker } from "@/components/register-sw";
 import "./globals.css";
 
 // Variable font with the optical-size axis, so headings and large numbers get the display cut.
@@ -21,12 +22,19 @@ export const metadata: Metadata = {
   title: { default: "Creator Growth Engine", template: "%s | Creator Growth Engine" },
   description: "Internal portal for finding, contacting and tracking creators.",
   robots: { index: false, follow: false },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Creator Growth", statusBarStyle: "default" },
 };
+
+export const viewport = { themeColor: "#faf6f3", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${fraunces.variable} ${plex.variable}`}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <RegisterServiceWorker />
+      </body>
     </html>
   );
 }

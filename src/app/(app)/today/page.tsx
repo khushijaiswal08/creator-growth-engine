@@ -8,12 +8,14 @@ import { MessageButton, MessageComposer } from "@/components/message-button";
 import { EmptyRow, Panel } from "@/components/panel";
 import { CreatorStatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { runAutomationsIfStale } from "@/lib/automation";
 import { activityIn, viewed } from "@/lib/brand-scope";
-import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { formatDateTime, formatDay, startOfDayInZone, startOfWeekInZone, todayWords, timeOfDay } from "@/lib/format";
+import { formatDateTime, formatDay, todayWords, timeOfDay } from "@/lib/format";
+import { brandTargets, replyRate, todayStats } from "@/lib/outreach-stats";
+import { BRANDS, brandName } from "@/lib/brands";
 import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 import { SEND_BLOCKED_STATUSES } from "@/lib/status";
@@ -70,16 +72,7 @@ export default async function TodayPage() {
     nextActionDueAt: { lte: now },
   });
 
-  const dayStart = startOfDayInZone(now);
-  const weekStart = startOfWeekInZone(now);
-  const sentSince = (since: Date) =>
-    db.message.groupBy({
-      by: ["userId"],
-      where: { direction: "outbound", sentAt: { gte: since }, campaignCreator: { campaign: openCampaign } },
-      _count: { _all: true },
-    });
-
-  const [queues, groups, templates, lastRun, activities, sentToday, sentThisWeek] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, targets] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
         const where = dueWhere(queue.statuses);
@@ -117,24 +110,21 @@ export default async function TodayPage() {
       take: RECENT,
       include: { user: { select: { name: true } }, campaignCreator: { select: { campaign: { select: { name: true } } } } },
     }),
-    sentSince(dayStart),
-    sentSince(weekStart),
+    todayStats(openCampaign, now),
+    brandTargets(BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id)),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
-  // Messages logged per person: today and since Monday. The team's own daily count, without a sheet.
-  const senders = await db.user.findMany({
-    where: { id: { in: [...new Set(sentThisWeek.map((row) => row.userId))] } },
-    select: { id: true, name: true },
-  });
-  const todayBy = new Map(sentToday.map((row) => [row.userId, row._count._all]));
-  const outreach = senders
-    .map((person) => ({
-      name: person.name,
-      today: todayBy.get(person.id) ?? 0,
-      week: sentThisWeek.find((row) => row.userId === person.id)?._count._all ?? 0,
-    }))
-    .sort((a, b) => b.week - a.week);
+  // Each person against the brand's targets. With both brands in view the targets of the first brand apply to the bars.
+  const target = targets.get(view.brandId ?? BRANDS[0].id) ?? { daily: 0, weekly: 0 };
+  const outreach = outreachStats.week.map((week) => ({
+    name: week.name,
+    today: outreachStats.today.find((row) => row.userId === week.userId)?.messages ?? 0,
+    week: week.messages,
+    replies: week.replies,
+    followUps: week.followUps,
+    rate: replyRate(week),
+  }));
   const byStatus = new Map(groups.map((group) => [group.status, group._count._all]));
   const sum = (statuses: CreatorStatus[]) => statuses.reduce((count, status) => count + (byStatus.get(status) ?? 0), 0);
   // The record that used to live in the spreadsheet, in one line.
@@ -167,24 +157,39 @@ export default async function TodayPage() {
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button asChild variant="action">
-            <Link href="/influencers/new">Check a profile</Link>
+        {/* The quickest start on a phone: paste the profile link copied from Instagram. */}
+        <form method="get" action="/influencers/new" className="flex w-full items-end gap-2 sm:w-auto">
+          <div className="grid min-w-0 flex-1 gap-1">
+            <label htmlFor="check-url" className="eyebrow">
+              Check a profile before messaging
+            </label>
+            <Input id="check-url" name="url" type="url" inputMode="url" placeholder="Paste an Instagram, TikTok or YouTube link" required className="sm:w-80" />
+          </div>
+          <Button type="submit" variant="action">
+            Check
           </Button>
-        </div>
+        </form>
       </header>
 
-      <Panel plain title="Messages sent" className="mb-12">
+      <Panel
+        plain
+        title="Messages sent"
+        aside={<span className="text-xs text-muted-foreground">Targets: {target.daily} a day, {target.weekly} a week</span>}
+        className="mb-12"
+      >
         {outreach.length === 0 ? (
           <p className="pt-3 text-muted-foreground">No messages logged since Monday. Each one logged with the Message button counts here.</p>
         ) : (
-          <ul className="grid gap-x-8 gap-y-1 pt-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-4 pt-4 sm:grid-cols-2 lg:grid-cols-3">
             {outreach.map((person) => (
-              <li key={person.name} className="flex items-baseline justify-between gap-3 border-b py-1.5 text-sm">
-                <span>{person.name}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  <span className="text-foreground">{person.today}</span> today · <span className="text-foreground">{person.week}</span> this week
-                </span>
+              <li key={person.name} className="card grid gap-2.5 p-4">
+                <p className="font-medium">{person.name}</p>
+                <Progress label="Today" value={person.today} target={target.daily} />
+                <Progress label="This week" value={person.week} target={target.weekly} />
+                <p className="text-xs text-muted-foreground">
+                  {person.replies} {person.replies === 1 ? "reply" : "replies"} received
+                  {person.rate !== null ? ` (${person.rate}% of creators messaged)` : ""} · {person.followUps} follow-ups done
+                </p>
               </li>
             ))}
           </ul>
@@ -202,7 +207,7 @@ export default async function TodayPage() {
         }
       >
         <MessageComposer templates={templates} senderName={user.name}>
-          <Table>
+          <Table className="max-md:block max-md:[&_tbody]:block max-md:[&_tr]:block">
             <TableHeader className="sr-only">
               <TableRow>
                 <TableHead>Creator</TableHead>
@@ -247,11 +252,30 @@ type Queue = (typeof QUEUES)[number] & {
   }[];
 };
 
+/** A thin bar: ink up to the target, rose past it. */
+function Progress({ label, value, target }: { label: string; value: number; target: number }) {
+  const share = target > 0 ? Math.min(1, value / target) : 0;
+  return (
+    <div className="grid gap-1">
+      <div className="flex items-baseline justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="tabular-nums">
+          <span className="text-foreground">{value}</span>
+          {target > 0 ? <span className="text-muted-foreground"> / {target}</span> : null}
+        </span>
+      </div>
+      <span aria-hidden className="block h-1 overflow-hidden rounded-full bg-border">
+        <span className={`block h-full rounded-full ${value >= target && target > 0 ? "bg-primary" : "bg-foreground"}`} style={{ width: `${Math.round(share * 100)}%` }} />
+      </span>
+    </div>
+  );
+}
+
 function GroupRows({ queue, now }: { queue: Queue; now: Date }) {
   return (
     <>
       <tr>
-        <th colSpan={4} scope="rowgroup" className="pt-7 pb-2 text-left first:pt-2">
+        <th colSpan={4} scope="rowgroup" className="pt-7 pb-2 text-left first:pt-2 max-md:block">
           <span className="font-heading text-[17px] font-medium">{queue.title}</span>
           <span className="ml-2 text-xs text-muted-foreground tabular-nums">{queue.count}</span>
         </th>
@@ -259,8 +283,8 @@ function GroupRows({ queue, now }: { queue: Queue; now: Date }) {
       {queue.items.map((item) => {
         const handle = item.influencer.profiles[0];
         return (
-          <TableRow key={item.id}>
-            <TableCell className="w-[34%]">
+          <TableRow key={item.id} className="max-md:grid max-md:grid-cols-[1fr_auto] max-md:gap-x-3 max-md:py-3">
+            <TableCell className="w-[34%] max-md:col-span-2 max-md:px-0 max-md:py-0">
               <div className="flex items-center gap-2.5">
                 <Avatar name={item.influencer.name} />
                 <div className="min-w-0">
@@ -273,14 +297,14 @@ function GroupRows({ queue, now }: { queue: Queue; now: Date }) {
                 </div>
               </div>
             </TableCell>
-            <TableCell>
+            <TableCell className="max-md:px-0 max-md:py-1">
               <CreatorStatusPill status={item.status} />
             </TableCell>
-            <TableCell className="text-muted-foreground tabular-nums" title={item.nextActionDueAt ? `Since ${formatDay(item.nextActionDueAt)}` : undefined}>
+            <TableCell className="text-muted-foreground tabular-nums max-md:px-0 max-md:py-1 max-md:text-right max-md:text-xs" title={item.nextActionDueAt ? `Since ${formatDay(item.nextActionDueAt)}` : undefined}>
               {waited(item.nextActionDueAt, now)}
             </TableCell>
-            <TableCell className="text-right">
-              <span className="mr-3 text-muted-foreground">{item.nextAction ?? "Needs attention"}</span>
+            <TableCell className="text-right max-md:col-span-2 max-md:flex max-md:items-center max-md:justify-between max-md:px-0 max-md:py-1">
+              <span className="mr-3 text-muted-foreground max-md:text-xs">{item.nextAction ?? "Needs attention"}</span>
               {queue.message ? (
                 <MessageButton
                   target={{
@@ -301,8 +325,8 @@ function GroupRows({ queue, now }: { queue: Queue; now: Date }) {
         );
       })}
       {queue.count > queue.items.length ? (
-        <tr>
-          <td colSpan={4} className="px-2.5 py-2 text-xs text-muted-foreground">
+        <tr className="max-md:block">
+          <td colSpan={4} className="px-2.5 py-2 text-xs text-muted-foreground max-md:block max-md:px-0">
             Showing the {queue.items.length} who have waited longest of {queue.count}.
           </td>
         </tr>

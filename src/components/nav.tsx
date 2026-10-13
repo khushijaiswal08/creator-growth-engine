@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { Gift, Megaphone, Settings, SlidersHorizontal, Sun, Upload, Users, type LucideIcon } from "lucide-react";
+import { BarChart3, Gift, Megaphone, Settings, SlidersHorizontal, Sun, Upload, Users, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSidebar } from "@/components/sidebar-context";
@@ -12,6 +12,7 @@ const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/orders", label: "Gifts", icon: Gift },
   { href: "/import", label: "Import", icon: Upload },
+  { href: "/reports/outreach", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 
@@ -57,6 +58,7 @@ const ADMIN_TABS = [
   { href: "/admin/templates", label: "Message templates" },
   { href: "/admin/products", label: "Products" },
   { href: "/admin/suppression", label: "Do-not-contact list" },
+  { href: "/admin/calibration", label: "Scoring calibration" },
   { href: "/admin/users", label: "Users" },
 ];
 

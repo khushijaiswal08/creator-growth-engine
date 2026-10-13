@@ -4,11 +4,12 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { scoreCampaignBatch } from "@/actions/scoring";
 import { Button } from "@/components/ui/button";
+import { formatUsd } from "@/lib/model-prices";
 import type { ScoringProgress } from "@/lib/scoring";
 
 const tokens = new Intl.NumberFormat("en-US");
 
-/** Admin-only. Runs AI fit scoring batch by batch and shows progress and token use. */
+/** Admin-only. Runs AI fit scoring slice by slice and shows progress, token use and estimated cost. */
 export function ScoringButton({ campaignId, unscored }: { campaignId: string; unscored: number }) {
   const router = useRouter();
   const [running, setRunning] = useState(false);
@@ -49,12 +50,10 @@ export function ScoringButton({ campaignId, unscored }: { campaignId: string; un
         </Button>
         {running ? (
           <Button type="button" variant="outline" onClick={() => (stopRequested.current = true)}>
-            Stop after this batch
+            Leave it running in the background
           </Button>
         ) : null}
-        <p className="text-muted-foreground">
-          AI scoring recommends only. It moves Discovered to Scored and never approves anyone.
-        </p>
+        <p className="text-muted-foreground">AI scoring recommends only. It moves Discovered to Scored and never approves anyone. A run continues by itself if you leave the page.</p>
       </div>
 
       {progress ? (
@@ -62,8 +61,8 @@ export function ScoringButton({ campaignId, unscored }: { campaignId: string; un
           {done ? "Finished: " : "Working: "}
           {progress.totals.scored} scored
           {progress.totals.failed > 0 ? `, ${progress.totals.failed} failed` : ""}
-          {!done ? `, ${progress.remaining} to go` : ""}. Used {tokens.format(progress.totals.inputTokens)} input and{" "}
-          {tokens.format(progress.totals.outputTokens)} output tokens in {progress.totals.requests} requests.
+          {!done ? `, ${progress.remaining} to go` : ""}. {tokens.format(progress.totals.inputTokens)} input and {tokens.format(progress.totals.outputTokens)} output tokens in{" "}
+          {progress.totals.requests} requests, about {formatUsd(progress.totals.estimatedCostUsd)} ({progress.model}, prompt {progress.promptVersion}).
           {progress.note ? ` ${progress.note}` : ""}
         </p>
       ) : null}

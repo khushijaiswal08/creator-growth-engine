@@ -7,7 +7,7 @@ import { youtubeSource } from "./adapters/youtube";
 import type { CreatorSource } from "./types";
 
 export { NotImplementedError } from "./errors";
-export type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStatus, ProfileData } from "./types";
+export type { Brief, Candidate, CreatorSource, DiscoveryReport, DiscoveryResult, DiscoveryStatus, DiscoveryStep, ProfileData } from "./types";
 
 const SOURCES: Record<DataSource, CreatorSource> = {
   csv: csvSource,

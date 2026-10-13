@@ -195,7 +195,7 @@ export default async function InfluencerPage({
                       <Pill tone={position.paused ? "neutral" : "danger"}>{position.paused ? "On hold" : `Closed: ${position.label}`}</Pill>
                     </p>
                   ) : (
-                    <ol className="mt-5 grid grid-cols-5 gap-2" aria-label="Journey steps">
+                    <ol className="mt-5 grid grid-cols-5 gap-1.5 sm:gap-2" aria-label="Journey steps">
                       {JOURNEY_STEPS.map((step, index) => {
                         const state = index < current ? "done" : index === current ? "current" : "todo";
                         return (
@@ -204,7 +204,7 @@ export default async function InfluencerPage({
                               aria-hidden
                               className={cn("h-1 rounded-full", state === "todo" ? "bg-border" : state === "done" ? "bg-foreground" : "bg-primary")}
                             />
-                            <span className={cn("text-xs", state === "current" ? "font-medium text-primary-text" : state === "done" ? "text-foreground" : "text-muted-foreground")}>
+                            <span className={cn("text-[11px] leading-tight sm:text-xs", state === "current" ? "font-medium text-primary-text" : state === "done" ? "text-foreground" : "text-muted-foreground")}>
                               {step.label}
                             </span>
                           </li>

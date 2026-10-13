@@ -1,9 +1,9 @@
 "use client";
 
 import { cn } from "cn";
-import { KeyRound, LogOut, PanelLeftClose, PanelLeftOpen, UserPen } from "lucide-react";
+import { BarChart3, Gift, KeyRound, LogOut, Megaphone, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Sun, Upload, UserPen, Users, X } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfile } from "@/actions/account";
 import { BrandBadge, BrandSwitcher } from "@/components/brand-switcher";
@@ -41,19 +41,17 @@ export function UserAvatar({ user, className }: { user: { name: string; avatarUr
     return <img src={user.avatarUrl} alt="" className={cn("size-8 shrink-0 rounded-full object-cover", className)} />;
   }
   return (
-    <span
-      aria-hidden
-      className={cn("flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground font-heading text-[12px] font-medium text-background", className)}
-    >
+    <span aria-hidden className={cn("flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground font-heading text-[12px] font-medium text-background", className)}>
       {initials(user.name)}
     </span>
   );
 }
 
 /**
- * The frame of every signed-in page: a light sidebar on the left that the
- * person can collapse to an icon rail, and the page on the right. The choice
- * is kept in a cookie so the next page loads the same way without a jump.
+ * The frame of every signed-in page. On a desktop or tablet: a light sidebar
+ * on the left that the person can collapse to an icon rail (the choice is
+ * kept in a cookie). On a phone: a bar along the bottom with the four main
+ * places and a "More" drawer for the rest and the profile.
  */
 export function AppShell({
   user,
@@ -69,6 +67,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [preference, setPreference] = useState<SidebarPreference>(initialPreference);
+  const [editing, setEditing] = useState(false);
   const ui = sidebarUi(preference);
 
   function toggle() {
@@ -82,29 +81,19 @@ export function AppShell({
 
   const columns =
     preference === "collapsed"
-      ? "grid-cols-[3.5rem_minmax(0,1fr)]"
+      ? "md:grid-cols-[3.5rem_minmax(0,1fr)]"
       : preference === "expanded"
-        ? "grid-cols-[14.5rem_minmax(0,1fr)]"
-        : "grid-cols-[3.5rem_minmax(0,1fr)] lg:grid-cols-[14.5rem_minmax(0,1fr)]";
+        ? "md:grid-cols-[14.5rem_minmax(0,1fr)]"
+        : "md:grid-cols-[3.5rem_minmax(0,1fr)] lg:grid-cols-[14.5rem_minmax(0,1fr)]";
   const showingFull = preference === "expanded";
 
   return (
     <SidebarContext.Provider value={ui}>
-      <div className={cn("grid min-h-screen", columns)}>
-        <aside className="sticky top-0 flex h-screen flex-col gap-6 overflow-y-auto border-r bg-surface px-2 py-4 lg:px-3 lg:py-5">
+      <div className={cn("grid min-h-screen grid-cols-1", columns)}>
+        <aside className="sticky top-0 hidden h-screen flex-col gap-6 overflow-y-auto border-r bg-surface px-2 py-4 md:flex lg:px-3 lg:py-5">
           <div className={cn("flex items-center gap-2", ui.align, preference === null && "lg:px-1")}>
-            <Link
-              href="/today"
-              title="Creator Growth Engine"
-              className="flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {/* Logo mark: four blocks, like a print stamp. */}
-              <span aria-hidden className="grid size-8 shrink-0 grid-cols-2 gap-px rounded-[6px] bg-foreground p-[6px]">
-                <span className="rounded-[1px] bg-primary" />
-                <span className="rounded-[1px] bg-background/70" />
-                <span className="rounded-[1px] bg-background/70" />
-                <span className="rounded-[1px] bg-primary" />
-              </span>
+            <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Mark />
               <span className={cn("font-heading text-[18px] leading-tight font-medium", ui.label)}>
                 Creator Growth
                 <span className="eyebrow block font-sans font-normal">Engine</span>
@@ -115,10 +104,7 @@ export function AppShell({
               onClick={toggle}
               title={showingFull || preference === null ? "Collapse the sidebar" : "Expand the sidebar"}
               aria-label={showingFull || preference === null ? "Collapse the sidebar" : "Expand the sidebar"}
-              className={cn(
-                "ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                ui.wideOnly,
-              )}
+              className={cn("ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", ui.wideOnly)}
             >
               <PanelLeftClose className="size-4" strokeWidth={1.75} />
             </button>
@@ -129,42 +115,48 @@ export function AppShell({
             onClick={toggle}
             title="Expand the sidebar"
             aria-label="Expand the sidebar"
-            className={cn(
-              "-mt-3 flex h-7 w-full items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-              ui.railOnly,
-            )}
+            className={cn("-mt-3 flex h-7 w-full items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", ui.railOnly)}
           >
             <PanelLeftOpen className="size-4" strokeWidth={1.75} />
           </button>
 
           {/* Someone tied to a brand is told which; someone who may see both chooses what the lists show. */}
-          {user.brandName && user.brandShort ? (
-            <BrandBadge name={user.brandName} short={user.brandShort} />
-          ) : (
-            <BrandSwitcher current={user.viewBrand} />
-          )}
+          {user.brandName && user.brandShort ? <BrandBadge name={user.brandName} short={user.brandShort} /> : <BrandSwitcher current={user.viewBrand} />}
 
           <SidebarNav isAdmin={isAdmin} />
 
-          <ProfileMenu user={user} logout={logout} />
+          <ProfileMenu user={user} logout={logout} onEdit={() => setEditing(true)} />
         </aside>
 
-        <main className="min-w-0 px-5 py-8 lg:px-10 lg:py-10">
+        <main className="min-w-0 px-4 pt-5 pb-24 md:px-5 md:py-8 lg:px-10 lg:py-10">
           <div className="mx-auto max-w-[1120px]">{children}</div>
         </main>
+
+        <MobileBar user={user} isAdmin={isAdmin} logout={logout} onEdit={() => setEditing(true)} />
+        <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
       </div>
     </SidebarContext.Provider>
   );
 }
 
-const MENU_ITEM =
-  "flex h-9 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm text-foreground outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring";
+/** Logo mark: four blocks, like a print stamp. */
+function Mark({ className }: { className?: string }) {
+  return (
+    <span aria-hidden className={cn("grid size-8 shrink-0 grid-cols-2 gap-px rounded-[6px] bg-foreground p-[6px]", className)}>
+      <span className="rounded-[1px] bg-primary" />
+      <span className="rounded-[1px] bg-background/70" />
+      <span className="rounded-[1px] bg-background/70" />
+      <span className="rounded-[1px] bg-primary" />
+    </span>
+  );
+}
+
+const MENU_ITEM = "flex h-11 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm text-foreground outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring md:h-9";
 
 /** The person at the bottom of the sidebar. Clicking opens their menu: profile, password, sign out. */
-function ProfileMenu({ user, logout }: { user: ShellUser; logout: () => Promise<void> }) {
+function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void }) {
   const ui = useSidebar();
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -191,11 +183,7 @@ function ProfileMenu({ user, logout }: { user: ShellUser; logout: () => Promise<
         aria-haspopup="menu"
         aria-expanded={open}
         title={`${user.name} (${user.role})`}
-        className={cn(
-          "flex w-full items-center gap-2.5 rounded-md py-1.5 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring",
-          ui.align,
-          ui.preference === null ? "lg:px-2" : ui.preference === "expanded" ? "px-2" : "",
-        )}
+        className={cn("flex w-full items-center gap-2.5 rounded-md py-1.5 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring", ui.align, ui.preference === null ? "lg:px-2" : ui.preference === "expanded" ? "px-2" : "")}
       >
         <UserAvatar user={user} />
         <span className={cn("min-w-0", ui.label)}>
@@ -209,46 +197,111 @@ function ProfileMenu({ user, logout }: { user: ShellUser; logout: () => Promise<
 
       {open ? (
         <div role="menu" className="card absolute bottom-full left-0 z-30 mb-2 w-64 p-1.5">
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <UserAvatar user={user} className="size-11 text-[15px]" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{user.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                <span className="capitalize">{user.role}</span>
-                {user.brandName ? `, ${user.brandName}` : ""}
-              </p>
-            </div>
-          </div>
-          <div className="my-1 border-t" />
-          <button
-            type="button"
-            role="menuitem"
-            className={MENU_ITEM}
-            onClick={() => {
-              setOpen(false);
-              setEditing(true);
-            }}
-          >
-            <UserPen className="size-4 text-muted-foreground" strokeWidth={1.75} />
-            Edit profile
-          </button>
-          <Link href="/account/password" role="menuitem" className={MENU_ITEM} onClick={() => setOpen(false)}>
-            <KeyRound className="size-4 text-muted-foreground" strokeWidth={1.75} />
-            Change password
-          </Link>
-          <div className="my-1 border-t" />
-          <form action={logout}>
-            <button type="submit" role="menuitem" className={MENU_ITEM}>
-              <LogOut className="size-4 text-muted-foreground" strokeWidth={1.75} />
-              Sign out
-            </button>
-          </form>
+          <ProfileItems user={user} logout={logout} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
         </div>
       ) : null}
-
-      <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
     </div>
+  );
+}
+
+function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void; onNavigate: () => void }) {
+  return (
+    <>
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <UserAvatar user={user} className="size-11 text-[15px]" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{user.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          <p className="truncate text-xs text-muted-foreground">
+            <span className="capitalize">{user.role}</span>
+            {user.brandName ? `, ${user.brandName}` : ""}
+          </p>
+        </div>
+      </div>
+      <div className="my-1 border-t" />
+      <button type="button" role="menuitem" className={MENU_ITEM} onClick={onEdit}>
+        <UserPen className="size-4 text-muted-foreground" strokeWidth={1.75} />
+        Edit profile
+      </button>
+      <Link href="/account/password" role="menuitem" className={MENU_ITEM} onClick={onNavigate}>
+        <KeyRound className="size-4 text-muted-foreground" strokeWidth={1.75} />
+        Change password
+      </Link>
+      <div className="my-1 border-t" />
+      <form action={logout}>
+        <button type="submit" role="menuitem" className={MENU_ITEM}>
+          <LogOut className="size-4 text-muted-foreground" strokeWidth={1.75} />
+          Sign out
+        </button>
+      </form>
+    </>
+  );
+}
+
+const BAR_LINKS = [
+  { href: "/today", label: "Today", icon: Sun },
+  { href: "/influencers", label: "Creators", icon: Users },
+  { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { href: "/orders", label: "Gifts", icon: Gift },
+];
+const DRAWER_LINKS = [
+  { href: "/import", label: "Import", icon: Upload },
+  { href: "/reports/outreach", label: "Reports", icon: BarChart3 },
+  { href: "/settings", label: "Settings", icon: SlidersHorizontal },
+];
+
+/** Phones: the four main places along the bottom, and "More" for the rest and the profile. */
+function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin: boolean; logout: () => Promise<void>; onEdit: () => void }) {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const drawerLinks = isAdmin ? [...DRAWER_LINKS, { href: "/admin", label: "Admin", icon: Settings }] : DRAWER_LINKS;
+  const inDrawer = drawerLinks.some((link) => pathname.startsWith(link.href));
+
+  useEffect(() => setOpen(false), [pathname]);
+
+  return (
+    <>
+      <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+        {BAR_LINKS.map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || pathname.startsWith(`${href}/`);
+          return (
+            <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px]", active ? "text-foreground" : "text-muted-foreground")}>
+              <Icon className={cn("size-5", active && "text-primary")} strokeWidth={1.75} />
+              {label}
+            </Link>
+          );
+        })}
+        <button type="button" onClick={() => setOpen(true)} aria-expanded={open} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px]", inDrawer ? "text-foreground" : "text-muted-foreground")}>
+          <MoreHorizontal className={cn("size-5", inDrawer && "text-primary")} strokeWidth={1.75} />
+          More
+        </button>
+      </nav>
+
+      {open ? (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-label="More">
+          <button type="button" aria-label="Close" className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-surface p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
+            <div className="mb-1 flex items-center justify-between px-2">
+              <span className="font-heading text-[17px] font-medium">More</span>
+              <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2">
+                <X className="size-5" strokeWidth={1.75} />
+              </button>
+            </div>
+            {user.brandName ? <p className="px-3 pb-2 text-xs text-muted-foreground">{user.brandName}</p> : <div className="px-3 pb-2"><BrandSwitcher current={user.viewBrand} /></div>}
+            <div className="grid">
+              {drawerLinks.map(({ href, label, icon: Icon }) => (
+                <Link key={href} href={href} className={MENU_ITEM} onClick={() => setOpen(false)}>
+                  <Icon className="size-4 text-muted-foreground" strokeWidth={1.75} />
+                  {label}
+                </Link>
+              ))}
+            </div>
+            <div className="my-2 border-t" />
+            <ProfileItems user={user} logout={logout} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ArchiveSampleButton, SendSummaryButton } from "@/components/admin-forms";
 import { PageHeader, Panel } from "@/components/panel";
 import { db } from "@/lib/db";
+import { formatUsd } from "@/lib/model-prices";
 import { emailConfigured } from "@/lib/email";
 import { formatDateTime } from "@/lib/format";
 import { hashtagBudget, HASHTAG_LIMIT } from "@/lib/hashtag-quota";
@@ -68,7 +69,7 @@ export default async function AdminPage() {
         <Panel title="Last AI scoring run">
           <p className="p-4">
             {lastScoring
-              ? `${formatDateTime(lastScoring.startedAt)}: ${lastScoring.scored} scored, ${lastScoring.failed} failed, ${lastScoring.requests} requests, ${lastScoring.inputTokens.toLocaleString("en-US")} input and ${lastScoring.outputTokens.toLocaleString("en-US")} output tokens (${lastScoring.model}).`
+              ? `${formatDateTime(lastScoring.startedAt)}: ${lastScoring.scored} scored, ${lastScoring.failed} failed, ${lastScoring.requests} requests, ${lastScoring.inputTokens.toLocaleString("en-US")} input and ${lastScoring.outputTokens.toLocaleString("en-US")} output tokens, about ${formatUsd(lastScoring.estimatedCostUsd === null ? null : Number(lastScoring.estimatedCostUsd))} (${lastScoring.model}, prompt ${lastScoring.promptVersion}).`
               : "No scoring has been run yet."}
           </p>
         </Panel>

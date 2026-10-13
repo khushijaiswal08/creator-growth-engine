@@ -146,6 +146,9 @@ model User {
   feedback      Feedback[]
   discoveryRuns DiscoveryRun[]
   scoringRuns   ScoringRun[]
+  scoringPrompts     ScoringPrompt[]
+  calibrationReviews FitAssessment[] @relation("CalibrationReviews")
+  brandSettings      BrandSettings[]
   approvedGifts GiftOrder[]
 }
 
@@ -430,6 +433,11 @@ model DiscoveryRun {
   skipped      Int        @default(0)
   quotaUsed    Int        @default(0) // YouTube quota units, or Meta API calls
   note         String?    @db.Text // e.g. why the run stopped early
+  // What the live service answered at each step, and posts still waiting for a handle (Meta fallback).
+  report       Json?
+  // Where a resumable run got to; null once finished. See src/lib/jobs.ts.
+  cursor       Json?
+  lockedUntil  DateTime?
 
   campaign  Campaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
   startedBy User              @relation(fields: [startedById], references: [id])
@@ -449,10 +457,18 @@ model FitAssessment {
   reasons           String      @db.Text // the model's reasons, verbatim, one per line
   model             String
   promptVersion     String
+  scoringPromptId   String?
+  // Calibration: a reviewer's own yes or no beside the model's score, to tune the prompt.
+  reviewerVerdict   Boolean?
+  reviewerNote      String?     @db.Text
+  reviewedById      String?
+  reviewedAt        DateTime?
   createdAt         DateTime    @default(now())
 
   campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
   scoringRun      ScoringRun?     @relation(fields: [scoringRunId], references: [id])
+  scoringPrompt   ScoringPrompt?  @relation(fields: [scoringPromptId], references: [id])
+  reviewedBy      User?           @relation("CalibrationReviews", fields: [reviewedById], references: [id])
 
   @@index([campaignCreatorId, createdAt])
   @@index([scoringRunId])
@@ -472,17 +488,56 @@ model ScoringRun {
   requests      Int       @default(0)
   inputTokens   Int       @default(0)
   outputTokens  Int       @default(0)
+  // From the price table in src/lib/model-prices.ts; an estimate, never a bill.
+  estimatedCostUsd Decimal? @db.Decimal(10, 4)
+  scoringPromptId  String?
   note          String?   @db.Text
+  cursor        Json?
+  lockedUntil   DateTime?
 
-  campaign    Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  startedBy   User            @relation(fields: [startedById], references: [id])
-  assessments FitAssessment[]
+  campaign      Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  startedBy     User            @relation(fields: [startedById], references: [id])
+  scoringPrompt ScoringPrompt?  @relation(fields: [scoringPromptId], references: [id])
+  assessments   FitAssessment[]
 
   @@index([campaignId, startedAt])
 }
 
 // Instagram allows 30 unique hashtags per 7 days per business account.
 // firstUsedAt is the start of the tag's current 7-day window.
+// The scoring prompt and weights per brand, versioned: a change is a new row, never an edit.
+model ScoringPrompt {
+  id           String   @id @default(cuid())
+  brandId      String
+  version      Int
+  systemPrompt String   @db.Text
+  // {"relevance":30,"usAudience":20,"engagement":15,"content":15,"contact":10,"brandSafety":10}
+  weights      Json
+  note         String?  @db.Text
+  active       Boolean  @default(false)
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  createdBy   User            @relation(fields: [createdById], references: [id])
+  runs        ScoringRun[]
+  assessments FitAssessment[]
+
+  @@unique([brandId, version])
+  @@index([brandId, active])
+}
+
+// Per-brand settings that are numbers the team changes, not code.
+model BrandSettings {
+  id                  String   @id @default(cuid())
+  brandId             String   @unique
+  dailyMessageTarget  Int      @default(20)
+  weeklyMessageTarget Int      @default(100)
+  updatedById         String?
+  updatedAt           DateTime @updatedAt
+
+  updatedBy User? @relation(fields: [updatedById], references: [id])
+}
+
 model Hashtag {
   id          String   @id @default(cuid())
   tag         String   @unique

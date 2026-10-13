@@ -2,35 +2,42 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AutomationSettingsForm } from "@/components/journey-forms";
 import { PageHeader, Panel } from "@/components/panel";
+import { ScoringPromptForm, TargetsForm, type PromptVersionRow } from "@/components/settings-forms";
 import { viewed } from "@/lib/brand-scope";
 import { BRANDS } from "@/lib/brands";
 import { db } from "@/lib/db";
+import { formatDay } from "@/lib/format";
 import { GIFT_RULES } from "@/lib/gift-rules";
+import { brandTargets } from "@/lib/outreach-stats";
 import { OFFER_STATUS_WHERE } from "@/lib/product-list";
+import { activePromptFor } from "@/lib/scoring-prompts";
 import { SELECTION_LINK_DAYS } from "@/lib/selection";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Settings" };
 
 /**
- * The timers, per brand and campaign, printed where the team can read and
- * change them without code. The gift rules are shown too, read from
+ * Everything the team changes by number or by text, per brand: message
+ * targets, the timers of each campaign, and (admins) the scoring prompt and
+ * its weights, versioned. The gift rules are shown too, read from
  * config/gift-rules.json; changing those is a file edit and a redeploy.
  */
 export default async function SettingsPage() {
   const user = await requireUser();
   const view = viewed(user);
+  const isAdmin = user.role === "admin";
+  const brandIds = BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id);
+  const targets = await brandTargets(brandIds);
 
   const brands = await Promise.all(
     BRANDS.filter((brand) => view.includes(brand.id)).map(async (brand) => {
-      const [campaigns, articles] = await Promise.all([
+      const [campaigns, articles, prompt, versions] = await Promise.all([
         db.campaign.findMany({
           where: { brandId: brand.id, status: { not: "archived" } },
           orderBy: { name: "asc" },
           select: {
             id: true,
             name: true,
-            status: true,
             followUpAfterDays: true,
             maxFollowUps: true,
             closeAfterDays: true,
@@ -42,36 +49,41 @@ export default async function SettingsPage() {
             giftArticles: true,
           },
         }),
-        db.product.findMany({
-          where: { ...OFFER_STATUS_WHERE.offered, brandId: brand.id },
-          distinct: ["title"],
-          orderBy: { title: "asc" },
-          select: { title: true },
-        }),
+        db.product.findMany({ where: { ...OFFER_STATUS_WHERE.offered, brandId: brand.id }, distinct: ["title"], orderBy: { title: "asc" }, select: { title: true } }),
+        isAdmin ? activePromptFor(brand.id) : null,
+        isAdmin
+          ? db.scoringPrompt.findMany({ where: { brandId: brand.id }, orderBy: { version: "desc" }, include: { createdBy: { select: { name: true } } } })
+          : [],
       ]);
-      return { brand, campaigns, articles: articles.map((product) => product.title) };
+      return { brand, campaigns, articles: articles.map((product) => product.title), prompt, versions };
     }),
   );
 
   return (
     <>
-      <PageHeader
-        title="Settings"
-        meta="How long the portal waits at each step, per campaign. Change a number, save, and Today is refreshed with the new timing."
-      />
+      <PageHeader title="Settings" meta="Targets, timers and the scoring prompt, per brand. Change a value, save, and it applies from the next check." />
 
       <div className="grid gap-12">
-        {brands.map(({ brand, campaigns, articles }) => (
-          <section key={brand.id}>
-            <h2 className="mb-1">{brand.name}</h2>
-            {campaigns.length === 0 ? (
-              <p className="text-muted-foreground">No active campaign yet.</p>
-            ) : (
-              <div className="grid gap-6">
-                {campaigns.map((campaign) => (
+        {brands.map(({ brand, campaigns, articles, prompt, versions }) => {
+          const target = targets.get(brand.id)!;
+          return (
+            <section key={brand.id} className="grid gap-6">
+              <h2>{brand.name}</h2>
+
+              <Panel plain title="Message targets">
+                <p className="pt-3 text-muted-foreground">
+                  What each person aims for. Today shows everyone&apos;s progress against these, and the Monday email reports it.
+                </p>
+                <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} />
+              </Panel>
+
+              {campaigns.length === 0 ? (
+                <p className="text-muted-foreground">No active campaign yet.</p>
+              ) : (
+                campaigns.map((campaign) => (
                   <Panel
                     key={campaign.id}
-                    title={campaign.name}
+                    title={`Timers: ${campaign.name}`}
                     aside={
                       <Link href={`/campaigns/${campaign.id}`} className="link text-sm">
                         Open campaign
@@ -109,17 +121,35 @@ export default async function SettingsPage() {
                       />
                     </details>
                   </Panel>
-                ))}
-              </div>
-            )}
-          </section>
-        ))}
+                ))
+              )}
+
+              {isAdmin && prompt ? (
+                <Panel plain title="AI scoring prompt">
+                  <p className="pt-3 text-muted-foreground">
+                    What the model is told before it scores a creator for this brand, and how the 100 points are split. Saving makes a new
+                    version; every score records the version that produced it. Use Admin &gt; Scoring calibration to see how well a version
+                    agrees with the team.
+                  </p>
+                  <ScoringPromptForm
+                    brandId={brand.id}
+                    version={prompt.version}
+                    guidance={prompt.guidance}
+                    weights={prompt.weights}
+                    versions={versions.map(
+                      (row): PromptVersionRow => ({ version: row.version, active: row.active, note: row.note, createdAt: formatDay(row.createdAt), createdBy: row.createdBy.name }),
+                    )}
+                  />
+                </Panel>
+              ) : null}
+            </section>
+          );
+        })}
 
         <Panel plain title="Gift order rules">
           <p className="pt-3 text-muted-foreground">
-            An order is approved without a person only when it passes every rule below. These live in the file{" "}
-            <code className="text-xs">config/gift-rules.json</code>; changing them is a small edit and a redeploy, and the
-            activity log of every order names the rules it passed or failed.
+            An order is approved without a person only when it passes every rule below. These live in the file <code className="text-xs">config/gift-rules.json</code>;
+            changing them is a small edit and a redeploy, and the activity log of every order names the rules it passed or failed.
           </p>
           <dl className="mt-3 grid grid-cols-[minmax(0,14rem)_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm">
             <dt className="text-muted-foreground">Ships to</dt>

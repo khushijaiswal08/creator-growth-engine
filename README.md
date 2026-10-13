@@ -95,6 +95,7 @@ Server-side scripts, for when nobody is signed in (all take `--env-file=.env`):
 | `pnpm exec tsx --env-file=.env scripts/create-user.ts "<name>" <email> [admin\|marketer] [ridhi\|cotton-print-club\|both] --out <file>` | Creates a team member with a 24-hour temporary password, written to the file. |
 | `pnpm exec tsx --env-file=.env scripts/reset-password.ts <email> --out <file>` | Issues a new temporary password for an existing person and clears their sign-in lockout. |
 | `pnpm test:isolation` (after `pnpm build`) | Proves the brand boundaries against the built app; see Security. |
+| `YOUTUBE_API_KEY`, `META_ACCESS_TOKEN` + `IG_BUSINESS_ID`, `ANTHROPIC_API_KEY` | Switch on YouTube discovery, Instagram discovery and AI scoring (see Phase 2). Set in `.env` locally and in Netlify. |
 | `pnpm exec tsx --env-file=.env scripts/import-creators.ts "<campaign>" <file.csv> [--check]` | The CSV import of creators, into the named campaign. `--check` reports without writing. |
 | `pnpm exec tsx --env-file=.env scripts/import-amazon-listing.ts <brand> <report.xlsx> [--check]` | The Amazon listing report import (see "Products"). |
 
@@ -463,6 +464,60 @@ Shipments report completes them. The note on each creator says which sheet the g
 **Not built yet:** sending email, reading replies automatically, AI reply sorting, Shopify
 sync, carrier tracking feeds, comment queues, sales attribution and ROI, repeat-collaboration
 scoring.
+
+## Phase 2: discovery and scoring with real keys, targets, reports, phones
+
+**Discovery** (Campaign page, admins). YouTube searches each niche keyword (100 quota units each),
+reads channel details and latest uploads, and adds new channels as Discovered. A ledger of every
+run's units (`src/lib/youtube-quota.ts`) stops a run before it would take the day past 80% of
+`YOUTUBE_DAILY_QUOTA` (default 10,000; resets at midnight Pacific) and says so on the run. Instagram
+searches up to 5 hashtags per run inside the 30-unique-hashtags-per-7-days rule (table `Hashtag`,
+guarded in the database with a test), reads the top posts, asks oEmbed who posted each one, and
+asks Business Discovery for stats. Posts Meta will not attribute are kept on the run: the review
+queue shows them under "Posts that need a handle" with the post embedded; a reviewer types the
+handle, Business Discovery fills the stats, and the account goes through the same dedupe and
+do-not-contact checks as everything else (`attributePost` in `src/lib/discovery.ts`). Every run
+stores what the live service answered at each step (`DiscoveryRun.report`) and the Discovery panel
+shows it.
+
+**AI scoring** (Campaign page, admins). Unchanged in what it does: discovered creators become
+Scored with a 0-100 score, reasons stored verbatim, model and prompt version recorded, priority at
+75 and nothing ever approved. New: the prompt and its six weights are per brand and versioned
+(Settings > AI scoring prompt, table `ScoringPrompt`; saving creates a new version and makes it
+active; every assessment records the version that scored it), each run records tokens and an
+estimated cost from `src/lib/model-prices.ts` (shown on the run, the campaign page, Admin and the
+Monday email), and Admin > Scoring calibration shows thirty random scored creators beside a
+reviewer's own yes or no with agreement rates at thresholds 50, 60 and 75.
+
+**Long jobs run in slices.** Discovery and scoring never run inside one request: a run is a row
+(`DiscoveryRun`, `ScoringRun`) with a cursor, and each slice does a few seconds of work. The screen
+that started a run keeps asking for the next slice while someone watches; the scheduled job tick
+(`netlify/functions/job-tick.mts`, every two minutes, calling `/api/cron/jobs` with `CRON_SECRET`)
+continues any run nobody is watching. A lock on the run keeps the two apart. On Netlify's free plan
+a function has 10 seconds; slices are sized for that (3 creators per scoring slice, 40 channels or
+8 posts per discovery slice). The paid plan (Pro) raises the limit to 26 seconds and adds
+background functions of up to 15 minutes, which would allow bigger slices but is not needed. The
+large imports (creator CSV, Amazon listing report) stay as they were: the browser upload for normal
+files, the server-side scripts for very large ones.
+
+**Outreach targets and report.** Settings holds each brand's daily and weekly message target per
+person (table `BrandSettings`). Today shows each person's messages today and this week against the
+target, replies received and follow-ups done. Reports > Outreach (`/reports/outreach`, CSV at
+`/reports/outreach/export`) lists person by week for the last eight weeks: messages, creators
+messaged, replies, reply rate, follow-ups, agreed, shipped, posted, with a campaign filter. The
+Monday email adds "vs target" per person and the week's scoring cost. One module defines every
+figure (`src/lib/outreach-stats.ts`): reply rate is replies divided by the distinct creators the
+person messaged, everywhere.
+
+**Phones.** Below 768px the sidebar becomes a bar along the bottom (Today, Creators, Campaigns,
+Gifts, More) with Import, Reports, Settings, Admin and the profile in the More drawer; Today and
+the check screen show cards instead of table rows; buttons and fields are thumb-sized; the Message
+and profile dialogs fill the screen. Bookmarklets cannot be dragged to a bar on a phone, so Today
+has a "Check a profile" box to paste a link into, and the portal is installable: on Android
+(Chrome), Add to Home screen once, and "Creator Growth" then appears in Instagram's Share menu and
+opens the check screen with the profile filled in (`public/manifest.webmanifest`, share target
+`/influencers/new`). On iPhone, Safari has no share target for web apps: copy the profile link and
+paste it into the box. Admin screens were left as they are.
 
 ## Phase 1 discovery and scoring
 

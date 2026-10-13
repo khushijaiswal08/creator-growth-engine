@@ -27,11 +27,13 @@ export const metadata: Metadata = { title: "Add or check a creator" };
 export default async function NewInfluencerPage({
   searchParams,
 }: {
-  searchParams: Promise<{ campaignId?: string; url?: string }>;
+  searchParams: Promise<{ campaignId?: string; url?: string; text?: string; title?: string }>;
 }) {
   const user = await requireUser();
   const params = await searchParams;
-  const url = (params.url ?? "").trim().slice(0, 500);
+  // Android's Share menu sends the link inside "text" ("See this profile ... https://..."); the first address wins.
+  const firstUrl = (text: string | undefined) => /https?:\/\/\S+/.exec(text ?? "")?.[0] ?? "";
+  const url = ((params.url ?? "").trim() || firstUrl(params.text) || firstUrl(params.title)).slice(0, 500);
   const scope = allowed(user);
   const view = viewed(user);
 
@@ -106,8 +108,8 @@ export default async function NewInfluencerPage({
             {influencer.campaigns.length === 0 ? (
               <p className="text-muted-foreground">Not in any of your campaigns yet, so nobody on your side has contacted them.</p>
             ) : (
-              <Table>
-                <TableHeader>
+              <Table className="max-md:block max-md:[&_tbody]:block max-md:[&_tr]:block max-md:[&_tr]:py-2 max-md:[&_td]:block max-md:[&_td]:px-0 max-md:[&_td]:py-0.5">
+                <TableHeader className="max-md:sr-only">
                   <TableRow>
                     <TableHead>Campaign</TableHead>
                     <TableHead>Status</TableHead>

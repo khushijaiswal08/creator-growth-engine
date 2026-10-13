@@ -3,12 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { NativeSelect } from "@/components/native-select";
 import { PageHeader, Panel } from "@/components/panel";
+import { PendingPosts } from "@/components/pending-posts";
 import { ReviewQueue, type ReviewCard } from "@/components/review-queue";
 import { ScoringButton } from "@/components/scoring-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
+import { pendingPosts } from "@/lib/discovery";
 import { SOURCE_LABELS } from "@/lib/discovery";
 import { formatCount, formatDay } from "@/lib/format";
 import { PLATFORM_LABELS, PLATFORMS } from "@/lib/profile-url";
@@ -46,8 +48,9 @@ export default async function ReviewPage({
   const campaign = await db.campaign.findFirst({ where: { id, ...scope.campaigns }, select: { id: true, name: true } });
   if (!campaign) notFound();
 
-  const [items, unscored] = await Promise.all([
+  const [items, waitingPosts, unscored] = await Promise.all([
     loadReviewQueue(id, filters),
+    pendingPosts(id),
     user.role === "admin"
       ? db.campaignCreator.count({ where: { campaignId: id, status: "discovered", assessments: { none: {} } } })
       : 0,
@@ -168,6 +171,8 @@ export default async function ReviewPage({
           </p>
         </form>
       </Panel>
+
+      <PendingPosts posts={waitingPosts.map(({ runId, post }) => ({ runId, ...post }))} />
 
       <ReviewQueue cards={cards} />
     </>
