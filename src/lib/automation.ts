@@ -37,6 +37,7 @@ const creatorSelect = {
       followUpAfterDays: true,
       maxFollowUps: true,
       closeAfterDays: true,
+      arrivalCheckDays: true,
       selectionWaitDays: true,
       deliveryWaitDays: true,
       contentReminderDays: true,

@@ -182,6 +182,8 @@ for (const [mine, theirs] of [
     assert.equal((await get(cookie, `/campaigns/${me.campaignId}`)).status, 200);
     assert.equal((await get(cookie, "/reports/outreach")).status, 200);
     assert.equal((await get(cookie, "/settings")).status, 200);
+    assert.equal((await get(cookie, "/reports/performance")).status, 200);
+    assert.equal((await get(cookie, "/influencers/ranking")).status, 200);
     assert.equal((await get(cookie, `/reports/outreach/export?campaign=${me.campaignId}`)).status, 200);
     const results: Record<string, number> = {};
     const refused = [
@@ -198,6 +200,7 @@ for (const [mine, theirs] of [
       "/admin/suppression",
       "/admin/calibration",
       `/reports/outreach/export?campaign=${other.campaignId}`,
+      `/reports/performance/export?campaign=${other.campaignId}`,
     ];
     for (const pathname of refused) {
       const status = (await get(cookie, pathname)).status;

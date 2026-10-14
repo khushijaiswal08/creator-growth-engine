@@ -18,6 +18,7 @@ import { brandTargets, replyRate, todayStats } from "@/lib/outreach-stats";
 import { BRANDS, brandName } from "@/lib/brands";
 import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
+import { suggestedTemplate } from "@/lib/next-action";
 import { SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { firstName } from "@/lib/template";
 
@@ -313,6 +314,7 @@ function GroupRows({ queue, now }: { queue: Queue; now: Date }) {
                     status: item.status,
                     profiles: item.influencer.profiles,
                     blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
+                    purpose: suggestedTemplate(item.status, item.nextAction),
                   }}
                 />
               ) : (

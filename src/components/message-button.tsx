@@ -29,6 +29,8 @@ export type MessageTarget = {
   profiles: { id: string; platform: Platform; handle: string }[];
   /** Why this creator must not be messaged (suppression list, blocked status, archived). */
   blockedReason: string | null;
+  /** The template the next action calls for, when the caller knows it. */
+  purpose?: TemplatePurpose | null;
 };
 
 const OpenComposer = createContext<((target: MessageTarget) => void) | null>(null);
@@ -123,7 +125,9 @@ function ComposerDialog({
   onClose: () => void;
 }) {
   // The template that fits where this creator is in the journey.
-  const preferred: TemplatePurpose = PRE_CONTACT_STATUSES.has(target.status)
+  const preferred: TemplatePurpose = target.purpose
+    ? target.purpose
+    : PRE_CONTACT_STATUSES.has(target.status)
     ? "first"
     : target.status === "interested" || target.status === "agreed"
       ? "selection"

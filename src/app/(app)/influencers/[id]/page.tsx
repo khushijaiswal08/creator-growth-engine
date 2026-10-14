@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { formatCount, formatDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
 import { JOURNEY_STEPS, journeyPosition } from "@/lib/journey-steps";
+import { suggestedTemplate } from "@/lib/next-action";
 import { displayHandle, PLATFORM_LABELS, profileUrl } from "@/lib/profile-url";
 import { appBaseUrl } from "@/lib/selection";
 import { requireUser } from "@/lib/session";
@@ -242,6 +243,7 @@ export default async function InfluencerPage({
                           status: link.status,
                           profiles: messageProfiles,
                           blockedReason: blockedReason ?? (SEND_BLOCKED_STATUSES.has(link.status) ? `Marked ${CREATOR_STATUS_LABELS[link.status]}.` : null),
+                          purpose: suggestedTemplate(link.status, link.nextAction),
                         }}
                       />
                       <details className="disclosure" open={link.status === "contacted" || link.status === "follow_up_due" || link.status === "replied"}>

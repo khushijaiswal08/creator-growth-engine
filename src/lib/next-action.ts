@@ -1,4 +1,4 @@
-import type { CreatorStatus, GiftOrderStatus } from "@prisma/client";
+import type { CreatorStatus, GiftOrderStatus, TemplatePurpose } from "@prisma/client";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -20,6 +20,8 @@ export type CampaignTimings = {
   followUpAfterDays: number;
   maxFollowUps: number;
   closeAfterDays: number;
+  /** After delivery: ask whether everything arrived as expected. */
+  arrivalCheckDays: number;
   selectionWaitDays: number;
   deliveryWaitDays: number;
   contentReminderDays: number;
@@ -111,11 +113,21 @@ export function nextActionFor(input: NextActionInput, timings: CampaignTimings, 
 
     case "content_expected": {
       const delivered = gift?.deliveredAt ?? null;
-      const reminderAt = delivered ? plus(delivered, timings.contentReminderDays) : null;
       const overdueAt = input.contentDueAt;
-      if (overdueAt && now >= overdueAt) return { action: "Content is overdue: chase the creator", dueAt: overdueAt, waitingOn: "team" };
-      if (reminderAt && now >= reminderAt) return { action: "Send a content reminder", dueAt: reminderAt, waitingOn: "team" };
-      return { action: "Waiting for content", dueAt: reminderAt ?? overdueAt, waitingOn: "creator" };
+      if (!delivered) {
+        if (overdueAt && now >= overdueAt) return { action: "Content is overdue: chase the creator", dueAt: overdueAt, waitingOn: "team" };
+        return { action: "Waiting for content", dueAt: overdueAt, waitingOn: "creator" };
+      }
+      // After delivery, a fixed sequence of touches. The latest touch whose day has come is the
+      // one that is due, until a message is logged after that day; then the next touch waits for
+      // its own day. Once every touch is done, the no-content timer takes over.
+      const steps = deliverySteps(delivered, timings);
+      const sent = input.lastContactedAt;
+      const reached = steps.filter((step) => now >= step.at);
+      const upcoming = steps.find((step) => now < step.at) ?? null;
+      const current = reached[reached.length - 1] ?? null;
+      if (current && (!sent || sent < current.at)) return { action: current.action, dueAt: current.at, waitingOn: "team" };
+      return { action: "Waiting for content", dueAt: upcoming?.at ?? null, waitingOn: "creator" };
     }
 
     case "content_posted":
@@ -130,6 +142,40 @@ export function nextActionFor(input: NextActionInput, timings: CampaignTimings, 
     default:
       return none;
   }
+}
+
+export type DeliveryStep = { action: string; at: Date; purpose: TemplatePurpose };
+
+/**
+ * The touches after a parcel arrives, in order: the delivery note the same
+ * day, the arrival check a few days later, the content reminder, then the
+ * agreed posting date. Days come from the campaign's timers.
+ */
+export function deliverySteps(deliveredAt: Date, timings: CampaignTimings): DeliveryStep[] {
+  return [
+    { action: "Send the delivery note", at: deliveredAt, purpose: "delivered" as const },
+    { action: "Ask whether everything arrived", at: plus(deliveredAt, timings.arrivalCheckDays), purpose: "arrival" as const },
+    { action: "Send a content reminder", at: plus(deliveredAt, timings.contentReminderDays), purpose: "reminder" as const },
+    { action: "Check the agreed posting date", at: plus(deliveredAt, timings.contentDueDays), purpose: "deadline" as const },
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+}
+
+const ACTION_TEMPLATES: Record<string, TemplatePurpose> = {
+  "Send the delivery note": "delivered",
+  "Ask whether everything arrived": "arrival",
+  "Send a content reminder": "reminder",
+  "Check the agreed posting date": "deadline",
+  "Content is overdue: chase the creator": "reminder",
+  "Send the product selection link": "selection",
+  "Send the first message": "first",
+};
+
+/** The message template that fits the next action, so the composer opens on the right one. */
+export function suggestedTemplate(status: CreatorStatus, action: string | null): TemplatePurpose | null {
+  if (action && ACTION_TEMPLATES[action]) return ACTION_TEMPLATES[action];
+  if (action?.startsWith("Send follow-up")) return "followup";
+  if (status === "agreed") return "agreed";
+  return null;
 }
 
 /** True when the item belongs in today's work queue. */

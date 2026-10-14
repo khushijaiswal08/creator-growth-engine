@@ -218,6 +218,7 @@ const TIMINGS: { name: string; label: string }[] = [
   { name: "closeAfterDays", label: "Days after the last follow-up before closing as No reply" },
   { name: "selectionWaitDays", label: "Days to wait for a product choice before nudging" },
   { name: "deliveryWaitDays", label: "Days after shipping before checking on delivery" },
+  { name: "arrivalCheckDays", label: "Days after delivery before asking whether everything arrived" },
   { name: "contentReminderDays", label: "Days after delivery before a content reminder" },
   { name: "contentDueDays", label: "Days after delivery before content is overdue" },
   { name: "noContentAfterDays", label: "Days overdue before closing as No content delivered" },

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyRow, PageHeader, Panel } from "@/components/panel";
+import { ReportTabs } from "@/components/report-tabs";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
@@ -35,6 +36,8 @@ export default async function OutreachReportPage({ searchParams }: { searchParam
           <a href={`/reports/outreach/export${chosen ? `?campaign=${chosen.id}` : ""}`}>Export CSV</a>
         </Button>
       </PageHeader>
+
+      <ReportTabs current="outreach" />
 
       <nav aria-label="Campaign" className="mb-6 flex flex-wrap gap-1.5">
         <Link href="/reports/outreach" className="chip" aria-current={chosen === null ? "true" : undefined}>

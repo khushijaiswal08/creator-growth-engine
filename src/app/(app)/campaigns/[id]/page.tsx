@@ -20,6 +20,7 @@ import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { RUN_STATUS_LABELS, SOURCE_LABELS } from "@/lib/discovery";
 import { formatCalendarDay, formatDateTime, formatDay } from "@/lib/format";
+import { suggestedTemplate } from "@/lib/next-action";
 import { OFFER_STATUS_WHERE } from "@/lib/product-list";
 import { requireUser } from "@/lib/session";
 import {
@@ -233,6 +234,7 @@ export default async function CampaignPage({
               followUpAfterDays: campaign.followUpAfterDays,
               maxFollowUps: campaign.maxFollowUps,
               closeAfterDays: campaign.closeAfterDays,
+              arrivalCheckDays: campaign.arrivalCheckDays,
               selectionWaitDays: campaign.selectionWaitDays,
               deliveryWaitDays: campaign.deliveryWaitDays,
               contentReminderDays: campaign.contentReminderDays,
@@ -372,6 +374,7 @@ export default async function CampaignPage({
                             status: creator.status,
                             profiles: influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
                             blockedReason,
+                            purpose: suggestedTemplate(creator.status, creator.nextAction),
                           }}
                         />
                       </TableCell>

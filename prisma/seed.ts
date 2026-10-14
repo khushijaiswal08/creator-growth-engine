@@ -74,6 +74,33 @@ Let me know if you need anything from us.
 {sender}`,
   },
   {
+    name: "Delivery note",
+    purpose: "delivered",
+    body: `Hi {name},
+
+Tracking tells us your {brand} parcel has arrived. We hope it looks lovely in your space. No rush at all: whenever you have a moment, we would love to see it.
+
+{sender}`,
+  },
+  {
+    name: "Arrival check",
+    purpose: "arrival",
+    body: `Hi {name},
+
+Just checking that everything arrived as expected and that {product} is the right size and colour for you. If anything is not quite right, tell me and we will sort it out.
+
+{sender}`,
+  },
+  {
+    name: "Posting date check",
+    purpose: "deadline",
+    body: `Hi {name},
+
+We agreed on a post around now, so I wanted to check in. Is there a date that works for you? If you have already posted, send me the link and I will make sure we share it.
+
+{sender}`,
+  },
+  {
     name: "Thank you",
     purpose: "other",
     body: `Hi {name},

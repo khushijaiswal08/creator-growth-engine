@@ -38,6 +38,9 @@ const PURPOSE_LABELS: Record<TemplatePurpose, string> = {
   agreed: "After they agree",
   selection: "Product selection link",
   reminder: "Content reminder",
+  delivered: "Delivery note",
+  arrival: "Arrival check",
+  deadline: "Posting date check",
   other: "Other",
 };
 

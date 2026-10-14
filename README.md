@@ -519,6 +519,31 @@ opens the check screen with the profile filled in (`public/manifest.webmanifest`
 `/influencers/new`). On iPhone, Safari has no share target for web apps: copy the profile link and
 paste it into the box. Admin screens were left as they are.
 
+## Phase 3A: performance dashboard, creator ranking, delivery sequence
+
+**Performance** (Reports > Performance, `/reports/performance`, CSV at `/reports/performance/export`).
+One period at a time: this or last week, month or quarter, or custom dates, per brand and per
+campaign. Figures count what happened inside the period (creators added, messages, replies,
+contacted, agreed, gifts chosen, shipped, delivered, content posted, completed, no content, and
+the content rate), each beside the same figure for the period just before, plus a week-by-week or
+month-by-month table. "Attributed orders" is a placeholder until the Amazon Attribution import.
+Definitions live in `src/lib/performance-stats.ts`; period boundaries follow `APP_TIME_ZONE`.
+
+**Creator ranking** (Creators > Ranking, `/influencers/ranking`). Every creator in view sorted by
+content delivered, content rate, Amazon sales, followers, engagement or most recent
+collaboration, with filters for worked-with-before, US based, Amazon tier, minimum followers and a
+search. Amazon Creator Connections creators carry their tier and average monthly sales as fields
+(`Influencer.amazonTier`, `amazonMonthlyGmvUsd`, `amazonGmvDetail`), filled from the imported
+notes; attributed sales from Amazon Attribution join the table in Phase 3B.
+
+**After delivery.** Once a gift is marked delivered, Today asks for four touches in order, each
+with its own approved template preselected in the Message dialog and each waiting until a message
+was logged for the one before: the delivery note the same day, "did everything arrive" after the
+campaign's arrival-check days (default 3), the content reminder (default 7), then the posting-date
+check on the content due day (default 14). The timers are on Settings and the campaign page; the
+templates are under Admin > Message templates (Delivery note, Arrival check, Posting date check).
+Nothing is sent automatically; the person still presses Message.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

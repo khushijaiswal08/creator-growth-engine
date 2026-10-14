@@ -41,6 +41,7 @@ export default async function SettingsPage() {
             followUpAfterDays: true,
             maxFollowUps: true,
             closeAfterDays: true,
+            arrivalCheckDays: true,
             selectionWaitDays: true,
             deliveryWaitDays: true,
             contentReminderDays: true,
@@ -97,6 +98,10 @@ export default async function SettingsPage() {
                       <dd>
                         {campaign.maxFollowUps}, then closed {campaign.closeAfterDays} days after the last
                       </dd>
+                      <dt className="text-muted-foreground">After delivery</dt>
+                      <dd>
+                        note the same day, arrival check after {campaign.arrivalCheckDays} days, reminder after {campaign.contentReminderDays}
+                      </dd>
                       <dt className="text-muted-foreground">Content due</dt>
                       <dd>{campaign.contentDueDays} days after delivery</dd>
                       <dt className="text-muted-foreground">No content delivered</dt>
@@ -110,6 +115,7 @@ export default async function SettingsPage() {
                           followUpAfterDays: campaign.followUpAfterDays,
                           maxFollowUps: campaign.maxFollowUps,
                           closeAfterDays: campaign.closeAfterDays,
+                          arrivalCheckDays: campaign.arrivalCheckDays,
                           selectionWaitDays: campaign.selectionWaitDays,
                           deliveryWaitDays: campaign.deliveryWaitDays,
                           contentReminderDays: campaign.contentReminderDays,

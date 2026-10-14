@@ -246,7 +246,7 @@ const BAR_LINKS = [
 ];
 const DRAWER_LINKS = [
   { href: "/import", label: "Import", icon: Upload },
-  { href: "/reports/outreach", label: "Reports", icon: BarChart3 },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 

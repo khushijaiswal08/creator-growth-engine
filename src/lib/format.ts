@@ -77,3 +77,31 @@ export function startOfWeekInZone(date: Date): Date {
   const index = Math.max(0, WEEKDAYS.indexOf(partsOf(date).weekday));
   return new Date(startOfDayInZone(date).getTime() - index * DAY_MS);
 }
+
+// Month and quarter boundaries, and dates typed in a form, all in the app's time zone.
+export function startOfMonthInZone(date: Date): Date {
+  const parts = partsOf(date);
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, 1) - offsetMs(parts));
+}
+
+export function startOfQuarterInZone(date: Date): Date {
+  const parts = partsOf(date);
+  const month = Math.floor((Number(parts.month) - 1) / 3) * 3;
+  return new Date(Date.UTC(Number(parts.year), month, 1) - offsetMs(parts));
+}
+
+/** "2026-10-01" (a date typed in a form) -> midnight at the start of that day in the app's zone. Null when not a date. */
+export function parseDayInZone(text: string | null | undefined): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((text ?? "").trim());
+  if (!match) return null;
+  const guess = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (Number.isNaN(guess.getTime())) return null;
+  // The offset for that day (not today), so dates across a daylight-saving change stay right.
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) - offsetMs(partsOf(guess)));
+}
+
+/** The same date as a form value, "2026-10-01", in the app's zone. */
+export function dayValueInZone(date: Date): string {
+  const parts = partsOf(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}

@@ -12,7 +12,7 @@ const LINKS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/orders", label: "Gifts", icon: Gift },
   { href: "/import", label: "Import", icon: Upload },
-  { href: "/reports/outreach", label: "Reports", icon: BarChart3 },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 

@@ -504,14 +504,15 @@ test("the content clock starts at delivery, and tracking moves the creator forwa
   const afterDelivery = await read();
   assert.equal(afterDelivery.status, "content_expected");
   assert.equal(afterDelivery.contentDueAt?.getTime(), delivered.getTime() + 21 * DAY_MS, "due 21 days after delivery");
-  assert.equal(afterDelivery.nextAction, "Waiting for content");
-  assert.equal(afterDelivery.nextActionDueAt?.getTime(), delivered.getTime() + 7 * DAY_MS, "first reminder 7 days after delivery");
+  // Delivered three days ago and nothing sent since: the arrival check (day 3) is the touch that is due.
+  assert.equal(afterDelivery.nextAction, "Ask whether everything arrived");
+  assert.equal(afterDelivery.nextActionDueAt?.getTime(), delivered.getTime() + 3 * DAY_MS, "arrival check 3 days after delivery");
 
-  // Eight days after delivery the reminder is due; after the due date it is overdue.
+  // Eight days after delivery the reminder is due; on the due day the posting-date check is.
   await runAutomations("manual", new Date(delivered.getTime() + 8 * DAY_MS));
   assert.equal((await read()).nextAction, "Send a content reminder");
   await runAutomations("manual", new Date(delivered.getTime() + 22 * DAY_MS));
-  assert.equal((await read()).nextAction, "Content is overdue: chase the creator");
+  assert.equal((await read()).nextAction, "Check the agreed posting date");
 
   // A late tracking update must not drag back a creator who has already posted.
   await db.campaignCreator.update({ where: { id: creator.id }, data: { status: "content_posted" } });
@@ -1251,4 +1252,95 @@ test("the outreach figures mean the same thing everywhere", async () => {
   const weeks = await weeklyStats({ id: campaign.id }, 8);
   assert.equal(weeks.length, 8);
   assert.ok(weeks[0].people.some((row) => row.userId === anna.id), "this week lists Anna");
+});
+
+test("after delivery the touches come in order, each waiting until a message was logged for it", async () => {
+  const { nextActionFor, deliverySteps, suggestedTemplate } = await import("@/lib/next-action");
+  const timings = { followUpAfterDays: 4, maxFollowUps: 2, closeAfterDays: 7, arrivalCheckDays: 3, selectionWaitDays: 5, deliveryWaitDays: 10, contentReminderDays: 7, contentDueDays: 14, noContentAfterDays: 30 };
+  const delivered = new Date("2026-10-01T12:00:00Z");
+  const day = (days: number) => new Date(delivered.getTime() + days * ONE_DAY);
+  const base = { status: "content_expected" as const, followUpsSent: 0, selectionSentAt: null, contentDueAt: day(14), reengageAfter: null, gift: { status: "delivered" as const, shippedAt: day(-5), deliveredAt: delivered } };
+
+  assert.deepEqual(deliverySteps(delivered, timings).map((step) => [step.action, step.purpose]), [
+    ["Send the delivery note", "delivered"],
+    ["Ask whether everything arrived", "arrival"],
+    ["Send a content reminder", "reminder"],
+    ["Check the agreed posting date", "deadline"],
+  ]);
+
+  // Delivery day: the note is due now, nothing has been sent since delivery.
+  const noteDue = nextActionFor({ ...base, lastContactedAt: day(-6) }, timings, day(0.1));
+  assert.deepEqual([noteDue.action, noteDue.waitingOn], ["Send the delivery note", "team"]);
+  assert.equal(suggestedTemplate("content_expected", noteDue.action), "delivered");
+
+  // Note sent on day 0: nothing until day 3, then the arrival check.
+  const waiting = nextActionFor({ ...base, lastContactedAt: day(0.2) }, timings, day(1));
+  assert.deepEqual([waiting.action, waiting.waitingOn, waiting.dueAt?.getTime()], ["Waiting for content", "creator", day(3).getTime()]);
+  const arrival = nextActionFor({ ...base, lastContactedAt: day(0.2) }, timings, day(3.5));
+  assert.deepEqual([arrival.action, suggestedTemplate("content_expected", arrival.action)], ["Ask whether everything arrived", "arrival"]);
+
+  // Arrival check sent: the reminder waits for day 7, then the posting-date check for day 14.
+  const reminder = nextActionFor({ ...base, lastContactedAt: day(3.6) }, timings, day(8));
+  assert.deepEqual([reminder.action, suggestedTemplate("content_expected", reminder.action)], ["Send a content reminder", "reminder"]);
+  const deadline = nextActionFor({ ...base, lastContactedAt: day(7.5) }, timings, day(15));
+  assert.deepEqual([deadline.action, suggestedTemplate("content_expected", deadline.action)], ["Check the agreed posting date", "deadline"]);
+
+  // A touch the team skipped gives way to the later one once its day comes.
+  const skipped = nextActionFor({ ...base, lastContactedAt: day(-6) }, timings, day(9));
+  assert.equal(skipped.action, "Send a content reminder");
+
+  // Every touch done: wait quietly; the no-content timer closes it in its own time.
+  const done = nextActionFor({ ...base, lastContactedAt: day(14.5) }, timings, day(20));
+  assert.deepEqual([done.action, done.waitingOn, done.dueAt], ["Waiting for content", "creator", null]);
+
+  // Without a delivery date the old behaviour holds.
+  const undelivered = nextActionFor({ ...base, lastContactedAt: day(-6), gift: { status: "shipped" as const, shippedAt: day(-5), deliveredAt: null } }, timings, day(1));
+  assert.equal(undelivered.action, "Waiting for content");
+});
+
+test("the performance dashboard resolves periods in the app zone and counts what happened inside them", async () => {
+  const { resolvePeriod, figuresFor, previousPeriod, bucketsFor } = await import("@/lib/performance-stats");
+  const { startOfWeekInZone, startOfMonthInZone, dayValueInZone } = await import("@/lib/format");
+  const now = new Date();
+  assert.equal(resolvePeriod("this-week", undefined, undefined, now).from.getTime(), startOfWeekInZone(now).getTime());
+  assert.equal(resolvePeriod("this-month", undefined, undefined, now).from.getTime(), startOfMonthInZone(now).getTime());
+  const lastMonth = resolvePeriod("last-month", undefined, undefined, now);
+  assert.equal(lastMonth.to.getTime(), startOfMonthInZone(now).getTime());
+  assert.ok(lastMonth.from < lastMonth.to);
+  const custom = resolvePeriod("custom", "2026-09-01", "2026-09-30", now);
+  assert.equal(dayValueInZone(custom.from), "2026-09-01");
+  assert.equal(dayValueInZone(new Date(custom.to.getTime() - 1)), "2026-09-30");
+  assert.equal(resolvePeriod("custom", "nonsense", "2026-09-30", now).key, "this-week", "bad dates fall back to this week");
+  assert.equal(resolvePeriod("anything", undefined, undefined, now).key, "this-week");
+  const before = previousPeriod(custom);
+  assert.equal(before.to.getTime(), custom.from.getTime());
+
+  // Figures: one of each event inside the period, one outside.
+  const { user, campaign } = await makeUserAndCampaign("performance", ["home decor"]);
+  const inside = new Date("2026-09-15T10:00:00Z");
+  const outside = new Date("2026-08-15T10:00:00Z");
+  const a = await makeCreator(campaign.id, "perf_one", { status: "content_posted", createdAt: inside });
+  const b = await makeCreator(campaign.id, "perf_two", { status: "no_content", createdAt: outside });
+  await db.activity.createMany({
+    data: [
+      { userId: user.id, kind: "status_change", campaignCreatorId: a.id, body: "Status changed from Approved to Contacted.", createdAt: inside },
+      { userId: user.id, kind: "status_change", campaignCreatorId: a.id, body: "Status changed from Replied to Agreed.", createdAt: inside },
+      { userId: user.id, kind: "status_change", campaignCreatorId: b.id, body: "Status changed from Content expected to No content delivered.", createdAt: inside, automated: true },
+      { userId: user.id, kind: "status_change", campaignCreatorId: b.id, body: "Status changed from Approved to Contacted.", createdAt: outside },
+    ],
+  });
+  const product = await db.product.create({ data: { brandId: "test", sku: "PERF-1", title: "Runner", stock: 1 } });
+  await db.giftOrder.create({ data: { campaignCreatorId: a.id, productId: product.id, status: "delivered", shipName: "x", address1: "x", city: "x", state: "x", postalCode: "x", country: "United States", createdAt: inside, shippedAt: inside, deliveredAt: inside } });
+  await db.message.createMany({ data: [{ campaignCreatorId: a.id, userId: user.id, channel: "dm", direction: "outbound", body: "hi", sentAt: inside }, { campaignCreatorId: a.id, userId: user.id, channel: "dm", direction: "inbound", body: "yes", sentAt: inside }] });
+  const profile = await db.socialProfile.findFirstOrThrow({ where: { influencerId: a.influencerId } });
+  await db.post.create({ data: { campaignCreatorId: a.id, socialProfileId: profile.id, url: "https://www.instagram.com/p/perf1/", createdAt: inside } });
+
+  const figures = await figuresFor(custom, { id: campaign.id });
+  assert.deepEqual(figures, { creatorsAdded: 1, messages: 1, replies: 1, contacted: 1, agreed: 1, giftsOrdered: 1, giftsShipped: 1, giftsDelivered: 1, posted: 1, completed: 0, noContent: 1, contentRate: 50 });
+  const buckets = await bucketsFor(custom, { id: campaign.id });
+  assert.ok(buckets.length >= 4 && buckets.length <= 6, "September splits into weeks");
+  assert.equal(buckets.reduce((sum, bucket) => sum + bucket.figures.posted, 0), 1);
+  const empty = await figuresFor(previousPeriod(custom), { id: campaign.id });
+  assert.equal(empty.contacted, 1, "the August contact falls in the previous period");
+  assert.equal(empty.posted, 0);
 });

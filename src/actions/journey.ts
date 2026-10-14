@@ -126,6 +126,7 @@ const TIMING_FIELDS = [
   ["closeAfterDays", 1, 90],
   ["selectionWaitDays", 1, 60],
   ["deliveryWaitDays", 1, 60],
+  ["arrivalCheckDays", 0, 30],
   ["contentReminderDays", 1, 90],
   ["contentDueDays", 1, 180],
   ["noContentAfterDays", 1, 365],
