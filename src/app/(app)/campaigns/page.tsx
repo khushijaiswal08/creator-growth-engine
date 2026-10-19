@@ -31,7 +31,7 @@ export default async function CampaignsPage({
 
   return (
     <>
-      <PageHeader title={showArchived ? "Archived campaigns" : "Campaigns"}>
+      <PageHeader title={showArchived ? "Archived campaigns" : "Pipeline"} meta={showArchived ? undefined : "One board per campaign. Open a campaign to see its lanes."}>
         {showArchived ? (
           <Button asChild variant="outline">
             <Link href="/campaigns">Back to campaigns</Link>

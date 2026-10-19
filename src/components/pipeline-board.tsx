@@ -23,13 +23,12 @@ export type BoardCard = {
   dueAt: Date | null;
   waitingOn: string | null;
   fitScore: number | null;
-  owner: string | null;
   profiles: { id: string; platform: Platform; handle: string }[];
   blockedReason: string | null;
   purpose: TemplatePurpose | null;
 };
 
-const SHOWN = 6;
+const SHOWN = 3;
 const DAY = 24 * 60 * 60 * 1000;
 
 /** "Send the product selection link" -> "Product selection link": the chip has no room for the verb. */
@@ -57,12 +56,24 @@ const CHIP: Record<"red" | "amber" | "blue" | "grey", string> = {
   grey: "bg-surface-2 text-accent-text",
 };
 
+/** The verb on the right of a card, when there is something to do now. */
+function verbFor(card: BoardCard, due: boolean): string | null {
+  if (card.status === "discovered" || card.status === "scored") return "Review";
+  if (!due) return null;
+  if (card.status === "replied") return "Reply";
+  if (card.nextAction?.startsWith("Send the product selection")) return "Send link";
+  if (card.nextAction?.startsWith("Approve")) return "Approve";
+  if (card.nextAction?.startsWith("Check the post")) return "Open";
+  return "Message";
+}
+
 /**
  * Five lanes of cards. Drag a card onto a lane to move the creator to that
  * lane's first status; the change is shown at once and written through the
  * same action the status menu uses, so it is logged like any other change.
+ * The Done lane shows counts only: posted, completed and every closed outcome.
  */
-export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: BoardCard[]; closed: { status: CreatorStatus; count: number }[]; reviewHref: string; now: Date }) {
+export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { cards: BoardCard[]; done: { status: CreatorStatus; count: number }[]; reviewHref: string; listHref: string; now: Date }) {
   const router = useRouter();
   const [moved, setMoved] = useState<Record<string, CreatorStatus>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -93,28 +104,23 @@ export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: Board
     });
   }
 
-  const closedTotal = closed.reduce((sum, row) => sum + row.count, 0);
-  const dueCount = cards.filter((card) => card.dueAt && card.dueAt <= now && card.waitingOn !== "creator").length;
+  const doneTotal = done.reduce((sum, row) => sum + row.count, 0);
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        <span>
-          {cards.length + closedTotal} {cards.length + closedTotal === 1 ? "creator" : "creators"}
-          {dueCount > 0 ? ` · ${dueCount} need you today` : ""}
-        </span>
-        <span className="ml-auto hidden md:inline">Drag a card to the next lane, or open the creator and use Move.</span>
-        {error ? (
-          <span role="alert" className="text-danger-text">
-            {error}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      {error ? (
+        <p role="alert" className="mb-3 text-sm text-danger-text">
+          {error}
+        </p>
+      ) : null}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_200px]">
         {LANES.map((lane) => {
-          const inLane = cards.filter((card) => lane.statuses.includes(statusOf(card))).sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity) || a.name.localeCompare(b.name));
+          const isDone = lane.key === "done";
+          const inLane = isDone
+            ? []
+            : cards.filter((card) => lane.statuses.includes(statusOf(card))).sort((a, b) => (a.dueAt?.getTime() ?? Infinity) - (b.dueAt?.getTime() ?? Infinity) || a.name.localeCompare(b.name));
           const visible = expanded[lane.key] ? inLane : inLane.slice(0, SHOWN);
+          const movedHere = isDone ? cards.filter((card) => lane.statuses.includes(statusOf(card)) && !lane.statuses.includes(card.status)).length : 0;
           return (
             <section
               key={lane.key}
@@ -134,14 +140,15 @@ export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: Board
               <h3 className="mb-2 flex items-center gap-2 px-1 text-sm font-bold">
                 <span aria-hidden className="size-2 rounded-full" style={{ backgroundColor: lane.color }} />
                 {lane.label}
-                <span className="font-semibold text-muted-foreground">{inLane.length}</span>
+                <span className="font-semibold text-muted-foreground">{isDone ? doneTotal + movedHere : inLane.length}</span>
               </h3>
-              <div className={cn("grid min-h-[160px] content-start gap-2.5 rounded-xl p-2.5 transition-colors", over === lane.key ? "bg-primary-soft/60 ring-2 ring-primary/40" : "bg-[#eceef2]")}>
+              <div className={cn("grid content-start gap-2.5 rounded-xl p-3 transition-colors", isDone ? "min-h-0" : "min-h-[420px]", over === lane.key ? "bg-primary-soft/60 ring-2 ring-primary/40" : "bg-[#eceef2]")}>
                 {visible.map((card) => {
                   const chip = chipFor({ ...card, status: statusOf(card) }, now);
                   const late = chip.tone === "red";
-                  const candidate = statusOf(card) === "discovered" || statusOf(card) === "scored";
-                  const messageDue = chip.tone === "red" || chip.tone === "amber" || statusOf(card) === "replied";
+                  const due = chip.tone === "red" || chip.tone === "amber" || statusOf(card) === "replied";
+                  const verb = verbFor({ ...card, status: statusOf(card) }, due);
+                  const href = verb === "Review" ? reviewHref : verb === "Approve" ? "/orders?status=needs_approval" : verb === "Open" ? `/influencers/${card.influencerId}#content` : null;
                   return (
                     <article
                       key={card.id}
@@ -152,10 +159,10 @@ export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: Board
                         setDragging(card.id);
                       }}
                       onDragEnd={() => setDragging(null)}
-                      className={cn("card grid cursor-grab gap-2 p-3 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", dragging === card.id && "opacity-50")}
+                      className={cn("card grid cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", dragging === card.id && "opacity-50")}
                     >
-                      <div className="flex min-w-0 items-center gap-2.5">
-                        <Avatar name={card.name} className="size-8" />
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Avatar name={card.name} className="size-9" />
                         <div className="min-w-0">
                           <Link href={`/influencers/${card.influencerId}`} className="block truncate text-sm font-semibold hover:text-primary-text">
                             {card.name}
@@ -163,34 +170,30 @@ export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: Board
                           <p className="truncate text-xs text-muted-foreground">
                             {card.handle ?? "No profile"}
                             {card.followers !== null ? ` · ${formatCount(card.followers)}` : ""}
-                            {card.owner ? ` · ${card.owner}` : ""}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className={cn("inline-flex min-w-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", CHIP[chip.tone])}>
-                          <span className="truncate">{chip.text}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className={cn("inline-flex max-w-full min-w-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", CHIP[chip.tone])}>
+                            <span className="truncate">{chip.text}</span>
+                          </span>
                         </span>
-                        {candidate ? (
-                          <Link href={reviewHref} className="link shrink-0 text-xs">
-                            Review
+                        {verb && href ? (
+                          <Link href={href} className="link shrink-0 text-xs">
+                            {verb}
                           </Link>
-                        ) : card.nextAction?.startsWith("Approve") ? (
-                          <Link href="/orders?status=needs_approval" className="link shrink-0 text-xs">
-                            Approve
-                          </Link>
-                        ) : card.nextAction?.startsWith("Check the post") ? (
-                          <Link href={`/influencers/${card.influencerId}#content`} className="link shrink-0 text-xs">
-                            Open
-                          </Link>
-                        ) : messageDue ? (
+                        ) : verb ? (
                           <MessageButton
                             size="xs"
-                            variant="outline"
-                            label={statusOf(card) === "replied" ? "Reply" : "Message"}
+                            variant="link"
+                            className="h-auto px-0 text-xs"
+                            label={verb}
                             target={{ campaignCreatorId: card.id, influencerName: card.name, status: statusOf(card), profiles: card.profiles, blockedReason: card.blockedReason, purpose: card.purpose }}
                           />
-                        ) : null}
+                        ) : (
+                          <span className="shrink-0 text-xs text-muted-foreground">Waiting</span>
+                        )}
                       </div>
                     </article>
                   );
@@ -200,22 +203,28 @@ export function PipelineBoard({ cards, closed, reviewHref, now }: { cards: Board
                     {expanded[lane.key] ? "Show fewer" : `Show ${inLane.length - SHOWN} more`}
                   </button>
                 ) : null}
-                {lane.key === "done" && closedTotal > 0 ? (
-                  <div className="grid gap-1 border-t border-border-strong/50 pt-2 text-xs">
-                    {closed.map((row) => (
-                      <Link key={row.status} href={`?view=list&status=${row.status}`} className="flex justify-between rounded px-1 py-0.5 text-accent-text hover:bg-surface hover:text-foreground">
+                {isDone ? (
+                  <div className="grid gap-1 text-sm">
+                    {done.map((row) => (
+                      <Link key={row.status} href={`${listHref}&status=${row.status}`} className="flex justify-between rounded px-1 py-1 hover:bg-surface">
                         <span>{CREATOR_STATUS_LABELS[row.status]}</span>
-                        <b>{row.count}</b>
+                        <b>{row.count + (lane.statuses.includes(row.status) ? movedHere : 0)}</b>
                       </Link>
                     ))}
+                    {doneTotal === 0 && movedHere === 0 ? <p className="px-1 py-1 text-xs text-muted-foreground">Nobody here yet.</p> : null}
+                    <Link href={listHref} className="px-1 pt-2 text-xs font-semibold text-muted-foreground hover:text-foreground">
+                      Show all
+                    </Link>
                   </div>
+                ) : inLane.length === 0 ? (
+                  <p className="px-1 py-2 text-xs text-muted-foreground">Nobody here.</p>
                 ) : null}
-                {inLane.length === 0 && !(lane.key === "done" && closedTotal > 0) ? <p className="px-1 py-2 text-xs text-muted-foreground">Nobody here.</p> : null}
               </div>
             </section>
           );
         })}
       </div>
+      <p className="mt-4 text-xs text-muted-foreground">Drag a card to the next column, or open the creator and press Move. Outcomes like not interested or on hold are under Move, so the board stays five columns.</p>
     </div>
   );
 }

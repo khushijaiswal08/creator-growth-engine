@@ -585,9 +585,22 @@ workspace"). Nothing in the data model changed; every page keeps its data and ac
   Copy addresses and Cancel, and a drawer (`src/components/gifts-table.tsx`) with the
   product, the address, the five rules each ticked or not (`approvalChecks` re-run for
   the existing order), tracking fields and the buttons.
-- **Reports** (`/reports/performance`). Four headline tiles with deltas, an eight-week
-  line of messages and replies (plain SVG), a drop-off funnel with the biggest leak in
-  words, the smaller figures, the top creators of the period and the period table.
+- **Reports** (`/reports/performance`). Four headline tiles with deltas (reply rate is
+  replies over the creators messaged in the period, the outreach definition), an
+  eight-week line of messages and replies (plain SVG), a drop-off funnel with the biggest
+  leak in words, the top creators of the period with their all-time content rate, the
+  period table, and "Email to my manager", which opens the mail app with the figures.
+- **Second pass, same day, to match the mockups exactly.** Nav words are Home, Creators,
+  Pipeline (the campaigns list and boards), Gifts, Content (`/content`, every recorded
+  post; the file library comes in Phase C), Reports, then Settings and Admin; Import moved
+  to the Creators header and the Admin tabs. Home has "Check a profile" (a dialog),
+  "Add creator" and "New message" (a creator picker, `src/actions/find-creators.ts`,
+  that opens the composer), a flat task list with checkboxes and a copy action
+  (`src/components/task-list.tsx`), queue chips in the card header and "Show all".
+  The board has a Filter popover (owner, platform, followers), a "⋯" menu with the
+  export and the review queue, and a Done lane of counts only. The creator header has
+  "Log a reply" and "Edit" as dialogs (`src/components/creator-actions.tsx`) and a "⋯"
+  menu for archiving. Gifts has the short tab words, a sort select and a footer line.
 
 ## Phase 1 discovery and scoring
 

@@ -65,7 +65,7 @@ const OPEN: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved"
  * passed, tracking and the buttons. Addresses arrive already decrypted from
  * the page, which is signed in and brand scoped.
  */
-export function GiftsTable({ orders }: { orders: GiftRow[] }) {
+export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: { value: string; options: Record<string, string>; status: GiftOrderStatus | null }; footer: string }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
@@ -142,10 +142,21 @@ export function GiftsTable({ orders }: { orders: GiftRow[] }) {
             <span className="text-xs text-muted-foreground">Tick orders to approve, copy or cancel several at once. Click a row for details.</span>
           )}
           {notice ? (
-            <span role="status" className="ml-auto text-xs text-success-text">
+            <span role="status" className="text-xs text-success-text">
               {notice}
             </span>
           ) : null}
+          <form method="get" className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            {sort.status ? <input type="hidden" name="status" value={sort.status} /> : null}
+            <label htmlFor="gift-sort">Sort</label>
+            <select id="gift-sort" name="sort" defaultValue={sort.value} onChange={(event) => event.currentTarget.form?.requestSubmit()} className="h-8 rounded-md border border-border-strong bg-surface px-2 text-xs font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              {Object.entries(sort.options).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </form>
         </div>
 
         <div className="overflow-x-auto">
@@ -262,6 +273,7 @@ export function GiftsTable({ orders }: { orders: GiftRow[] }) {
             </tbody>
           </table>
         </div>
+        {footer ? <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">{footer}</div> : null}
       </section>
 
       {open ? (

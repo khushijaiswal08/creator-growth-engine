@@ -3,21 +3,20 @@ import { cn } from "cn";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { CheckProfileButton, NewMessageButton } from "@/components/home-actions";
 import { RunAutomationsButton } from "@/components/journey-forms";
-import { MessageButton, MessageComposer } from "@/components/message-button";
-import { CreatorStatusPill } from "@/components/status-pill";
+import { MessageComposer } from "@/components/message-button";
+import { TaskList, type TaskRow } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { runAutomationsIfStale } from "@/lib/automation";
 import { activityIn, viewed } from "@/lib/brand-scope";
 import { BRANDS, brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
-import { formatDateTime, formatDay, startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format";
+import { startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { brandTargets, personStats, replyRate, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
-import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 import { SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { firstName } from "@/lib/template";
@@ -26,8 +25,22 @@ export const metadata: Metadata = { title: "Home" };
 export const maxDuration = 300;
 
 const PER_QUEUE = 8;
+const ALL = 60;
 const RECENT = 6;
 const DAY = 24 * 60 * 60 * 1000;
+
+// Short chip names for the queues, in the order they are shown.
+const QUEUE_CHIPS: Record<string, string> = {
+  replies: "Replies",
+  selection: "Links",
+  followups: "Follow-ups",
+  first: "First messages",
+  gifts: "Gifts",
+  delivery: "Parcels",
+  content: "Content",
+  posted: "Posts",
+  review: "Review",
+};
 
 // The journey as a funnel: each creator is counted at the furthest stage they reached, dead ends included.
 const STAGES: { label: string; statuses: CreatorStatus[]; color: string }[] = [
@@ -48,11 +61,6 @@ function thingsNeedYou(total: number): string {
   return `${total} things need you today`;
 }
 
-function lateBy(due: Date | null, now: Date): number {
-  if (!due) return 0;
-  return Math.max(0, Math.floor((now.getTime() - due.getTime()) / DAY));
-}
-
 /** The word on the task button: the one thing to do, not the generic "Message". */
 function verbFor(queueKey: string, message: boolean): string {
   if (queueKey === "replies") return "Reply";
@@ -62,9 +70,10 @@ function verbFor(queueKey: string, message: boolean): string {
   return message ? "Message" : "Open";
 }
 
-export default async function TodayPage() {
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ queue?: string; all?: string }> }) {
   const user = await requireUser();
   const view = viewed(user);
+  const params = await searchParams;
   await runAutomationsIfStale();
   const now = new Date();
   const openCampaign = openCampaignIn(view);
@@ -73,28 +82,29 @@ export default async function TodayPage() {
   const thisMonth = resolvePeriod("this-month", undefined, undefined, now);
   const lastMonth = previousPeriod(thisMonth);
   const notArchived = { influencer: { archived: false }, campaign: openCampaign };
+  const activeQueue = QUEUES.some((queue) => queue.key === params.queue) ? params.queue! : null;
+  const showAll = params.all === "1" || activeQueue !== null;
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
         const where = dueWhere(view, queue.statuses, now);
         const [count, items] = await Promise.all([
           db.campaignCreator.count({ where }),
-          db.campaignCreator.findMany({
-            where,
-            orderBy: { nextActionDueAt: "asc" },
-            take: PER_QUEUE,
-            select: {
-              id: true,
-              status: true,
-              nextAction: true,
-              nextActionDueAt: true,
-              campaign: { select: { id: true, name: true } },
-              influencer: {
-                select: { id: true, name: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } },
-              },
-            },
-          }),
+          activeQueue && activeQueue !== queue.key
+            ? []
+            : db.campaignCreator.findMany({
+                where,
+                orderBy: { nextActionDueAt: "asc" },
+                take: showAll ? ALL : PER_QUEUE,
+                select: {
+                  id: true,
+                  status: true,
+                  nextAction: true,
+                  nextActionDueAt: true,
+                  influencer: { select: { id: true, name: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
+                },
+              }),
         ]);
         return { ...queue, count, items };
       }),
@@ -117,6 +127,7 @@ export default async function TodayPage() {
     db.campaignCreator.count({ where: { ...notArchived, status: "content_expected", contentDueAt: { lt: now } } }),
     figuresFor(thisMonth, openCampaign),
     figuresFor(lastMonth, openCampaign),
+    db.campaign.findMany({ where: openCampaign, orderBy: { updatedAt: "desc" }, select: { id: true, name: true } }),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
@@ -133,6 +144,34 @@ export default async function TodayPage() {
   const atStage = STAGES.map((stage) => stage.statuses.reduce((count, status) => count + (byStatus.get(status) ?? 0), 0));
   const reached = atStage.map((_, index) => atStage.slice(index).reduce((sum, count) => sum + count, 0));
 
+  // One flat list, most urgent queue first, longest wait first inside each.
+  const rows: TaskRow[] = queues.flatMap((queue) =>
+    queue.items.map((item) => {
+      const handle = item.influencer.profiles[0];
+      const lateDays = item.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - item.nextActionDueAt.getTime()) / DAY)) : 0;
+      return {
+        id: item.id,
+        queue: queue.key,
+        influencerId: item.influencer.id,
+        name: item.influencer.name,
+        handle: handle ? `@${handle.handle}` : null,
+        followers: handle?.followers ?? null,
+        status: item.status,
+        nextAction: item.nextAction ?? "Needs attention",
+        dueAt: item.nextActionDueAt,
+        lateDays,
+        verb: verbFor(queue.key, queue.message),
+        primary: queue.key === "replies" || queue.key === "selection" || queue.key === "gifts" || lateDays > 0,
+        href: queue.message ? null : queue.key === "gifts" ? "/orders?status=needs_approval" : `/influencers/${item.influencer.id}`,
+        profiles: item.influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
+        blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
+        purpose: suggestedTemplate(item.status, item.nextAction),
+      };
+    }),
+  );
+  const shown = rows.length;
+  const funnelCampaign = openCampaigns.length === 1 ? openCampaigns[0] : null;
+
   return (
     <MessageComposer templates={templates} senderName={user.name}>
       <header className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
@@ -144,14 +183,13 @@ export default async function TodayPage() {
             {todayWords(now)} · {view.brandId ? brandName(view.brandId) : "Both brands"} · {thingsNeedYou(total)}
           </p>
         </div>
-        {/* The quickest start on a phone: paste the profile link copied from Instagram. */}
-        <form method="get" action="/influencers/new" className="flex w-full items-center gap-2 sm:w-auto">
-          <label htmlFor="check-url" className="sr-only">
-            Check a profile before messaging
-          </label>
-          <Input id="check-url" name="url" type="url" inputMode="url" placeholder="Paste a profile link to check a creator" required className="sm:w-80" />
-          <Button type="submit">Check</Button>
-        </form>
+        <div className="flex flex-wrap items-center gap-2">
+          <CheckProfileButton />
+          <Button asChild variant="outline">
+            <Link href="/influencers/new">Add creator</Link>
+          </Button>
+          <NewMessageButton />
+        </div>
       </header>
 
       <section aria-label="This week at a glance" className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
@@ -163,16 +201,16 @@ export default async function TodayPage() {
         </Tile>
         <Tile label="Gifts in transit" value={inTransit} note={toApprove > 0 ? undefined : "none waiting for approval"}>
           {toApprove > 0 ? (
-            <Link href="/orders" className="chip border-transparent bg-warning-soft text-warning-text hover:text-warning-text">
+            <Link href="/orders?status=needs_approval" className="chip border-transparent bg-warning-soft text-warning-text hover:text-warning-text">
               {toApprove} to approve
             </Link>
           ) : null}
         </Tile>
-        <Tile label="Content due this week" value={contentDueThisWeek} note={contentOverdue > 0 ? undefined : "nothing overdue"}>
+        <Tile label="Content due this week" value={contentDueThisWeek} note={contentOverdue > 0 ? `${Math.max(0, contentDueThisWeek - contentOverdue)} on track` : "nothing overdue"}>
           {contentOverdue > 0 ? <span className="chip border-transparent bg-danger-soft text-danger-text">{contentOverdue} overdue</span> : null}
         </Tile>
-        <Tile label="Content rate, this month" value={month.contentRate === null ? "–" : `${month.contentRate}%`} note={`${month.posted} posted, ${month.noContent} no content`}>
-          {month.contentRate !== null && monthBefore.contentRate !== null ? <Delta value={month.contentRate - monthBefore.contentRate} unit=" pts" suffix=" vs last month" /> : null}
+        <Tile label="Content rate" value={month.contentRate === null ? "–" : `${month.contentRate}%`} note={month.contentRate !== null && monthBefore.contentRate !== null ? "vs last month" : `${month.posted} posted, ${month.noContent} no content this month`}>
+          {month.contentRate !== null && monthBefore.contentRate !== null ? <Delta value={month.contentRate - monthBefore.contentRate} unit=" pts" /> : null}
         </Tile>
       </section>
 
@@ -181,114 +219,52 @@ export default async function TodayPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
             <h2 id="tasks-title">My tasks today</h2>
             <span className="chip border-transparent bg-surface-2">{total}</span>
-            <span className="ml-auto flex items-center gap-3 text-xs text-muted-foreground">
-              {lastRun ? `Checked ${formatDateTime(lastRun.startedAt)}` : "Not checked yet"}
-              <RunAutomationsButton />
-            </span>
+            {total > 0 ? (
+              <div className="ml-auto flex flex-wrap gap-1.5">
+                <Link href="/today" className="chip" aria-current={activeQueue === null ? "true" : undefined}>
+                  All {total}
+                </Link>
+                {queues
+                  .filter((queue) => queue.count > 0)
+                  .map((queue) => (
+                    <Link key={queue.key} href={`/today?queue=${queue.key}`} className="chip" aria-current={activeQueue === queue.key ? "true" : undefined}>
+                      {QUEUE_CHIPS[queue.key] ?? queue.title} {queue.count}
+                    </Link>
+                  ))}
+              </div>
+            ) : null}
           </div>
-          {total > 0 ? (
-            <div className="flex flex-wrap gap-1.5 px-4 pb-3">
-              {queues
-                .filter((queue) => queue.count > 0)
-                .map((queue) => (
-                  <a key={queue.key} href={`#queue-${queue.key}`} className="chip">
-                    {queue.title} <span className="text-muted-foreground">{queue.count}</span>
-                  </a>
-                ))}
-            </div>
-          ) : null}
 
           {total === 0 ? (
             <p className="border-t px-4 py-12 text-center text-muted-foreground">All quiet. New replies, parcels and content dates show up here as they come due.</p>
           ) : (
-            <div className="border-t">
-              <div className="hidden grid-cols-[minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_100px] gap-3 bg-surface-2/60 px-4 py-2 text-xs font-semibold text-muted-foreground md:grid">
-                <span>Creator</span>
-                <span>Stage</span>
-                <span>Next step</span>
-                <span>Due</span>
-                <span />
-              </div>
-              {queues
-                .filter((queue) => queue.count > 0)
-                .map((queue) => (
-                  <div key={queue.key} id={`queue-${queue.key}`}>
-                    <div className="flex items-baseline gap-2 border-b bg-surface px-4 pt-4 pb-1.5">
-                      <h3>{queue.title}</h3>
-                      <span className="text-xs text-muted-foreground tabular-nums">{queue.count}</span>
-                    </div>
-                    {queue.items.map((item) => {
-                      const handle = item.influencer.profiles[0];
-                      const late = lateBy(item.nextActionDueAt, now);
-                      return (
-                        <div key={item.id} className="grid gap-x-3 gap-y-2 border-b px-4 py-3 hover:bg-surface-2/40 md:grid-cols-[minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_100px] md:items-center md:py-2.5">
-                          <div className="flex min-w-0 items-center gap-2.5">
-                            <Avatar name={item.influencer.name} />
-                            <div className="min-w-0">
-                              <Link href={`/influencers/${item.influencer.id}`} className="block truncate font-semibold hover:text-primary-text">
-                                {item.influencer.name}
-                              </Link>
-                              <div className="truncate text-xs text-muted-foreground">
-                                {handle ? displayHandle(handle.handle) : item.campaign.name}
-                                {handle?.followers ? ` · ${Intl.NumberFormat("en", { notation: "compact" }).format(handle.followers)}` : ""}
-                              </div>
-                            </div>
-                          </div>
-                          <div>
-                            <CreatorStatusPill status={item.status} />
-                          </div>
-                          <div className="text-sm text-foreground max-md:text-muted-foreground">{item.nextAction ?? "Needs attention"}</div>
-                          <div>
-                            <span
-                              title={item.nextActionDueAt ? `Since ${formatDay(item.nextActionDueAt)}` : undefined}
-                              className={cn("chip border-transparent", late > 0 ? "bg-danger-soft text-danger-text" : "bg-surface-2")}
-                            >
-                              {late === 0 ? "Today" : late === 1 ? "1 day late" : `${late} days late`}
-                            </span>
-                          </div>
-                          <div className="md:text-right">
-                            {queue.message ? (
-                              <MessageButton
-                                size="sm"
-                                variant={queue.key === "replies" || queue.key === "selection" || late > 0 ? "action" : "outline"}
-                                label={verbFor(queue.key, true)}
-                                target={{
-                                  campaignCreatorId: item.id,
-                                  influencerName: item.influencer.name,
-                                  status: item.status,
-                                  profiles: item.influencer.profiles,
-                                  blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
-                                  purpose: suggestedTemplate(item.status, item.nextAction),
-                                }}
-                              />
-                            ) : (
-                              <Button asChild size="sm" variant={queue.key === "gifts" ? "action" : "outline"}>
-                                <Link href={queue.key === "gifts" ? "/orders" : `/influencers/${item.influencer.id}`}>{verbFor(queue.key, false)}</Link>
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {queue.count > queue.items.length ? (
-                      <p className="border-b px-4 py-2 text-xs text-muted-foreground">
-                        Showing the {queue.items.length} who have waited longest of {queue.count}.
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
-            </div>
+            <TaskList rows={rows} />
           )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground">
+            {total > shown ? (
+              <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"} className="link">
+                Show all {total} tasks
+              </Link>
+            ) : (
+              <span>{total === 0 ? "" : `Showing all ${shown}`}</span>
+            )}
+            <span className="flex items-center gap-3">
+              {lastRun ? `Checked ${timeAgo(lastRun.startedAt, now)}` : "Not checked yet"}
+              <RunAutomationsButton />
+            </span>
+          </div>
         </section>
 
         <div className="grid content-start gap-5">
           <section className="card p-4" aria-labelledby="funnel-title">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-1 flex items-center justify-between">
               <h2 id="funnel-title">Pipeline</h2>
-              <Link href="/campaigns" className="link text-xs">
-                Campaigns
+              <Link href={funnelCampaign ? `/campaigns/${funnelCampaign.id}` : "/campaigns"} className="link text-xs">
+                {funnelCampaign ? "Open board" : "Open boards"}
               </Link>
             </div>
+            <p className="mb-3 text-xs text-muted-foreground">{funnelCampaign ? funnelCampaign.name : `${openCampaigns.length} open ${openCampaigns.length === 1 ? "campaign" : "campaigns"}`}</p>
             {reached[0] === 0 ? (
               <p className="text-sm text-muted-foreground">No creators in an open campaign yet.</p>
             ) : (
@@ -304,7 +280,6 @@ export default async function TodayPage() {
                 ))}
               </ol>
             )}
-            <p className="mt-3 text-xs text-muted-foreground">Each creator counted at the furthest step they reached, across open campaigns.</p>
           </section>
 
           <section className="card p-4" aria-labelledby="activity-title">
@@ -344,7 +319,14 @@ function Tile({ label, value, note, children }: { label: string; value: number |
     <div className="card grid content-start gap-1.5 p-4">
       <p className="label">{label}</p>
       <p className="stat-number text-[28px]">{value}</p>
-      {children ? <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">{children}{note ? <span>{note}</span> : null}</div> : note ? <p className="text-xs text-muted-foreground">{note}</p> : null}
+      {children ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {children}
+          {note ? <span>{note}</span> : null}
+        </div>
+      ) : note ? (
+        <p className="text-xs text-muted-foreground">{note}</p>
+      ) : null}
     </div>
   );
 }

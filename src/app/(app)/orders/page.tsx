@@ -17,15 +17,31 @@ export const metadata: Metadata = { title: "Gifts" };
 const PAGE_SIZE = 50;
 const CHECKED: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved", "ordered", "shipped", "exception"]);
 
-export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
+// The tab words, shorter than the status labels where the context makes them clear.
+const TAB_LABELS: Record<GiftOrderStatus, string> = {
+  needs_approval: "Needs approval",
+  approved: "To order",
+  ordered: "Ordered",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  exception: "Problems",
+  cancelled: "Cancelled",
+};
+
+const SORTS = { newest: "Newest first", oldest: "Oldest first", status: "By status" } as const;
+type Sort = keyof typeof SORTS;
+
+export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; sort?: string }> }) {
   const view = viewed(await requireUser());
-  const raw = (await searchParams).status ?? "";
+  const params = await searchParams;
+  const raw = params.status ?? "";
   const filter = GIFT_STATUSES.includes(raw as GiftOrderStatus) ? (raw as GiftOrderStatus) : null;
+  const sort: Sort = params.sort === "oldest" || params.sort === "status" ? params.sort : "newest";
 
   const [stored, counts] = await Promise.all([
     db.giftOrder.findMany({
       where: { ...view.gifts, status: filter ?? { not: "cancelled" } },
-      orderBy: { createdAt: "desc" },
+      orderBy: sort === "status" ? [{ status: "asc" }, { createdAt: "desc" }] : { createdAt: sort === "oldest" ? "asc" : "desc" },
       take: PAGE_SIZE,
       include: {
         product: { select: { title: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true, stock: true } },
@@ -109,17 +125,22 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       </PageHeader>
 
       <nav aria-label="Filter by status" className="tabs mb-5">
-        <Link href="/orders" className="tab" aria-current={filter === null ? "true" : undefined}>
+        <Link href={sort === "newest" ? "/orders" : `/orders?sort=${sort}`} className="tab" aria-current={filter === null ? "true" : undefined}>
           All open <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{openCount}</span>
         </Link>
         {GIFT_STATUSES.map((status) => (
-          <Link key={status} href={`/orders?status=${status}`} className="tab" aria-current={filter === status ? "true" : undefined}>
-            {GIFT_STATUS_LABELS[status]} <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{countOf.get(status) ?? 0}</span>
+          <Link key={status} href={`/orders?status=${status}${sort === "newest" ? "" : `&sort=${sort}`}`} className="tab" aria-current={filter === status ? "true" : undefined} title={GIFT_STATUS_LABELS[status]}>
+            {TAB_LABELS[status]}
+            {status !== "cancelled" ? <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{countOf.get(status) ?? 0}</span> : null}
           </Link>
         ))}
       </nav>
 
-      <GiftsTable orders={orders} />
+      <GiftsTable
+        orders={orders}
+        sort={{ value: sort, options: SORTS, status: filter }}
+        footer={orders.length === 0 ? "" : `1 to ${orders.length} of ${orders.length}${orders.length === PAGE_SIZE ? " shown" : ""} · Rows per page ${PAGE_SIZE}`}
+      />
 
       <div className="mt-10 grid gap-5 lg:grid-cols-2">
         <section className="card p-5">

@@ -1,6 +1,7 @@
 import { cn } from "cn";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/panel";
 import { ReportTabs } from "@/components/report-tabs";
@@ -14,13 +15,13 @@ import { dayValueInZone, formatCount, formatDay, startOfWeekInZone } from "@/lib
 import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
+import { trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Performance" };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const TREND_WEEKS = 8;
 const TOP = 8;
-const SMALL_KEYS: (keyof Figures)[] = ["creatorsAdded", "contacted", "agreed", "giftsOrdered", "giftsShipped", "posted", "noContent", "completed"];
 const TABLE_KEYS: (keyof Figures)[] = ["messages", "replies", "contacted", "agreed", "giftsShipped", "giftsDelivered", "posted", "noContent", "contentRate"];
 
 function show(key: keyof Figures, value: number | null): string {
@@ -58,17 +59,30 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const campaigns = await db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }, orderBy: { name: "asc" }, select: { id: true, name: true } });
   const chosen = campaigns.find((campaign) => campaign.id === params.campaign) ?? null;
   const where = chosen ? { id: chosen.id } : view.campaigns;
+  const href = (overrides: Record<string, string | undefined>) => {
+    const query = new URLSearchParams();
+    const merged = { period: period.key, from: params.from, to: params.to, campaign: chosen?.id, ...overrides };
+    for (const [key, value] of Object.entries(merged)) if (value) query.set(key, value);
+    return `/reports/performance?${query}`;
+  };
   const thisWeek = startOfWeekInZone(now);
   const trendPeriod = { key: "trend", label: "trend", from: new Date(thisWeek.getTime() - (TREND_WEEKS - 1) * 7 * DAY_MS), to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
   const inPeriod = { gte: period.from, lt: period.to };
 
-  const [figures, before, buckets, trend, postsByCreator] = await Promise.all([
+  const earlier = previousPeriod(period);
+  const messagedIn = (range: { from: Date; to: Date }) => db.message.groupBy({ by: ["campaignCreatorId"], where: { direction: "outbound", sentAt: { gte: range.from, lt: range.to }, campaignCreator: { campaign: where } } });
+  const [figures, before, buckets, trend, postsByCreator, messagedNow, messagedBefore] = await Promise.all([
     figuresFor(period, where),
-    figuresFor(previousPeriod(period), where),
+    figuresFor(earlier, where),
     bucketsFor(period, where),
     bucketsFor(trendPeriod, where),
     db.post.groupBy({ by: ["campaignCreatorId"], where: { createdAt: inPeriod, campaignCreator: { campaign: where } }, _count: { _all: true }, orderBy: { _count: { campaignCreatorId: "desc" } }, take: TOP * 2 }),
+    messagedIn(period),
+    messagedIn(earlier),
   ]);
+  // Reply rate the way the outreach report defines it: replies divided by the creators messaged in the period.
+  const replyRateNow = messagedNow.length > 0 ? Math.round((figures.replies / messagedNow.length) * 100) : null;
+  const replyRateBefore = messagedBefore.length > 0 ? Math.round((before.replies / messagedBefore.length) * 100) : null;
 
   // The creators behind the period's posts, with the figures that rank them.
   const topLinks = postsByCreator.length
@@ -88,13 +102,28 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     .filter((row): row is { posts: number; link: NonNullable<typeof row.link> } => Boolean(row.link))
     .sort((a, b) => b.posts - a.posts || Number(b.link.influencer.amazonMonthlyGmvUsd ?? 0) - Number(a.link.influencer.amazonMonthlyGmvUsd ?? 0))
     .slice(0, TOP);
-
-  const href = (overrides: Record<string, string | undefined>) => {
-    const query = new URLSearchParams();
-    const merged = { period: period.key, from: params.from, to: params.to, campaign: chosen?.id, ...overrides };
-    for (const [key, value] of Object.entries(merged)) if (value) query.set(key, value);
-    return `/reports/performance?${query}`;
+  // Their all-time content rate: collaborations that ended in a post, over those that ended at all.
+  const records = await trackRecordFor(top.map((row) => row.link.influencer.id), view);
+  const contentRateOf = (influencerId: string): number | null => {
+    const record = records.get(influencerId);
+    const ended = (record?.delivered ?? 0) + (record?.noContent ?? 0);
+    return record && ended > 0 ? Math.round((record.delivered / ended) * 100) : null;
   };
+
+  // "Email to my manager": the headline figures in a plain message the mail app opens.
+  const subject = `Creator Growth: ${period.label}${chosen ? `, ${chosen.name}` : ""}`;
+  const body = [
+    `${view.brandId ? brandName(view.brandId) : "Both brands"} · ${period.label}, ${formatDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`,
+    "",
+    `Messages sent: ${figures.messages} (${before.messages} the period before)`,
+    `Replies: ${figures.replies}${replyRateNow !== null ? `, reply rate ${replyRateNow}%` : ""}`,
+    `Agreed: ${figures.agreed}`,
+    `Gifts chosen: ${figures.giftsOrdered}, shipped: ${figures.giftsShipped}, delivered: ${figures.giftsDelivered}`,
+    `Content posted: ${figures.posted}, no content: ${figures.noContent}${figures.contentRate !== null ? `, content rate ${figures.contentRate}%` : ""}`,
+    "",
+    `Full report: ${process.env.APP_URL ?? ""}${href({})}`,
+  ].join("\n");
+  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
   // Where creators drop off: each step as a share of the first.
   const funnel = [
@@ -120,6 +149,9 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       >
         <Button asChild variant="outline">
           <a href={href({}).replace("/reports/performance?", "/reports/performance/export?")}>Export CSV</a>
+        </Button>
+        <Button asChild variant="outline">
+          <a href={mailto}>Email to my manager</a>
         </Button>
       </PageHeader>
       <ReportTabs current="performance" />
@@ -147,16 +179,20 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           </Button>
         </form>
         {campaigns.length > 1 ? (
-          <nav aria-label="Campaign" className="ml-auto flex flex-wrap gap-1.5">
-            <Link href={href({ campaign: undefined })} className="chip" aria-current={chosen === null ? "true" : undefined}>
-              All campaigns
-            </Link>
-            {campaigns.map((campaign) => (
-              <Link key={campaign.id} href={href({ campaign: campaign.id })} className="chip" aria-current={chosen?.id === campaign.id ? "true" : undefined}>
-                {campaign.name}
-              </Link>
-            ))}
-          </nav>
+          <form method="get" className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input type="hidden" name="period" value={period.key} />
+            {params.from ? <input type="hidden" name="from" value={params.from} /> : null}
+            {params.to ? <input type="hidden" name="to" value={params.to} /> : null}
+            <label htmlFor="report-campaign">Campaign</label>
+            <AutoSubmitSelect id="report-campaign" name="campaign" defaultValue={chosen?.id ?? ""} className="h-8 w-auto text-xs font-semibold">
+              <option value="">All campaigns</option>
+              {campaigns.map((campaign) => (
+                <option key={campaign.id} value={campaign.id}>
+                  {campaign.name}
+                </option>
+              ))}
+            </AutoSubmitSelect>
+          </form>
         ) : null}
       </div>
 
@@ -170,11 +206,13 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           </div>
         </div>
         <div className="card grid gap-1.5 p-4">
-          <p className="label">Replies</p>
-          <p className="stat-number text-[28px]">{figures.replies}</p>
+          <p className="label">Reply rate</p>
+          <p className="stat-number text-[28px]">{replyRateNow === null ? "–" : `${replyRateNow}%`}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Delta now={figures.replies} before={before.replies} />
-            <span>{figures.contacted} creators contacted</span>
+            <Delta now={replyRateNow} before={replyRateBefore} points />
+            <span>
+              {figures.replies} {figures.replies === 1 ? "reply" : "replies"} from {messagedNow.length} creators messaged
+            </span>
           </div>
         </div>
         <div className="card grid gap-1.5 p-4">
@@ -236,25 +274,6 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </section>
       </div>
 
-      <section aria-label="More figures" className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-9">
-        {SMALL_KEYS.map((key) => (
-          <div key={key} className="card grid gap-0.5 px-3 py-2.5">
-            <p className="text-[11px] font-semibold text-muted-foreground">{FIGURE_LABELS[key]}</p>
-            <p className="flex items-baseline gap-1.5">
-              <span className="stat-number text-[20px]">{show(key, figures[key])}</span>
-              <span className="text-[11px] text-muted-foreground">{before[key] ?? 0} before</span>
-            </p>
-          </div>
-        ))}
-        <div className="card grid gap-0.5 px-3 py-2.5">
-          <p className="text-[11px] font-semibold text-muted-foreground">Attributed orders</p>
-          <p className="flex items-baseline gap-1.5">
-            <span className="stat-number text-[20px] text-muted-foreground">–</span>
-            <span className="text-[11px] text-muted-foreground">after the Amazon import</span>
-          </p>
-        </div>
-      </section>
-
       <section className="card mb-5 overflow-hidden" aria-labelledby="top-title">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-3">
           <h2 id="top-title">Top creators in this period</h2>
@@ -272,11 +291,13 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                 <TableHead>#</TableHead>
                 <TableHead>Creator</TableHead>
                 <TableHead className="text-right">Posts</TableHead>
+                <TableHead>Content rate</TableHead>
                 <TableHead className="text-right">Followers</TableHead>
                 <TableHead className="text-right">Engagement</TableHead>
                 <TableHead>Amazon tier</TableHead>
                 <TableHead className="text-right">Monthly sales</TableHead>
-                <TableHead>Last contact</TableHead>
+                <TableHead>Attributed orders</TableHead>
+                <TableHead>Last collaboration</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -298,10 +319,17 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">{row.posts}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const value = contentRateOf(row.link.influencer.id);
+                        return value === null ? <span className="text-muted-foreground">–</span> : <span className={cn("chip border-transparent", value >= 80 ? "bg-success-soft text-success-text" : value >= 50 ? "bg-warning-soft text-warning-text" : "bg-danger-soft text-danger-text")}>{value}%</span>;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">{profile?.followers !== null && profile?.followers !== undefined ? formatCount(profile.followers) : "–"}</TableCell>
                     <TableCell className="text-right tabular-nums">{profile?.engagementRate !== null && profile?.engagementRate !== undefined ? `${profile.engagementRate}%` : "–"}</TableCell>
                     <TableCell>{row.link.influencer.amazonTier ?? <span className="text-muted-foreground">–</span>}</TableCell>
                     <TableCell className="text-right tabular-nums">{gmv === null ? "–" : `$${Math.round(gmv).toLocaleString("en-US")}`}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">after Amazon import</TableCell>
                     <TableCell className="text-muted-foreground">{formatDay(row.link.lastContactedAt) || "–"}</TableCell>
                   </TableRow>
                 );

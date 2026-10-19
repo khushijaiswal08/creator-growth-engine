@@ -72,10 +72,13 @@ export default async function InfluencersPage({
     <>
       <PageHeader title="Creators" meta={`${total} ${showArchived ? "archived" : "active"}`}>
         <Button asChild variant="outline">
+          <Link href="/import">Import CSV</Link>
+        </Button>
+        <Button asChild variant="outline">
           <Link href="/influencers/ranking">Ranking</Link>
         </Button>
         <Button asChild variant="action">
-          <Link href="/influencers/new">Add creator</Link>
+          <Link href="/influencers/new">+ Add creator</Link>
         </Button>
       </PageHeader>
 

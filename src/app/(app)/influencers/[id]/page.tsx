@@ -4,8 +4,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { setInfluencerArchived } from "@/actions/influencers";
+import { ActionMenu, MENU_ITEM_CLASS } from "@/components/action-menu";
 import { ActivityList } from "@/components/activity-list";
 import { Avatar } from "@/components/avatar";
+import { EditDetailsButton, LogReplyButton } from "@/components/creator-actions";
 import { AddProfileForm, AddToCampaignForm, EditInfluencerForm } from "@/components/influencer-forms";
 import { AddPostForm, CopyButton, LogReplyForm } from "@/components/journey-forms";
 import { MessageButton, MessageComposer } from "@/components/message-button";
@@ -13,7 +15,6 @@ import { ProductPhoto } from "@/components/product-photo";
 import { CreatorStatusPill, Pill } from "@/components/status-pill";
 import { StatusSelect } from "@/components/status-select";
 import { Tabs } from "@/components/tabs";
-import { Button } from "@/components/ui/button";
 import { openAddress } from "@/lib/address-crypto";
 import { activityOfInfluencer, allowed, viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
@@ -238,16 +239,29 @@ export default async function InfluencerPage({
           </dl>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {active ? <LogReplyButton campaignCreatorId={active.id} campaignName={active.campaign.name} /> : null}
           {active ? <MessageButton target={targetFor(active)} size="default" variant="action" /> : null}
-          {mayArchive ? (
-            <form action={setInfluencerArchived.bind(null, influencer.id, !influencer.archived)}>
-              <Button type="submit" variant="outline">
-                {influencer.archived ? "Restore" : "Archive"}
-              </Button>
-            </form>
-          ) : (
-            <span className="max-w-48 text-right text-xs text-muted-foreground">Also works with the other brand, so only an admin can archive.</span>
-          )}
+          <ActionMenu>
+            {active?.giftOrders[0] ? (
+              <Link href="/orders" className={MENU_ITEM_CLASS}>
+                Open in Gifts
+              </Link>
+            ) : null}
+            {active ? (
+              <Link href={`/campaigns/${active.campaign.id}`} className={MENU_ITEM_CLASS}>
+                Open the campaign board
+              </Link>
+            ) : null}
+            {mayArchive ? (
+              <form action={setInfluencerArchived.bind(null, influencer.id, !influencer.archived)}>
+                <button type="submit" className={MENU_ITEM_CLASS}>
+                  {influencer.archived ? "Restore from archive" : "Archive this creator"}
+                </button>
+              </form>
+            ) : (
+              <p className="px-3 py-2 text-xs text-muted-foreground">Also works with the other brand, so only an admin can archive.</p>
+            )}
+          </ActionMenu>
         </div>
       </header>
 
@@ -363,12 +377,6 @@ export default async function InfluencerPage({
                             })}
                           </ol>
                         ) : null}
-                        <details className="disclosure mt-3" open={link.status === "contacted" || link.status === "follow_up_due" || link.status === "replied"}>
-                          <summary>Log a reply</summary>
-                          <div className="pt-3">
-                            <LogReplyForm campaignCreatorId={link.id} />
-                          </div>
-                        </details>
                         {!gift && link.selectionToken ? (
                           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[#f1c7d4] pt-3 text-sm">
                             <p className="text-muted-foreground">
@@ -426,7 +434,10 @@ export default async function InfluencerPage({
                 ) : null}
 
                 <section className="card p-5">
-                  <h2 className="mb-3">About</h2>
+                  <div className="mb-3 flex items-center justify-between">
+                    <h2>About</h2>
+                    <EditDetailsButton influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes }} />
+                  </div>
                   <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Email</dt>
                     <dd className="break-words">{influencer.email ?? "Not known"}</dd>
@@ -446,21 +457,15 @@ export default async function InfluencerPage({
                     <dt className="text-muted-foreground">Notes</dt>
                     <dd className="whitespace-pre-line">{influencer.notes ?? <span className="text-muted-foreground">None</span>}</dd>
                   </dl>
-                  <div className="mt-4 grid gap-2">
-                    <details className="disclosure">
-                      <summary>Edit details</summary>
-                      <EditInfluencerForm influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes }} />
-                    </details>
-                    <details className="disclosure">
-                      <summary>Add another profile</summary>
-                      <AddProfileForm influencerId={influencer.id} />
-                    </details>
-                  </div>
+                  <details className="disclosure mt-4">
+                    <summary>Add another profile</summary>
+                    <AddProfileForm influencerId={influencer.id} />
+                  </details>
                 </section>
 
                 {links.length > 0 ? (
                   <section className="card p-5">
-                    <h2 className="mb-3">Collaborations</h2>
+                    <h2 className="mb-3">Past collaborations</h2>
                     <ul className="grid gap-2.5 text-sm">
                       {links.map((link) => (
                         <li key={link.id} className="flex items-start justify-between gap-3">
@@ -478,8 +483,8 @@ export default async function InfluencerPage({
                       ))}
                     </ul>
                     {openCampaigns.length > 0 ? (
-                      <details className="disclosure mt-4">
-                        <summary>Add to another campaign</summary>
+                      <details className="mt-4">
+                        <summary className="inline-flex h-8 cursor-pointer list-none items-center rounded-md border border-border-strong bg-surface px-3 text-[13px] font-semibold hover:bg-surface-2 [&::-webkit-details-marker]:hidden">Add to another campaign</summary>
                         <AddToCampaignForm influencerId={influencer.id} campaigns={openCampaigns} />
                       </details>
                     ) : null}

@@ -35,6 +35,11 @@ export type MessageTarget = {
 
 const OpenComposer = createContext<((target: MessageTarget) => void) | null>(null);
 
+/** For buttons that are not the standard MessageButton: opens the composer of the nearest MessageComposer. */
+export function useOpenComposer(): ((target: MessageTarget) => void) | null {
+  return useContext(OpenComposer);
+}
+
 const PRODUCT_KEY = "cge:last-product";
 
 function readLastProduct(): string {
@@ -97,7 +102,7 @@ export function MessageButton({
   /** The verb on the button, when "Message" is not the clearest word ("Reply", "Send link"). */
   label?: string;
   size?: "xs" | "sm" | "default";
-  variant?: "outline" | "action";
+  variant?: "outline" | "action" | "link" | "ghost";
   className?: string;
 }) {
   const open = useContext(OpenComposer);

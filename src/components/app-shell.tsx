@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { BarChart3, Bell, Gift, KeyRound, LayoutDashboard, LogOut, Megaphone, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
+import { BarChart3, Bell, Clapperboard, Gift, Kanban, KeyRound, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
@@ -325,12 +325,13 @@ function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; l
 const BAR_LINKS = [
   { href: "/today", label: "Home", icon: LayoutDashboard },
   { href: "/influencers", label: "Creators", icon: Users },
-  { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { href: "/campaigns", label: "Pipeline", icon: Kanban },
   { href: "/orders", label: "Gifts", icon: Gift },
 ];
 const DRAWER_LINKS = [
-  { href: "/import", label: "Import", icon: Upload },
+  { href: "/content", label: "Content", icon: Clapperboard },
   { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/import", label: "Import", icon: Upload },
   { href: "/settings", label: "Settings", icon: SlidersHorizontal },
 ];
 

@@ -186,6 +186,7 @@ for (const [mine, theirs] of [
     assert.equal((await get(cookie, "/influencers/ranking")).status, 200);
     assert.equal((await get(cookie, `/reports/outreach/export?campaign=${me.campaignId}`)).status, 200);
     assert.equal((await get(cookie, `/campaigns/${me.campaignId}?view=list`)).status, 200);
+    assert.equal((await get(cookie, "/content")).status, 200);
     // The search box finds the own brand's creator and never the other brand's, though both are called "creator".
     const found = await (await get(cookie, "/search?q=creator")).text();
     assert.match(found, new RegExp(`${mine} creator`), "search lists the own brand's creator");
