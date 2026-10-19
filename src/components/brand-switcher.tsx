@@ -4,48 +4,64 @@ import { cn } from "cn";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { setBrandView } from "@/actions/brand-view";
-import { useSidebar } from "@/components/sidebar-context";
 import { BRANDS } from "@/lib/brands";
 
-const SELECT =
-  "h-8 w-full cursor-pointer rounded-full border border-border-strong bg-transparent text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
-
-/**
- * Sidebar control for someone who may see both brands: narrows every list to
- * one brand, or back to both. Two selects, one per sidebar width, because the
- * narrow rail only has room for a few letters.
- */
-export function BrandSwitcher({ current }: { current: string | null }) {
+function useChooseBrand() {
   const router = useRouter();
-  const ui = useSidebar();
   const [pending, startTransition] = useTransition();
-
-  const choose = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const brandId = event.target.value;
+  const choose = (brandId: string) => {
     startTransition(async () => {
       await setBrandView(brandId);
       router.refresh();
     });
   };
+  return { choose, pending };
+}
 
+/**
+ * Top-bar control for someone who may see both brands: one segment per
+ * brand plus "Both". Narrows every list; it is a preference, not a permission.
+ */
+export function BrandSegments({ current }: { current: string | null }) {
+  const { choose, pending } = useChooseBrand();
+  const options = [{ id: "", label: "Both" }, ...BRANDS.map((brand) => ({ id: brand.id, label: brand.short }))];
   return (
-    <div className="grid gap-1">
-      <span className={cn("eyebrow px-1", ui.label)}>Showing</span>
+    <div role="group" aria-label="Brand shown" className={cn("inline-flex rounded-md bg-surface-2 p-0.5", pending && "opacity-60")}>
+      {options.map((option) => {
+        const active = (current ?? "") === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            aria-pressed={active}
+            disabled={pending}
+            onClick={() => choose(option.id)}
+            className={cn(
+              "h-7 rounded-[5px] px-3 text-xs font-semibold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "bg-surface text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The same choice as a plain select, for the phone drawer. */
+export function BrandSwitcher({ current }: { current: string | null }) {
+  const { choose, pending } = useChooseBrand();
+  return (
+    <label className="grid gap-1">
+      <span className="eyebrow">Showing</span>
       <select
         aria-label="Brand shown"
         value={current ?? ""}
-        onChange={choose}
+        onChange={(event) => choose(event.target.value)}
         disabled={pending}
-        className={cn(SELECT, "appearance-none px-0 text-center", ui.railOnly)}
+        className="h-9 w-full rounded-md border border-input bg-surface px-2 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
       >
-        <option value="">All</option>
-        {BRANDS.map((brand) => (
-          <option key={brand.id} value={brand.id}>
-            {brand.short}
-          </option>
-        ))}
-      </select>
-      <select aria-label="Brand shown" value={current ?? ""} onChange={choose} disabled={pending} className={cn(SELECT, "px-2.5", ui.wideOnly)}>
         <option value="">Both brands</option>
         {BRANDS.map((brand) => (
           <option key={brand.id} value={brand.id}>
@@ -53,20 +69,15 @@ export function BrandSwitcher({ current }: { current: string | null }) {
           </option>
         ))}
       </select>
-    </div>
+    </label>
   );
 }
 
 /** For someone who works on one brand: its name, so it is always clear whose data this is. */
-export function BrandBadge({ name, short }: { name: string; short: string }) {
-  const ui = useSidebar();
+export function BrandBadge({ name }: { name: string }) {
   return (
-    <div className="grid gap-1" title={`You are working on ${name}`}>
-      <span className={cn("eyebrow px-1", ui.label)}>Brand</span>
-      <span className={cn("flex h-8 items-center rounded-full bg-primary-soft px-1 text-xs font-medium text-primary-text", ui.align, ui.preference === "expanded" ? "px-2.5" : ui.preference === null ? "lg:px-2.5" : "")}>
-        <span className={ui.railOnly}>{short}</span>
-        <span className={cn("truncate", ui.wideOnly)}>{name}</span>
-      </span>
-    </div>
+    <span title={`You are working on ${name}`} className="inline-flex h-7 items-center rounded-md bg-primary-soft px-2.5 text-xs font-semibold whitespace-nowrap text-primary-text">
+      {name}
+    </span>
   );
 }

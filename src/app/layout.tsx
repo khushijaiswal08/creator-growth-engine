@@ -1,20 +1,13 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Sans } from "next/font/google";
+import { Figtree } from "next/font/google";
 import { RegisterServiceWorker } from "@/components/register-sw";
 import "./globals.css";
 
-// Variable font with the optical-size axis, so headings and large numbers get the display cut.
-const fraunces = Fraunces({
+// One typeface for the whole portal; headings and figures differ by weight only.
+const figtree = Figtree({
   subsets: ["latin"],
-  axes: ["opsz"],
-  variable: "--font-fraunces",
-  display: "swap",
-});
-
-const plex = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-plex",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-figtree",
   display: "swap",
 });
 
@@ -26,11 +19,11 @@ export const metadata: Metadata = {
   appleWebApp: { capable: true, title: "Creator Growth", statusBarStyle: "default" },
 };
 
-export const viewport = { themeColor: "#faf6f3", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
+export const viewport = { themeColor: "#ffffff", width: "device-width", initialScale: 1, viewportFit: "cover" as const };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${plex.variable}`}>
+    <html lang="en" className={figtree.variable}>
       <body>
         {children}
         <RegisterServiceWorker />

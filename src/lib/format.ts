@@ -35,6 +35,20 @@ export function timeOfDay(date: Date): "morning" | "afternoon" | "evening" {
   return "evening";
 }
 
+/** "just now", "12 minutes ago", "3 hours ago", "yesterday", "4 days ago", then the date. */
+export function timeAgo(date: Date, now = new Date()): string {
+  const seconds = Math.max(0, Math.round((now.getTime() - date.getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 14) return `${days} days ago`;
+  return formatDay(date);
+}
+
 /** "Tuesday 6 October" */
 export const todayWords = (date: Date) =>
   longDay.formatToParts(date).reduce((text, part) => {

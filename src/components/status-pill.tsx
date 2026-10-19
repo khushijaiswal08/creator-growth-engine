@@ -5,16 +5,14 @@ import {
   CAMPAIGN_STATUS_TONES,
   CREATOR_STATUS_LABELS,
   CREATOR_STATUS_TONES,
-  TONE_DOT,
-  TONE_TEXT,
+  TONE_CLASSES,
   type StatusTone,
 } from "@/lib/status";
 
-/** A small dot in the tone's colour and plain text. The one place that decides what a tone looks like. */
+/** A small tinted chip in the tone's colour. The one place that decides what a tone looks like. */
 export function Pill({ tone, className, children }: { tone: StatusTone; className?: string; children: React.ReactNode }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap", TONE_TEXT[tone], className)}>
-      <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[tone])} />
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASSES[tone], className)}>
       {children}
     </span>
   );

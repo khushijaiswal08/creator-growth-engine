@@ -13,11 +13,11 @@ export function PageHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+    <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div className="min-w-0">
-        {eyebrow ? <p className="eyebrow mb-1.5">{eyebrow}</p> : null}
+        {eyebrow ? <p className="eyebrow mb-1">{eyebrow}</p> : null}
         <h1>{title}</h1>
-        {meta ? <div className="mt-1.5 text-muted-foreground">{meta}</div> : null}
+        {meta ? <div className="mt-1 text-muted-foreground">{meta}</div> : null}
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
     </header>
@@ -25,9 +25,9 @@ export function PageHeader({
 }
 
 /**
- * One section of a page. Boxed by default: a quiet white card on the paper
- * with a serif title. `plain` drops the box and keeps the title and hairline,
- * for sections that should sit directly on the page.
+ * One section of a page. Boxed by default: a white card with a bold title
+ * row. `plain` drops the box and keeps the title and hairline, for sections
+ * that should sit directly on the page.
  */
 export function Panel({
   title,
@@ -45,7 +45,7 @@ export function Panel({
   return (
     <section className={cn(plain ? "" : "card overflow-hidden", className)}>
       {title ? (
-        <div className={cn("flex items-center justify-between gap-3 border-b", plain ? "pb-2.5" : "px-4 py-3")}>
+        <div className={cn("flex flex-wrap items-center justify-between gap-3", plain ? "border-b pb-2.5" : "border-b px-4 py-3")}>
           <h2>{title}</h2>
           {aside}
         </div>
@@ -58,7 +58,7 @@ export function Panel({
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="px-3 py-8 text-center text-muted-foreground">
+      <td colSpan={colSpan} className="px-3 py-10 text-center text-muted-foreground">
         {children}
       </td>
     </tr>

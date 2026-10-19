@@ -1,25 +1,21 @@
 import type { GiftOrderStatus } from "@prisma/client";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { decideGift, markDelivered } from "@/actions/gifts";
-import { GiftTrackingForm, TrackingImportForm } from "@/components/journey-forms";
-import { openAddress } from "@/lib/address-crypto";
-import { PageHeader, Panel } from "@/components/panel";
-import { ProductPhoto } from "@/components/product-photo";
-import { Pill } from "@/components/status-pill";
+import { GiftsTable, type GiftRow } from "@/components/gifts-table";
+import { TrackingImportForm } from "@/components/journey-forms";
+import { PageHeader } from "@/components/panel";
 import { Button } from "@/components/ui/button";
+import { openAddress } from "@/lib/address-crypto";
 import { viewed } from "@/lib/brand-scope";
-import { BRANDS } from "@/lib/brands";
+import { BRANDS, brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { formatDay } from "@/lib/format";
-import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES, GIFT_STATUSES, giftReference } from "@/lib/gifts";
+import { approvalChecks, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference } from "@/lib/gifts";
 import { requireUser } from "@/lib/session";
-import { TONE_DOT } from "@/lib/status";
-import { trackingUrl } from "@/lib/tracking";
 
-export const metadata: Metadata = { title: "Gift orders" };
+export const metadata: Metadata = { title: "Gifts" };
 
 const PAGE_SIZE = 50;
+const CHECKED: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved", "ordered", "shipped", "exception"]);
 
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ status?: string }> }) {
   const view = viewed(await requireUser());
@@ -32,17 +28,58 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       orderBy: { createdAt: "desc" },
       take: PAGE_SIZE,
       include: {
-        product: { select: { title: true, listingName: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true } },
+        product: { select: { title: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true, stock: true } },
         campaignCreator: {
-          select: { campaign: { select: { name: true } }, influencer: { select: { id: true, name: true } } },
+          select: { influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { name: true } }, influencer: { select: { id: true, name: true } } },
         },
       },
     }),
     db.giftOrder.groupBy({ by: ["status"], where: view.gifts, _count: { _all: true } }),
   ]);
-  // Addresses are encrypted at rest; only this signed-in, brand-scoped page reads them.
-  const orders = stored.map(openAddress);
   const countOf = new Map(counts.map((row) => [row.status, row._count._all]));
+  const openCount = GIFT_STATUSES.filter((status) => status !== "cancelled" && status !== "delivered").reduce((sum, status) => sum + (countOf.get(status) ?? 0), 0);
+
+  // Addresses are encrypted at rest; only this signed-in, brand-scoped page reads them.
+  // Open orders also carry the rules they passed or failed, so the drawer can show them.
+  const orders: GiftRow[] = await Promise.all(
+    stored.map(openAddress).map(async (order) => ({
+      id: order.id,
+      reference: giftReference(order.id),
+      status: order.status,
+      quantity: order.quantity,
+      createdAt: order.createdAt,
+      shippedAt: order.shippedAt,
+      deliveredAt: order.deliveredAt,
+      orderNumber: order.orderNumber,
+      carrier: order.carrier,
+      trackingNumber: order.trackingNumber,
+      trackingStatus: order.trackingStatus,
+      approvalNote: order.approvalNote,
+      creatorNote: order.creatorNote,
+      shipName: order.shipName,
+      address1: order.address1,
+      address2: order.address2,
+      city: order.city,
+      state: order.state,
+      postalCode: order.postalCode,
+      country: order.country,
+      phone: order.phone,
+      product: { ...order.product, price: order.product.price === null ? null : Number(order.product.price) },
+      creator: order.campaignCreator.influencer,
+      campaign: order.campaignCreator.campaign.name,
+      checks: CHECKED.has(order.status)
+        ? await approvalChecks({
+            influencerId: order.campaignCreator.influencerId,
+            country: order.country,
+            quantity: order.quantity,
+            productPriceUsd: order.product.price === null ? null : Number(order.product.price),
+            collaborationType: order.campaignCreator.collaborationType,
+            approvedFee: order.campaignCreator.approvedFee,
+          }, { id: order.id, createdAt: order.createdAt })
+        : [],
+    })),
+  );
+
   // Each brand ships from its own Amazon account, so there is one order file per brand.
   const toOrder = (
     await Promise.all(
@@ -55,7 +92,13 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
 
   return (
     <>
-      <PageHeader title="Gift orders" meta="Creators choose their product and address themselves. Orders inside the rules are approved on their own.">
+      <PageHeader
+        title="Gifts"
+        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${openCount} open ${openCount === 1 ? "order" : "orders"} · ${countOf.get("needs_approval") ?? 0} waiting for approval`}
+      >
+        <Button asChild variant="outline">
+          <a href="#tracking">Paste tracking</a>
+        </Button>
         {toOrder.map(({ brand, count }) => (
           <Button asChild variant="action" key={brand.id}>
             <a href={`/orders/export?brand=${brand.id}`}>
@@ -65,137 +108,32 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         ))}
       </PageHeader>
 
-      <nav aria-label="Filter by status" className="flex flex-wrap gap-1.5">
-        <Link href="/orders" className="chip" aria-current={filter === null ? "true" : undefined}>
-          All open
+      <nav aria-label="Filter by status" className="tabs mb-5">
+        <Link href="/orders" className="tab" aria-current={filter === null ? "true" : undefined}>
+          All open <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{openCount}</span>
         </Link>
         {GIFT_STATUSES.map((status) => (
-          <Link key={status} href={`/orders?status=${status}`} className="chip" aria-current={filter === status ? "true" : undefined}>
-            <span aria-hidden className={`size-1.5 rounded-full ${TONE_DOT[GIFT_STATUS_TONES[status]]}`} />
-            {GIFT_STATUS_LABELS[status]} <span className="tabular-nums">{countOf.get(status) ?? 0}</span>
+          <Link key={status} href={`/orders?status=${status}`} className="tab" aria-current={filter === status ? "true" : undefined}>
+            {GIFT_STATUS_LABELS[status]} <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{countOf.get(status) ?? 0}</span>
           </Link>
         ))}
       </nav>
 
-      {orders.length === 0 ? (
-        <p className="mt-10 py-10 text-center text-muted-foreground">No gift orders here. They appear when a creator uses their product selection link.</p>
-      ) : (
-        <ol className="mt-6 border-t">
-          {orders.map((order) => {
-            const open = order.status !== "delivered" && order.status !== "cancelled";
-            return (
-              <li key={order.id} className="grid gap-x-4 gap-y-3 border-b py-4 sm:grid-cols-[3.5rem_minmax(0,1fr)_auto]">
-                <ProductPhoto url={order.product.imageUrl} size={56} className="size-14 rounded-md" />
-                <div className="min-w-0">
-                  <p>
-                    <Link href={`/influencers/${order.campaignCreator.influencer.id}`} className="font-medium text-foreground hover:text-primary-text">
-                      {order.campaignCreator.influencer.name}
-                    </Link>
-                    <span className="text-muted-foreground"> · {order.campaignCreator.campaign.name}</span>
-                  </p>
-                  <p>
-                    {[order.product.title, order.product.color, order.product.size].filter(Boolean).join(", ")}
-                    {order.quantity > 1 ? ` × ${order.quantity}` : ""}
-                    {order.product.amazonUrl ? (
-                      <>
-                        {" "}
-                        <a className="link text-xs" href={order.product.amazonUrl} target="_blank" rel="noopener noreferrer">
-                          Amazon
-                        </a>
-                      </>
-                    ) : null}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    SKU {order.product.sku}
-                    {order.product.price ? ` · $${order.product.price.toFixed(2)}` : ""}
-                    {" · "}
-                    {giftReference(order.id)}
-                    {order.orderNumber ? ` · Amazon ${order.orderNumber}` : ""}
-                    {order.deliveredAt
-                      ? ` · Delivered ${formatDay(order.deliveredAt)}`
-                      : order.shippedAt
-                        ? ` · Shipped ${formatDay(order.shippedAt)}`
-                        : ` · Chosen ${formatDay(order.createdAt)}`}
-                  </p>
-                  {order.approvalNote && order.status === "needs_approval" ? (
-                    <p className="mt-1 text-sm text-warning-text">Needs your approval: {order.approvalNote}</p>
-                  ) : null}
-                  {order.trackingStatus && order.status === "exception" ? <p className="mt-1 text-sm text-danger-text">{order.trackingStatus}</p> : null}
+      <GiftsTable orders={orders} />
 
-                  <details className="disclosure mt-2">
-                    <summary>Address and tracking</summary>
-                    <div className="grid gap-3 pt-3 text-sm">
-                      <p>
-                        <span className="text-muted-foreground">Ship to: </span>
-                        {[order.shipName, order.address1, order.address2, order.city, [order.state, order.postalCode].filter(Boolean).join(" "), order.country]
-                          .filter(Boolean)
-                          .join(", ")}
-                        {order.phone ? <span className="text-muted-foreground">. Phone {order.phone}</span> : null}
-                      </p>
-                      {order.creatorNote ? <p className="text-muted-foreground">Creator&apos;s note: {order.creatorNote}</p> : null}
-                      {order.status !== "needs_approval" && order.status !== "cancelled" ? (
-                        <GiftTrackingForm
-                          gift={{
-                            id: order.id,
-                            orderNumber: order.orderNumber,
-                            carrier: order.carrier,
-                            trackingNumber: order.trackingNumber,
-                            delivered: order.status === "delivered",
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  </details>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-                  <Pill tone={GIFT_STATUS_TONES[order.status]}>{GIFT_STATUS_LABELS[order.status]}</Pill>
-                  {order.status === "needs_approval" ? (
-                    <form action={decideGift.bind(null, order.id, "approve")}>
-                      <Button type="submit" size="xs" variant="action">
-                        Approve
-                      </Button>
-                    </form>
-                  ) : null}
-                  {order.trackingNumber ? (
-                    <Button asChild size="xs" variant="outline">
-                      <a href={trackingUrl(order.carrier, order.trackingNumber)} target="_blank" rel="noopener noreferrer">
-                        Track parcel
-                      </a>
-                    </Button>
-                  ) : null}
-                  {order.status === "shipped" || order.status === "ordered" || order.status === "exception" ? (
-                    <form action={markDelivered.bind(null, order.id)}>
-                      <Button type="submit" size="xs" variant="outline">
-                        Mark delivered today
-                      </Button>
-                    </form>
-                  ) : null}
-                  {open ? (
-                    <form action={decideGift.bind(null, order.id, "cancel")}>
-                      <Button type="submit" size="xs" variant="ghost">
-                        Cancel
-                      </Button>
-                    </form>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-
-      <div className="mt-14 grid gap-x-12 gap-y-10 lg:grid-cols-2">
-        <Panel plain title="How orders reach Amazon">
-          <ol className="grid list-decimal gap-1.5 pt-3 pl-5 text-muted-foreground">
+      <div className="mt-10 grid gap-5 lg:grid-cols-2">
+        <section className="card p-5">
+          <h2 className="mb-2">How orders reach Amazon</h2>
+          <ol className="grid list-decimal gap-1.5 pl-5 text-sm text-muted-foreground">
             <li>Click &quot;Amazon order file&quot; at the top. It lists every approved order of one brand, because each brand ships from its own Amazon account.</li>
             <li>Upload the file in that brand&apos;s Seller Central under Multi-Channel Fulfillment, bulk order upload.</li>
             <li>When Amazon gives order numbers and tracking, paste them here. Delivery dates start each creator&apos;s content clock.</li>
           </ol>
-        </Panel>
-        <Panel plain title="Update tracking in bulk">
+        </section>
+        <section id="tracking" className="card p-5">
+          <h2>Update tracking in bulk</h2>
           <TrackingImportForm />
-        </Panel>
+        </section>
       </div>
     </>
   );

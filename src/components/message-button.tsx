@@ -86,7 +86,20 @@ export function MessageComposer({
   );
 }
 
-export function MessageButton({ target }: { target: MessageTarget }) {
+export function MessageButton({
+  target,
+  label = "Message",
+  size = "xs",
+  variant = "outline",
+  className,
+}: {
+  target: MessageTarget;
+  /** The verb on the button, when "Message" is not the clearest word ("Reply", "Send link"). */
+  label?: string;
+  size?: "xs" | "sm" | "default";
+  variant?: "outline" | "action";
+  className?: string;
+}) {
   const open = useContext(OpenComposer);
 
   if (target.blockedReason) {
@@ -100,8 +113,8 @@ export function MessageButton({ target }: { target: MessageTarget }) {
     return <span className="text-xs text-muted-foreground">No profile</span>;
   }
   return (
-    <Button type="button" size="xs" variant="outline" disabled={!open} onClick={() => open?.(target)}>
-      Message
+    <Button type="button" size={size} variant={variant} disabled={!open} onClick={() => open?.(target)} className={className}>
+      {label}
     </Button>
   );
 }

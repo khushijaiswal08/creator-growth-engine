@@ -1,53 +1,56 @@
 @import "tailwindcss";
 
 /*
- * Rosewood, the atelier cut: cream paper, plum ink, one rose accent.
- * Every colour a component uses comes from these tokens. The pairs were
- * checked for WCAG AA: body and muted text at 4.5:1 on every surface they sit
- * on, white text on the primary button, and 3:1 for field outlines and the
- * focus ring.
+ * Workspace palette: a light grey page, white cards with hairline borders,
+ * near-black text, one rose accent for the main action and the active place,
+ * and four status hues that each mean one thing everywhere in the portal:
  *
- * Mid-tones are never used as text: each hue has a fill and a darker "-text"
- * partner. Status is shown as a small dot and plain text, not a tinted pill,
- * so a page full of statuses still reads as a page of names.
+ *   blue   in progress, something is moving (replied, agreed, shipped)
+ *   amber  waiting on someone, a touch is due
+ *   green  done, delivered, posted
+ *   red    late, a problem, a dead end
+ *
+ * Every text colour here was checked at 4.5:1 on the surface it sits on, and
+ * white on the rose button passes too. Mid-tones are never used as text.
  */
 :root {
-  --background: #faf6f3;
+  --background: #f3f4f6;
   --surface: #ffffff;
-  --surface-2: #f4ecee;
-  --border: #e9dfe2;
-  --border-strong: #d6c6cc;
-  --text: #2b2228;
-  --text-muted: #6a5c63;
+  --surface-2: #f3f4f6;
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --text: #111827;
+  --text-muted: #6b7280;
 
   --primary: #b24a6b;
-  --primary-deep: #99395a;
+  --primary-deep: #9c3f5d;
   --on-primary: #ffffff;
-  --primary-soft: #fbe6ec;
+  --primary-soft: #fbe9ef;
   --primary-text: #9a3558;
-  --accent-text: #5f5059;
+  --accent-text: #4b5563;
 
-  /* The plum ink, kept for the wordmark and the odd dark surface. */
-  --sidebar: #2e2230;
-  --sidebar-text: #f3e9ed;
-  --sidebar-muted: #bba9b3;
-  --sidebar-active: #47323f;
+  /* The sidebar is white like the cards; the names stay for the few places that use them. */
+  --sidebar: #ffffff;
+  --sidebar-text: #111827;
+  --sidebar-muted: #6b7280;
+  --sidebar-active: #fbe9ef;
 
-  --input: #9c8a93;
+  --input: #d1d5db;
 }
 
-/* Status hues and radius. */
+/* Status hues, radius and the one soft shadow. */
 :root {
-  --success-soft: #e5ede8;
-  --success-text: #3f6b4f;
-  --warning-soft: #f5ecda;
-  --warning-text: #7a5a12;
-  --danger-soft: #f4e7e7;
-  --danger-text: #96484a;
+  --info-soft: #dbeafe;
+  --info-text: #1e40af;
+  --success-soft: #dcfce7;
+  --success-text: #166534;
+  --warning-soft: #fef3c7;
+  --warning-text: #92400e;
+  --danger-soft: #fee2e2;
+  --danger-text: #991b1b;
 
-  --radius: 6px;
-  /* Flat by design. The class names stay so nothing breaks; they draw nothing. */
-  --shadow-card: none;
+  --radius: 8px;
+  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.04);
 }
 
 @theme inline {
@@ -71,6 +74,8 @@
   --color-sidebar-muted: var(--sidebar-muted);
   --color-sidebar-active: var(--sidebar-active);
 
+  --color-info-soft: var(--info-soft);
+  --color-info-text: var(--info-text);
   --color-success-soft: var(--success-soft);
   --color-success-text: var(--success-text);
   --color-warning-soft: var(--warning-soft);
@@ -92,15 +97,16 @@
   --color-muted: var(--surface-2);
   --color-destructive: var(--danger-text);
 
-  --radius-sm: 4px;
+  --radius-sm: 6px;
   --radius-md: var(--radius);
-  --radius-lg: 10px;
-  --radius-xl: 14px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
   --shadow-card: var(--shadow-card);
 
-  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-fraunces), Georgia, serif;
+  /* One typeface for everything; headings differ by weight, not by family. */
+  --font-sans: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-figtree), ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
@@ -111,33 +117,33 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.5;
   }
 
   h1,
-  h2 {
-    @apply font-heading text-foreground;
-    font-weight: 500;
-    font-optical-sizing: auto;
+  h2,
+  h3 {
+    @apply text-foreground;
     letter-spacing: -0.01em;
   }
 
   h1 {
-    font-size: 30px;
-    line-height: 1.15;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
   }
 
   h2 {
-    font-size: 19px;
-    line-height: 1.25;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.3;
   }
 
   h3 {
-    @apply text-foreground;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
   }
 
-  /* Disclosure headers look like quiet links, not browser defaults. */
   summary {
     cursor: pointer;
     user-select: none;
@@ -145,44 +151,60 @@
 }
 
 @layer components {
-  /* Figures: the serif in the ink colour, nothing underneath. */
+  /* Figures: bold, tabular, tight. */
   .stat-number {
-    @apply inline-block font-heading text-foreground tabular-nums;
-    font-weight: 500;
-    font-optical-sizing: auto;
+    @apply inline-block font-bold text-foreground tabular-nums;
+    letter-spacing: -0.02em;
     line-height: 1.1;
   }
 
-  /* Small quiet label above a block or beside a figure. */
+  /* Small quiet line above a block or beside a figure. */
   .eyebrow {
     @apply text-xs text-muted-foreground;
+  }
+
+  /* The small capitals label on a tile or a drawer section. */
+  .label {
+    @apply text-xs font-semibold text-muted-foreground uppercase;
     letter-spacing: 0.04em;
   }
 
   /* In-page links. */
   .link {
-    @apply font-medium text-primary-text underline-offset-2 hover:underline;
+    @apply font-semibold text-primary-text underline-offset-2 hover:underline;
   }
 
-  /* A quiet white card on the paper. */
+  /* A white card on the grey page. */
   .card {
     @apply rounded-lg border bg-surface;
+    box-shadow: var(--shadow-card);
   }
 
-  /* Filter chips: outlined, the active one in ink. */
+  /* Filter chips: white outlined pills, the active one in ink. */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-muted-foreground transition-colors;
+    @apply inline-flex items-center gap-1.5 rounded-full border bg-surface px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap text-accent-text transition-colors;
   }
   .chip:hover {
     @apply border-border-strong text-foreground;
   }
   .chip[aria-current] {
-    @apply border-foreground bg-foreground text-background;
+    @apply border-foreground bg-foreground text-surface;
+  }
+
+  /* Underlined tabs across a page or a card. */
+  .tabs {
+    @apply flex flex-wrap gap-x-6 border-b;
+  }
+  .tab {
+    @apply -mb-px inline-flex h-10 items-center gap-1.5 border-b-2 border-transparent text-sm font-semibold whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground;
+  }
+  .tab[aria-current] {
+    @apply border-primary text-primary-text;
   }
 
   /* A disclosure whose header reads as a link. */
   .disclosure > summary {
-    @apply inline-flex items-center gap-1.5 text-sm font-medium text-accent-text;
+    @apply inline-flex items-center gap-1.5 text-sm font-semibold text-accent-text;
     list-style: none;
   }
   .disclosure > summary::-webkit-details-marker {

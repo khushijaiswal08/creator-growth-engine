@@ -1,12 +1,12 @@
 "use client";
 
 import { cn } from "cn";
-import { BarChart3, Gift, KeyRound, LogOut, Megaphone, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Settings, SlidersHorizontal, Sun, Upload, UserPen, Users, X } from "lucide-react";
+import { BarChart3, Bell, Gift, KeyRound, LayoutDashboard, LogOut, Megaphone, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfile } from "@/actions/account";
-import { BrandBadge, BrandSwitcher } from "@/components/brand-switcher";
+import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-switcher";
 import { FormError } from "@/components/form-error";
 import { SidebarNav } from "@/components/nav";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
@@ -29,40 +29,51 @@ export type ShellUser = {
   viewBrand: string | null;
 };
 
+/** The two figures the frame shows on every page. */
+export type ShellStats = {
+  /** Creators whose next step is due now, within what the person sees. */
+  due: number;
+  /** Messages this person logged since Monday, against the brand's weekly target. */
+  weekSent: number;
+  weekTarget: number;
+};
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1][0] ?? "") : "")).toUpperCase();
 }
 
-/** The person's photo, or their initials on ink. */
+/** The person's photo, or their initials on rose. */
 export function UserAvatar({ user, className }: { user: { name: string; avatarUrl: string | null }; className?: string }) {
   if (user.avatarUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={user.avatarUrl} alt="" className={cn("size-8 shrink-0 rounded-full object-cover", className)} />;
   }
   return (
-    <span aria-hidden className={cn("flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground font-heading text-[12px] font-medium text-background", className)}>
+    <span aria-hidden className={cn("flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-[12px] font-bold text-primary-text", className)}>
       {initials(user.name)}
     </span>
   );
 }
 
 /**
- * The frame of every signed-in page. On a desktop or tablet: a light sidebar
- * on the left that the person can collapse to an icon rail (the choice is
- * kept in a cookie). On a phone: a bar along the bottom with the four main
- * places and a "More" drawer for the rest and the profile.
+ * The frame of every signed-in page: a top bar with search, the brand, the
+ * bell and the profile; a light sidebar on the left that the person can
+ * collapse to an icon rail (the choice is kept in a cookie). On a phone the
+ * sidebar becomes a bar along the bottom with a "More" drawer.
  */
 export function AppShell({
   user,
   isAdmin,
   initialPreference,
+  stats,
   logout,
   children,
 }: {
   user: ShellUser;
   isAdmin: boolean;
   initialPreference: SidebarPreference;
+  stats: ShellStats;
   logout: () => Promise<void>;
   children: React.ReactNode;
 }) {
@@ -79,58 +90,23 @@ export function AppShell({
     document.cookie = `${SIDEBAR_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
   }
 
-  const columns =
-    preference === "collapsed"
-      ? "md:grid-cols-[3.5rem_minmax(0,1fr)]"
-      : preference === "expanded"
-        ? "md:grid-cols-[14.5rem_minmax(0,1fr)]"
-        : "md:grid-cols-[3.5rem_minmax(0,1fr)] lg:grid-cols-[14.5rem_minmax(0,1fr)]";
-  const showingFull = preference === "expanded";
+  const width = preference === "collapsed" ? "md:w-14" : preference === "expanded" ? "md:w-[232px]" : "md:w-14 lg:w-[232px]";
 
   return (
     <SidebarContext.Provider value={ui}>
-      <div className={cn("grid min-h-screen grid-cols-1", columns)}>
-        <aside className="sticky top-0 hidden h-screen flex-col gap-6 overflow-y-auto border-r bg-surface px-2 py-4 md:flex lg:px-3 lg:py-5">
-          <div className={cn("flex items-center gap-2", ui.align, preference === null && "lg:px-1")}>
-            <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <Mark />
-              <span className={cn("font-heading text-[18px] leading-tight font-medium", ui.label)}>
-                Creator Growth
-                <span className="eyebrow block font-sans font-normal">Engine</span>
-              </span>
-            </Link>
-            <button
-              type="button"
-              onClick={toggle}
-              title={showingFull || preference === null ? "Collapse the sidebar" : "Expand the sidebar"}
-              aria-label={showingFull || preference === null ? "Collapse the sidebar" : "Expand the sidebar"}
-              className={cn("ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", ui.wideOnly)}
-            >
-              <PanelLeftClose className="size-4" strokeWidth={1.75} />
-            </button>
-          </div>
-          {/* In the rail the toggle sits on its own row, under the mark. */}
-          <button
-            type="button"
-            onClick={toggle}
-            title="Expand the sidebar"
-            aria-label="Expand the sidebar"
-            className={cn("-mt-3 flex h-7 w-full items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring", ui.railOnly)}
-          >
-            <PanelLeftOpen className="size-4" strokeWidth={1.75} />
-          </button>
+      <div className="flex min-h-screen flex-col">
+        <TopBar user={user} due={stats.due} preference={preference} onToggle={toggle} logout={logout} onEdit={() => setEditing(true)} />
 
-          {/* Someone tied to a brand is told which; someone who may see both chooses what the lists show. */}
-          {user.brandName && user.brandShort ? <BrandBadge name={user.brandName} short={user.brandShort} /> : <BrandSwitcher current={user.viewBrand} />}
+        <div className="flex flex-1">
+          <aside className={cn("sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col gap-4 overflow-y-auto border-r bg-surface px-2 py-4 md:flex lg:px-3", width)}>
+            <SidebarNav isAdmin={isAdmin} />
+            <WeekBox sent={stats.weekSent} target={stats.weekTarget} />
+          </aside>
 
-          <SidebarNav isAdmin={isAdmin} />
-
-          <ProfileMenu user={user} logout={logout} onEdit={() => setEditing(true)} />
-        </aside>
-
-        <main className="min-w-0 px-4 pt-5 pb-24 md:px-5 md:py-8 lg:px-10 lg:py-10">
-          <div className="mx-auto max-w-[1120px]">{children}</div>
-        </main>
+          <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-6 md:py-7 lg:px-8">
+            <div className="mx-auto max-w-[1320px]">{children}</div>
+          </main>
+        </div>
 
         <MobileBar user={user} isAdmin={isAdmin} logout={logout} onEdit={() => setEditing(true)} />
         <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
@@ -139,23 +115,131 @@ export function AppShell({
   );
 }
 
-/** Logo mark: four blocks, like a print stamp. */
+/** Logo mark: four blocks on rose, like a print stamp. */
 function Mark({ className }: { className?: string }) {
   return (
-    <span aria-hidden className={cn("grid size-8 shrink-0 grid-cols-2 gap-px rounded-[6px] bg-foreground p-[6px]", className)}>
-      <span className="rounded-[1px] bg-primary" />
-      <span className="rounded-[1px] bg-background/70" />
-      <span className="rounded-[1px] bg-background/70" />
-      <span className="rounded-[1px] bg-primary" />
+    <span aria-hidden className={cn("grid size-8 shrink-0 grid-cols-2 gap-[3px] rounded-md bg-primary p-[6px]", className)}>
+      <span className="rounded-[1px] bg-surface" />
+      <span className="rounded-[1px] bg-surface/50" />
+      <span className="rounded-[1px] bg-surface/50" />
+      <span className="rounded-[1px] bg-surface" />
     </span>
+  );
+}
+
+const ICON_BUTTON = "relative flex size-9 shrink-0 items-center justify-center rounded-md text-accent-text outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+
+function TopBar({
+  user,
+  due,
+  preference,
+  onToggle,
+  logout,
+  onEdit,
+}: {
+  user: ShellUser;
+  due: number;
+  preference: SidebarPreference;
+  onToggle: () => void;
+  logout: () => Promise<void>;
+  onEdit: () => void;
+}) {
+  const search = useRef<HTMLInputElement>(null);
+
+  // Ctrl+K (Cmd+K on a Mac) puts the cursor in the search box from anywhere.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        search.current?.focus();
+        search.current?.select();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  const collapsed = preference === "collapsed";
+
+  return (
+    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-surface px-3 md:gap-3 md:px-4">
+      <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Mark />
+        <span className="hidden text-[15px] font-bold whitespace-nowrap sm:block">Creator Growth Engine</span>
+      </Link>
+      <button
+        type="button"
+        onClick={onToggle}
+        title={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+        aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
+        className={cn(ICON_BUTTON, "hidden md:flex")}
+      >
+        {collapsed ? <PanelLeftOpen className="size-[18px]" strokeWidth={1.9} /> : <PanelLeftClose className="size-[18px]" strokeWidth={1.9} />}
+      </button>
+
+      <form action="/search" method="get" role="search" className="relative hidden min-w-0 flex-1 md:block md:max-w-xl">
+        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+        <input
+          ref={search}
+          type="search"
+          name="q"
+          aria-label="Search"
+          placeholder="Search creators, campaigns, orders…   Ctrl K"
+          className="h-9 w-full rounded-md border bg-surface-2/70 pr-3 pl-9 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-surface focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      </form>
+
+      <div className="ml-auto flex items-center gap-1.5 md:gap-2">
+        <Link href="/search" aria-label="Search" className={cn(ICON_BUTTON, "md:hidden")}>
+          <Search className="size-[18px]" strokeWidth={2} />
+        </Link>
+        {user.brandName ? (
+          <span className="hidden sm:block">
+            <BrandBadge name={user.brandName} />
+          </span>
+        ) : (
+          <span className="hidden md:block">
+            <BrandSegments current={user.viewBrand} />
+          </span>
+        )}
+        <Link href="/today" title={due === 0 ? "Nothing is due right now" : `${due} ${due === 1 ? "thing needs" : "things need"} you today`} aria-label={due === 0 ? "Nothing is due" : `${due} due today`} className={ICON_BUTTON}>
+          <Bell className="size-[18px]" strokeWidth={1.9} />
+          {due > 0 ? (
+            <span aria-hidden className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-surface bg-danger-text px-1 text-[10px] leading-none font-bold text-surface">
+              {due > 99 ? "99+" : due}
+            </span>
+          ) : null}
+        </Link>
+        <ProfileMenu user={user} logout={logout} onEdit={onEdit} />
+      </div>
+    </header>
+  );
+}
+
+/** The sidebar's foot: this person's week against the target. Hidden in the icon rail. */
+function WeekBox({ sent, target }: { sent: number; target: number }) {
+  const ui = useSidebar();
+  const share = target > 0 ? Math.min(1, sent / target) : 0;
+  return (
+    <div className={cn("mt-auto rounded-lg border bg-surface-2/60 p-3", ui.wideOnly)}>
+      <p className="label">This week</p>
+      <p className="mt-1 flex items-baseline gap-1.5">
+        <span className="stat-number text-[22px]">{sent}</span>
+        <span className="text-xs text-muted-foreground">{target > 0 ? `of ${target} messages` : "messages"}</span>
+      </p>
+      {target > 0 ? (
+        <span aria-hidden className="mt-2 block h-1.5 overflow-hidden rounded-full bg-border">
+          <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.round(share * 100)}%` }} />
+        </span>
+      ) : null}
+    </div>
   );
 }
 
 const MENU_ITEM = "flex h-11 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm text-foreground outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring md:h-9";
 
-/** The person at the bottom of the sidebar. Clicking opens their menu: profile, password, sign out. */
+/** The person at the right of the top bar. Clicking opens their menu: profile, password, sign out. */
 function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void }) {
-  const ui = useSidebar();
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -176,19 +260,19 @@ function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => 
   }, [open]);
 
   return (
-    <div ref={box} className="relative mt-auto border-t pt-3">
+    <div ref={box} className="relative">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
         title={`${user.name} (${user.role})`}
-        className={cn("flex w-full items-center gap-2.5 rounded-md py-1.5 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring", ui.align, ui.preference === null ? "lg:px-2" : ui.preference === "expanded" ? "px-2" : "")}
+        className="flex h-9 items-center gap-2.5 rounded-md pr-1 pl-1 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring md:pr-2.5"
       >
         <UserAvatar user={user} />
-        <span className={cn("min-w-0", ui.label)}>
-          <span className="block truncate text-sm font-medium">{user.name}</span>
-          <span className="block truncate text-xs text-muted-foreground">
+        <span className="hidden min-w-0 lg:block">
+          <span className="block max-w-[140px] truncate text-sm leading-tight font-semibold">{user.name}</span>
+          <span className="block truncate text-[11px] leading-tight text-muted-foreground">
             <span className="capitalize">{user.role}</span>
             {user.brandShort ? `, ${user.brandShort}` : ""}
           </span>
@@ -196,7 +280,7 @@ function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => 
       </button>
 
       {open ? (
-        <div role="menu" className="card absolute bottom-full left-0 z-30 mb-2 w-64 p-1.5">
+        <div role="menu" className="card absolute top-full right-0 z-40 mt-2 w-64 p-1.5 shadow-lg">
           <ProfileItems user={user} logout={logout} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
         </div>
       ) : null}
@@ -210,7 +294,7 @@ function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; l
       <div className="flex items-center gap-3 px-3 py-2.5">
         <UserAvatar user={user} className="size-11 text-[15px]" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{user.name}</p>
+          <p className="truncate text-sm font-semibold">{user.name}</p>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
           <p className="truncate text-xs text-muted-foreground">
             <span className="capitalize">{user.role}</span>
@@ -239,7 +323,7 @@ function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; l
 }
 
 const BAR_LINKS = [
-  { href: "/today", label: "Today", icon: Sun },
+  { href: "/today", label: "Home", icon: LayoutDashboard },
   { href: "/influencers", label: "Creators", icon: Users },
   { href: "/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/orders", label: "Gifts", icon: Gift },
@@ -265,14 +349,14 @@ function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin
         {BAR_LINKS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
-            <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px]", active ? "text-foreground" : "text-muted-foreground")}>
-              <Icon className={cn("size-5", active && "text-primary")} strokeWidth={1.75} />
+            <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium", active ? "text-primary-text" : "text-muted-foreground")}>
+              <Icon className="size-5" strokeWidth={1.9} />
               {label}
             </Link>
           );
         })}
-        <button type="button" onClick={() => setOpen(true)} aria-expanded={open} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px]", inDrawer ? "text-foreground" : "text-muted-foreground")}>
-          <MoreHorizontal className={cn("size-5", inDrawer && "text-primary")} strokeWidth={1.75} />
+        <button type="button" onClick={() => setOpen(true)} aria-expanded={open} className={cn("flex h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium", inDrawer ? "text-primary-text" : "text-muted-foreground")}>
+          <MoreHorizontal className="size-5" strokeWidth={1.9} />
           More
         </button>
       </nav>
@@ -282,7 +366,7 @@ function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin
           <button type="button" aria-label="Close" className="absolute inset-0 bg-foreground/30" onClick={() => setOpen(false)} />
           <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-surface p-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
             <div className="mb-1 flex items-center justify-between px-2">
-              <span className="font-heading text-[17px] font-medium">More</span>
+              <span className="text-[17px] font-bold">More</span>
               <button type="button" aria-label="Close" onClick={() => setOpen(false)} className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2">
                 <X className="size-5" strokeWidth={1.75} />
               </button>

@@ -544,6 +544,51 @@ check on the content due day (default 14). The timers are on Settings and the ca
 templates are under Admin > Message templates (Delivery note, Arrival check, Posting date check).
 Nothing is sent automatically; the person still presses Message.
 
+## Phase 3B: the workspace redesign
+
+Khushi's manager found the editorial look "not user friendly", so on 2026-10-19 the
+portal was redrawn as a workspace, from mockups Khushi approved (direction A, "Clean
+workspace"). Nothing in the data model changed; every page keeps its data and actions.
+
+- **Look.** One typeface (Figtree), a light grey page, white cards with hairline borders,
+  near-black text, rose only for the main action and the active place. Status chips are
+  tinted and mean one thing everywhere: blue is moving, amber is waiting on someone, green
+  is done, red is late or a dead end (`src/lib/status.ts`, `TONE_CLASSES`). Shared classes
+  live in `src/app/globals.css` (`.card`, `.chip`, `.tabs`/`.tab`, `.label`).
+- **Frame** (`src/components/app-shell.tsx`). A top bar with the search box (Ctrl+K),
+  the brand switch, a bell with the number of things due today and the profile menu; a
+  light sidebar that collapses to a rail, with this person's week against the target at
+  the foot. The phone keeps the bottom bar and drawer. The due count and the week figure
+  are computed in `src/app/(app)/layout.tsx`; the task queues they count live in
+  `src/lib/due.ts`, shared with Home.
+- **Search** (`/search`). Creators, campaigns and gift orders in one box, inside the
+  brand the person sees; the isolation test proves the other brand's creator never
+  appears.
+- **Home** (`/today`). Five tiles (messages this week vs target, replies with last week's
+  delta, gifts in transit with the number to approve, content due this week with the
+  overdue count, content rate this month vs last), the task list with a stage chip, a
+  due chip and one verb per row (Reply, Send link, Approve, Message, Review), the pipeline
+  funnel across open campaigns, and the team activity feed.
+- **Campaign** (`/campaigns/[id]`). Tabs: Board (default), List, Review queue, and for
+  admins Discovery and scoring, Settings. The board (`src/components/pipeline-board.tsx`,
+  lanes in `src/lib/pipeline.ts`) has five lanes: To contact, In conversation, Gifting,
+  Content due, Done, with dead ends as counts under Done. Dragging a card onto a lane
+  moves the creator to that lane's entry status through `updateCreatorStatus`, so it is
+  logged like any other change. The list keeps the full status menu.
+- **Creator** (`/influencers/[id]`). A header card with chips (US signal, Amazon tier,
+  track record), handles, six stats and the Message button; tabs for Overview, Messages,
+  Gifts, Content, History and Notes (`src/components/tabs.tsx`, the open tab in the URL
+  hash). Overview: an eight-mark journey with dates, the "Next step" card with the
+  after-delivery sequence (done, due now, skipped, upcoming), the timeline, the current
+  gift, About and Collaborations.
+- **Gifts** (`/orders`). Status tabs, one row per order with checkboxes and bulk Approve,
+  Copy addresses and Cancel, and a drawer (`src/components/gifts-table.tsx`) with the
+  product, the address, the five rules each ticked or not (`approvalChecks` re-run for
+  the existing order), tracking fields and the buttons.
+- **Reports** (`/reports/performance`). Four headline tiles with deltas, an eight-week
+  line of messages and replies (plain SVG), a drop-off funnel with the biggest leak in
+  words, the smaller figures, the top creators of the period and the period table.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

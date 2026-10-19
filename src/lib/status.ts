@@ -66,8 +66,12 @@ export function parseCampaignStatus(raw: string): CampaignStatus | null {
   return raw in CAMPAIGN_STATUS_LABELS ? (raw as CampaignStatus) : null;
 }
 
-/** Visual grouping of statuses, used for pill and dropdown colours. */
-export type StatusTone = "neutral" | "primary" | "warning" | "success" | "danger";
+/**
+ * Visual grouping of statuses, used for chips and the Move menu. One meaning
+ * per hue across the portal: info (blue) is moving, warning (amber) is waiting
+ * on someone, success (green) is done, danger (red) is a problem or a dead end.
+ */
+export type StatusTone = "neutral" | "primary" | "info" | "warning" | "success" | "danger";
 
 export const CREATOR_STATUS_TONES: Record<CreatorStatus, StatusTone> = {
   discovered: "neutral",
@@ -75,18 +79,18 @@ export const CREATOR_STATUS_TONES: Record<CreatorStatus, StatusTone> = {
   review_later: "neutral",
   on_hold: "neutral",
   duplicate: "neutral",
-  approved: "primary",
+  approved: "neutral",
+  no_reply: "neutral",
   outreach_scheduled: "warning",
   contacted: "warning",
   follow_up_due: "warning",
-  negotiating: "warning",
   content_expected: "warning",
-  no_reply: "warning",
-  replied: "success",
-  interested: "success",
-  agreed: "success",
-  address_collected: "success",
-  product_shipped: "success",
+  replied: "info",
+  interested: "info",
+  negotiating: "info",
+  agreed: "info",
+  address_collected: "info",
+  product_shipped: "info",
   content_posted: "success",
   completed: "success",
   rejected: "danger",
@@ -108,8 +112,9 @@ export const CAMPAIGN_STATUS_TONES: Record<CampaignStatus, StatusTone> = {
 
 /** Tinted background with darker text of the same hue. Every pair passes WCAG AA. */
 export const TONE_CLASSES: Record<StatusTone, string> = {
-  neutral: "bg-surface-2 text-muted-foreground",
+  neutral: "bg-surface-2 text-accent-text",
   primary: "bg-primary-soft text-primary-text",
+  info: "bg-info-soft text-info-text",
   warning: "bg-warning-soft text-warning-text",
   success: "bg-success-soft text-success-text",
   danger: "bg-danger-soft text-danger-text",
@@ -119,6 +124,7 @@ export const TONE_CLASSES: Record<StatusTone, string> = {
 export const TONE_TEXT: Record<StatusTone, string> = {
   neutral: "text-muted-foreground",
   primary: "text-primary-text",
+  info: "text-info-text",
   warning: "text-warning-text",
   success: "text-success-text",
   danger: "text-danger-text",
@@ -128,6 +134,7 @@ export const TONE_TEXT: Record<StatusTone, string> = {
 export const TONE_DOT: Record<StatusTone, string> = {
   neutral: "bg-input",
   primary: "bg-primary",
+  info: "bg-info-text",
   warning: "bg-warning-text",
   success: "bg-success-text",
   danger: "bg-danger-text",

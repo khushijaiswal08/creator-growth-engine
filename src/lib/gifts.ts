@@ -64,20 +64,24 @@ export function giftableProductsWhere(campaign: { brandId: string; giftArticles:
  * says which passed and which failed. Every check is listed, so the activity
  * log can name the rules an order was approved under.
  */
-export async function approvalChecks(order: {
-  influencerId: string;
-  country: string;
-  quantity: number;
-  productPriceUsd: number | null;
-  collaborationType: string | null;
-  approvedFee: number | null;
-}): Promise<RuleCheck[]> {
+export async function approvalChecks(
+  order: {
+    influencerId: string;
+    country: string;
+    quantity: number;
+    productPriceUsd: number | null;
+    collaborationType: string | null;
+    approvedFee: number | null;
+  },
+  /** When re-checking an order that already exists: leave it out of the "earlier gift" lookup and judge it as of its own date. */
+  existing?: { id: string; createdAt: Date },
+): Promise<RuleCheck[]> {
   const earlier = await db.giftOrder.findFirst({
-    where: { status: { not: "cancelled" }, campaignCreator: { influencerId: order.influencerId } },
+    where: { status: { not: "cancelled" }, campaignCreator: { influencerId: order.influencerId }, ...(existing ? { id: { not: existing.id }, createdAt: { lt: existing.createdAt } } : {}) },
     orderBy: { createdAt: "desc" },
     select: { createdAt: true },
   });
-  return checkGiftRules({ ...order, lastGiftAt: earlier?.createdAt ?? null, now: new Date() });
+  return checkGiftRules({ ...order, lastGiftAt: earlier?.createdAt ?? null, now: existing?.createdAt ?? new Date() });
 }
 
 /** The reasons an order needs a person; an empty list means it is within the rules. */
