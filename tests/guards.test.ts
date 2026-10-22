@@ -1245,9 +1245,9 @@ test("the outreach figures mean the same thing everywhere", async () => {
   assert.equal(replyRate(benRow), 0);
   assert.equal(replyRate({ replies: 0, creators: 0 }), null);
 
-  assert.deepEqual(await brandTargets(["test"]), new Map([["test", { daily: 20, weekly: 100 }]]), "defaults until the team sets targets");
+  assert.deepEqual(await brandTargets(["test"]), new Map([["test", { daily: 20, weekly: 100, creatorConnectionsUrl: null }]]), "defaults until the team sets targets");
   await db.brandSettings.create({ data: { brandId: "test", dailyMessageTarget: 15, weeklyMessageTarget: 60 } });
-  assert.deepEqual((await brandTargets(["test"])).get("test"), { daily: 15, weekly: 60 });
+  assert.deepEqual((await brandTargets(["test"])).get("test"), { daily: 15, weekly: 60, creatorConnectionsUrl: null });
 
   const weeks = await weeklyStats({ id: campaign.id }, 8);
   assert.equal(weeks.length, 8);
@@ -1343,4 +1343,37 @@ test("the performance dashboard resolves periods in the app zone and counts what
   const empty = await figuresFor(previousPeriod(custom), { id: campaign.id });
   assert.equal(empty.contacted, 1, "the August contact falls in the previous period");
   assert.equal(empty.posted, 0);
+});
+
+test("Creator Connections creators are reached inside Amazon first, then by DM or email, and Amazon messages count like any other", async () => {
+  const { destinationsFor, defaultDestination, pickTemplate, mailtoFor } = await import("@/lib/channels");
+  const { personStats } = await import("@/lib/outreach-stats");
+  const profiles = [{ id: "p1", platform: "instagram" as const, handle: "maya" }];
+
+  // Nothing to reach them on: no button. All three: DM, Amazon, email, in that order.
+  assert.deepEqual(destinationsFor({ profiles: [] }), []);
+  const all = destinationsFor({ profiles, email: "maya@example.com", amazonCreator: true });
+  assert.deepEqual(all.map((destination) => destination.channel), ["dm", "amazon", "email"]);
+  // Not yet contacted: Amazon first, where they applied. Once in conversation: the DM.
+  assert.equal(defaultDestination(all, "approved")?.channel, "amazon");
+  assert.equal(defaultDestination(all, "contacted")?.channel, "dm");
+  assert.equal(defaultDestination(destinationsFor({ profiles: [], email: "x@y.z" }), "approved")?.channel, "email");
+
+  // Templates named Amazon are used only in the Amazon thread.
+  const templates = [
+    { id: "a", name: "First message", purpose: "first" },
+    { id: "b", name: "Amazon: first message", purpose: "first" },
+    { id: "c", name: "Follow-up", purpose: "followup" },
+  ];
+  assert.equal(pickTemplate(templates, "first", "amazon")?.id, "b");
+  assert.equal(pickTemplate(templates, "first", "dm")?.id, "a");
+  assert.equal(pickTemplate(templates, "followup", "amazon")?.id, "c");
+  assert.equal(mailtoFor("maya@example.com", "A gift", "Hi Maya"), "mailto:maya%40example.com?subject=A%20gift&body=Hi%20Maya");
+
+  // An Amazon message is stored on its own channel and counts in the outreach figures like a DM.
+  const { user, campaign } = await makeUserAndCampaign("amazon-channel", ["home"]);
+  const creator = await makeCreator(campaign.id, "amazon_creator", { status: "contacted", lastContactedAt: new Date() });
+  await db.message.create({ data: { campaignCreatorId: creator.id, userId: user.id, channel: "amazon", direction: "outbound", body: "Hi via Amazon" } });
+  const stats = await personStats({ from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + 60_000) }, { id: campaign.id });
+  assert.equal(stats.find((row) => row.userId === user.id)?.messages, 1);
 });

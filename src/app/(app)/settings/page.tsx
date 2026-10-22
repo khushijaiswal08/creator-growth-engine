@@ -75,7 +75,7 @@ export default async function SettingsPage() {
                 <p className="pt-3 text-muted-foreground">
                   What each person aims for. Today shows everyone&apos;s progress against these, and the Monday email reports it.
                 </p>
-                <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} />
+                <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} creatorConnectionsUrl={target.creatorConnectionsUrl} />
               </Panel>
 
               {campaigns.length === 0 ? (

@@ -61,6 +61,7 @@ enum CreatorStatus {
 enum MessageChannel {
   email
   dm
+  amazon // the message thread inside Amazon Creator Connections
 }
 
 enum MessageDirection {
@@ -540,6 +541,8 @@ model BrandSettings {
   brandId             String   @unique
   dailyMessageTarget  Int      @default(20)
   weeklyMessageTarget Int      @default(100)
+  // Where the Message button opens Amazon Creator Connections for this brand (each brand has its own Ads account).
+  creatorConnectionsUrl String?
   updatedById         String?
   updatedAt           DateTime @updatedAt
 

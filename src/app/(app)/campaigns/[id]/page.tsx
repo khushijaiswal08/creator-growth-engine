@@ -251,7 +251,7 @@ async function BoardView({
         nextActionDueAt: true,
         waitingOn: true,
         fitScore: true,
-        influencer: { select: { id: true, name: true, email: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
+        influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
       },
     }),
     db.campaignCreator.groupBy({ by: ["status"], where: { ...base, status: { in: doneStatuses } }, _count: { _all: true } }),
@@ -272,6 +272,8 @@ async function BoardView({
       waitingOn: row.waitingOn,
       fitScore: row.fitScore,
       profiles: row.influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
+      email: row.influencer.email,
+      amazonCreator: row.influencer.amazonTier !== null,
       blockedReason: suppressed ? `On the do-not-contact list: ${suppressed}` : SEND_BLOCKED_STATUSES.has(row.status) ? `Marked ${CREATOR_STATUS_LABELS[row.status]}.` : null,
       purpose: suggestedTemplate(row.status, row.nextAction),
     };
@@ -415,6 +417,8 @@ async function ListView({
                             influencerName: influencer.name,
                             status: creator.status,
                             profiles: influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
+                            email: influencer.email,
+                            amazonCreator: influencer.amazonTier !== null,
                             blockedReason,
                             purpose: suggestedTemplate(creator.status, creator.nextAction),
                           }}

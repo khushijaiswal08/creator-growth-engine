@@ -24,6 +24,8 @@ export type BoardCard = {
   waitingOn: string | null;
   fitScore: number | null;
   profiles: { id: string; platform: Platform; handle: string }[];
+  email: string | null;
+  amazonCreator: boolean;
   blockedReason: string | null;
   purpose: TemplatePurpose | null;
 };
@@ -168,7 +170,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                             {card.name}
                           </Link>
                           <p className="truncate text-xs text-muted-foreground">
-                            {card.handle ?? "No profile"}
+                            {card.handle ?? (card.amazonCreator ? "Amazon Creator Connections" : (card.email ?? "No profile"))}
                             {card.followers !== null ? ` · ${formatCount(card.followers)}` : ""}
                           </p>
                         </div>
@@ -189,7 +191,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                             variant="link"
                             className="h-auto px-0 text-xs"
                             label={verb}
-                            target={{ campaignCreatorId: card.id, influencerName: card.name, status: statusOf(card), profiles: card.profiles, blockedReason: card.blockedReason, purpose: card.purpose }}
+                            target={{ campaignCreatorId: card.id, influencerName: card.name, status: statusOf(card), profiles: card.profiles, email: card.email, amazonCreator: card.amazonCreator, blockedReason: card.blockedReason, purpose: card.purpose }}
                           />
                         ) : (
                           <span className="shrink-0 text-xs text-muted-foreground">Waiting</span>

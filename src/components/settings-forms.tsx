@@ -20,22 +20,31 @@ function FormMessage({ state }: { state: FormState }) {
   );
 }
 
-export function TargetsForm({ brandId, daily, weekly }: { brandId: string; daily: number; weekly: number }) {
+export function TargetsForm({ brandId, daily, weekly, creatorConnectionsUrl }: { brandId: string; daily: number; weekly: number; creatorConnectionsUrl: string | null }) {
   const [state, action] = useActionState(saveBrandTargets, null);
   return (
-    <form action={action} className="flex flex-wrap items-end gap-3 pt-3">
+    <form action={action} className="grid gap-3 pt-3">
       <input type="hidden" name="brandId" value={brandId} />
-      <div className="grid gap-1.5">
-        <Label htmlFor={`daily-${brandId}`}>Messages a day, per person</Label>
-        <Input id={`daily-${brandId}`} name="daily" type="number" min={0} max={1000} step={1} defaultValue={daily} className="w-28" />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor={`daily-${brandId}`}>Messages a day, per person</Label>
+          <Input id={`daily-${brandId}`} name="daily" type="number" min={0} max={1000} step={1} defaultValue={daily} className="w-28" />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor={`weekly-${brandId}`}>Messages a week, per person</Label>
+          <Input id={`weekly-${brandId}`} name="weekly" type="number" min={0} max={1000} step={1} defaultValue={weekly} className="w-28" />
+        </div>
       </div>
       <div className="grid gap-1.5">
-        <Label htmlFor={`weekly-${brandId}`}>Messages a week, per person</Label>
-        <Input id={`weekly-${brandId}`} name="weekly" type="number" min={0} max={1000} step={1} defaultValue={weekly} className="w-28" />
+        <Label htmlFor={`cc-${brandId}`}>Creator Connections page in the Amazon Ads console</Label>
+        <Input id={`cc-${brandId}`} name="creatorConnectionsUrl" type="url" placeholder="https://advertising.amazon.com/..." defaultValue={creatorConnectionsUrl ?? ""} className="max-w-xl" />
+        <p className="text-xs text-muted-foreground">The Message button opens this page for Creator Connections creators. Paste the address of the Creator Connections messaging page while signed in to this brand&apos;s Ads account. Empty opens the console home.</p>
       </div>
-      <SubmitButton pendingLabel="Saving...">Save targets</SubmitButton>
-      <FormError state={state} />
-      <FormMessage state={state} />
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton pendingLabel="Saving...">Save</SubmitButton>
+        <FormError state={state} />
+        <FormMessage state={state} />
+      </div>
     </form>
   );
 }

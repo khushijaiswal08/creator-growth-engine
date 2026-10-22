@@ -101,6 +101,17 @@ We agreed on a post around now, so I wanted to check in. Is there a date that wo
 {sender}`,
   },
   {
+    name: "Amazon: first message",
+    purpose: "first",
+    body: `Hi {name},
+
+Thank you for joining our {brand} campaign on Creator Connections. We would love to send you {product} as a gift, so you can show it in your content with no strings attached.
+
+Could you share the best email or Instagram handle to reach you on? We will send a private link where you choose your piece and tell us where to ship it.
+
+{sender}`,
+  },
+  {
     name: "Thank you",
     purpose: "other",
     body: `Hi {name},

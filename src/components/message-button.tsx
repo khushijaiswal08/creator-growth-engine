@@ -16,7 +16,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { displayHandle, messageUrl, PLATFORM_LABELS } from "@/lib/profile-url";
+import { AMAZON_CONSOLE_URL, defaultDestination, destinationsFor, mailtoFor, pickTemplate, type Destination } from "@/lib/channels";
+import { messageUrl } from "@/lib/profile-url";
 import { PRE_CONTACT_STATUSES } from "@/lib/status";
 import { fillTemplate, firstName, remainingPlaceholders } from "@/lib/template";
 
@@ -31,6 +32,10 @@ export type MessageTarget = {
   blockedReason: string | null;
   /** The template the next action calls for, when the caller knows it. */
   purpose?: TemplatePurpose | null;
+  /** The creator's email, when known: offers the email channel. */
+  email?: string | null;
+  /** A Creator Connections creator: offers the Amazon channel. */
+  amazonCreator?: boolean;
 };
 
 const OpenComposer = createContext<((target: MessageTarget) => void) | null>(null);
@@ -114,8 +119,8 @@ export function MessageButton({
       </span>
     );
   }
-  if (target.profiles.length === 0) {
-    return <span className="text-xs text-muted-foreground">No profile</span>;
+  if (destinationsFor(target).length === 0) {
+    return <span className="text-xs text-muted-foreground">No way to reach</span>;
   }
   return (
     <Button type="button" size={size} variant={variant} disabled={!open} onClick={() => open?.(target)} className={className}>
@@ -126,10 +131,13 @@ export function MessageButton({
 
 type Outcome = {
   url: string;
+  channel: Destination["channel"];
   copied: boolean;
   opened: boolean;
   logged: { ok: true; movedToContacted: boolean } | { ok: false; error: string };
 };
+
+type Allowed = { ok: true; brand: string; selectionUrl: string; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string };
 
 function ComposerDialog({
   target,
@@ -146,14 +154,14 @@ function ComposerDialog({
   const preferred: TemplatePurpose = target.purpose
     ? target.purpose
     : PRE_CONTACT_STATUSES.has(target.status)
-    ? "first"
-    : target.status === "interested" || target.status === "agreed"
-      ? "selection"
-      : target.status === "content_expected"
-        ? "reminder"
-        : "followup";
+      ? "first"
+      : target.status === "interested" || target.status === "agreed"
+        ? "selection"
+        : target.status === "content_expected"
+          ? "reminder"
+          : "followup";
   // null while the server re-checks the suppression list for this creator.
-  const [allowed, setAllowed] = useState<{ ok: true; brand: string; selectionUrl: string } | { ok: false; error: string } | null>(null);
+  const [allowed, setAllowed] = useState<Allowed | null>(null);
   useEffect(() => {
     let cancelled = false;
     checkMessageAllowed(target.campaignCreatorId).then(
@@ -165,10 +173,16 @@ function ComposerDialog({
     };
   }, [target.campaignCreatorId]);
 
-  const [templateId, setTemplateId] = useState(
-    () => (templates.find((t) => t.purpose === preferred) ?? templates[0])?.id ?? "",
-  );
-  const [profileId, setProfileId] = useState(target.profiles[0].id);
+  // The ways to reach them: what the caller knew, widened by what the server knows (email, Creator Connections).
+  const destinations = destinationsFor({
+    profiles: target.profiles,
+    email: target.email ?? (allowed?.ok ? allowed.email : null),
+    amazonCreator: target.amazonCreator || (allowed?.ok ? allowed.amazonCreator : false),
+  });
+  const [destinationKey, setDestinationKey] = useState<string | null>(null);
+  const destination = destinations.find((item) => item.key === destinationKey) ?? defaultDestination(destinations, target.status);
+
+  const [templateId, setTemplateId] = useState(() => pickTemplate(templates, preferred, defaultDestination(destinationsFor(target), target.status)?.channel ?? "dm")?.id ?? "");
   const [product, setProduct] = useState(readLastProduct);
   // Manual edits to the message; cleared when a choice above changes.
   const [edited, setEdited] = useState<string | null>(null);
@@ -177,16 +191,14 @@ function ComposerDialog({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const template = templates.find((t) => t.id === templateId);
-  const profile = target.profiles.find((p) => p.id === profileId) ?? target.profiles[0];
-  const platformLabel = PLATFORM_LABELS[profile.platform];
 
   const body =
     edited ??
-    (template
+    (template && destination
       ? fillTemplate(template.body, {
           name: firstName(target.influencerName),
-          handle: profile.handle,
-          platform: platformLabel,
+          handle: destination.handle ?? "",
+          platform: destination.platformWord,
           sender: senderName,
           product,
           brand: allowed?.ok ? allowed.brand : "",
@@ -194,11 +206,25 @@ function ComposerDialog({
         })
       : "");
   const unfilled = remainingPlaceholders(body);
-  const destination = profile.platform === "instagram" ? "Instagram DM" : `${platformLabel} profile`;
+  const where = destination?.channel === "amazon" ? "Amazon Creator Connections" : destination?.channel === "email" ? "your mail app" : destination?.platform === "instagram" ? "Instagram DM" : destination ? `${destination.platformWord} profile` : "";
+  const verb = destination?.channel === "email" ? "Open mail app" : `Copy and open ${where}`;
+
+  function chooseDestination(key: string) {
+    setDestinationKey(key);
+    const next = destinations.find((item) => item.key === key);
+    setTemplateId(pickTemplate(templates, preferred, next?.channel ?? "dm")?.id ?? "");
+    setEdited(null);
+  }
 
   function copyAndOpen() {
-    const url = messageUrl(profile.platform, profile.handle);
+    if (!destination) return;
     const text = body;
+    const url =
+      destination.channel === "dm" && destination.platform && destination.handle
+        ? messageUrl(destination.platform, destination.handle)
+        : destination.channel === "amazon"
+          ? (allowed?.ok && allowed.creatorConnectionsUrl) || AMAZON_CONSOLE_URL
+          : mailtoFor(destination.email ?? "", allowed?.ok ? `A gift from ${allowed.brand}` : "A gift for you", text);
 
     // Copy and open must both happen synchronously inside the click, or browsers
     // block them. execCommand is synchronous; the async Clipboard API is the fallback.
@@ -221,8 +247,16 @@ function ComposerDialog({
           () => false,
         );
 
-    const opened = window.open(url, "_blank");
-    if (opened) opened.opener = null;
+    let opened = false;
+    if (destination.channel === "email") {
+      // A mail link hands the message to the mail app and leaves the portal where it is.
+      window.location.assign(url);
+      opened = true;
+    } else {
+      const tab = window.open(url, "_blank");
+      if (tab) tab.opener = null;
+      opened = tab !== null;
+    }
 
     saveLastProduct(product);
 
@@ -231,12 +265,13 @@ function ComposerDialog({
         clipboardWrite ?? copied,
         logOutboundMessage({
           campaignCreatorId: target.campaignCreatorId,
-          socialProfileId: profile.id,
+          channel: destination.channel,
+          socialProfileId: destination.socialProfileId,
           templateId: template?.id ?? null,
           body: text,
         }),
       ]);
-      setOutcome({ url, copied: copiedLate, opened: opened !== null, logged });
+      setOutcome({ url, channel: destination.channel, copied: copiedLate, opened, logged });
     });
   }
 
@@ -248,17 +283,30 @@ function ComposerDialog({
           <DialogDescription>Nothing is sent automatically. Paste the message and send it yourself.</DialogDescription>
         </DialogHeader>
         <ul className="grid gap-2 text-sm">
-          <li>
-            {outcome.copied
-              ? "Message copied to the clipboard."
-              : "The message could not be copied. Copy it by hand from the box below."}
-          </li>
-          <li>
-            {outcome.opened ? `${destination} opened in a new tab. ` : "Your browser blocked the new tab. "}
-            <a href={outcome.url} target="_blank" rel="noopener noreferrer" className="link underline">
-              Open {destination}
-            </a>
-          </li>
+          <li>{outcome.copied ? "Message copied to the clipboard." : "The message could not be copied. Copy it by hand from the box below."}</li>
+          {outcome.channel === "email" ? (
+            <li>
+              Your mail app should have opened with the message ready.{" "}
+              <a href={outcome.url} className="link underline">
+                Open it again
+              </a>
+            </li>
+          ) : outcome.channel === "amazon" ? (
+            <li>
+              {outcome.opened ? "Amazon opened in a new tab. " : "Your browser blocked the new tab. "}
+              In Creator Connections, open the campaign, find {firstName(target.influencerName)} and paste the message into the thread.{" "}
+              <a href={outcome.url} target="_blank" rel="noopener noreferrer" className="link underline">
+                Open Amazon
+              </a>
+            </li>
+          ) : (
+            <li>
+              {outcome.opened ? `${where} opened in a new tab. ` : "Your browser blocked the new tab. "}
+              <a href={outcome.url} target="_blank" rel="noopener noreferrer" className="link underline">
+                Open {where}
+              </a>
+            </li>
+          )}
           <li className={outcome.logged.ok ? undefined : "text-destructive"} role={outcome.logged.ok ? undefined : "alert"}>
             {outcome.logged.ok
               ? outcome.logged.movedToContacted
@@ -282,11 +330,23 @@ function ComposerDialog({
       <DialogHeader>
         <DialogTitle>Message {target.influencerName}</DialogTitle>
         <DialogDescription>
-          Copies the message and opens the {destination}. Nothing is sent automatically.
+          {destination?.channel === "email" ? "Opens your mail app with the message ready. " : `Copies the message and opens ${where || "the profile"}. `}
+          Nothing is sent automatically.
         </DialogDescription>
       </DialogHeader>
 
       <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor="msg-destination">Send via</Label>
+          <NativeSelect id="msg-destination" value={destination?.key ?? ""} onChange={(event) => chooseDestination(event.target.value)}>
+            {destinations.length === 0 ? <option value="">No way to reach</option> : null}
+            {destinations.map((item) => (
+              <option key={item.key} value={item.key}>
+                {item.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
         <div className="grid gap-1.5">
           <Label htmlFor="msg-template">Template</Label>
           <NativeSelect
@@ -301,23 +361,6 @@ function ComposerDialog({
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="msg-profile">Profile</Label>
-          <NativeSelect
-            id="msg-profile"
-            value={profile.id}
-            onChange={(event) => {
-              setProfileId(event.target.value);
-              setEdited(null);
-            }}
-          >
-            {target.profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {PLATFORM_LABELS[p.platform]} {displayHandle(p.handle)}
               </option>
             ))}
           </NativeSelect>
@@ -352,7 +395,9 @@ function ComposerDialog({
               Still to fill in: {unfilled.map((name) => `{${name}}`).join(", ")}.
             </span>
           ) : edited !== null ? (
-            "Edited by hand. Changing the template, profile or product resets your edits."
+            "Edited by hand. Changing the channel, template or product resets your edits."
+          ) : destination?.channel === "amazon" ? (
+            "Amazon opens in a new tab. Open the campaign there, find the creator and paste the message into the thread."
           ) : (
             "You can edit the text before copying."
           )}
@@ -372,10 +417,10 @@ function ComposerDialog({
         <Button
           type="button"
           variant="action"
-          disabled={pending || !allowed?.ok || !body.trim() || unfilled.length > 0}
+          disabled={pending || !allowed?.ok || !destination || !body.trim() || unfilled.length > 0}
           onClick={copyAndOpen}
         >
-          {pending ? "Logging..." : allowed === null ? "Checking..." : `Copy and open ${destination}`}
+          {pending ? "Logging..." : allowed === null ? "Checking..." : verb}
         </Button>
       </DialogFooter>
     </DialogContent>

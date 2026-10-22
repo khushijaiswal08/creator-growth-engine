@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
 import { allowed, type BrandScope } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
+import type { Channel } from "@/lib/channels";
 import { db } from "@/lib/db";
 import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
 import { ensureSelectionUrl } from "@/lib/selection";
@@ -14,7 +15,10 @@ import { loadSuppressions } from "@/lib/suppression";
 
 type LogMessageInput = {
   campaignCreatorId: string;
-  socialProfileId: string;
+  /** dm (a profile the browser opened), amazon (the Creator Connections thread) or email (the mail app). */
+  channel: Channel;
+  /** The profile, for a DM; null for Amazon and email. */
+  socialProfileId: string | null;
   templateId: string | null;
   body: string;
 };
@@ -53,25 +57,31 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
  * Called when the message dialog opens. The copy-and-open button stays
  * disabled until this passes, so the suppression list is checked before the
  * user can send anything, not only when the message is logged. Also returns
- * what the templates need: the brand and the creator's product-selection link.
+ * what the templates and the channels need: the brand, the creator's
+ * product-selection link, their email and the brand's Creator Connections page.
  */
 export async function checkMessageAllowed(
   campaignCreatorId: string,
-): Promise<{ ok: true; brand: string; selectionUrl: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; brand: string; selectionUrl: string; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
   const user = await requireUser();
   const sendable = await loadSendable(campaignCreatorId, allowed(user));
   if (!sendable.ok) return sendable;
+  const settings = await db.brandSettings.findUnique({ where: { brandId: sendable.creator.campaign.brandId }, select: { creatorConnectionsUrl: true } });
   return {
     ok: true,
     brand: brandName(sendable.creator.campaign.brandId),
     selectionUrl: await ensureSelectionUrl(campaignCreatorId),
+    email: sendable.creator.influencer.email,
+    amazonCreator: sendable.creator.influencer.amazonTier !== null,
+    creatorConnectionsUrl: settings?.creatorConnectionsUrl ?? null,
   };
 }
 
 /**
- * Records a DM the user is about to send by hand. Nothing is sent from here:
- * the browser copies the text and opens the platform; this writes the Message
- * and Activity rows and moves the creator on:
+ * Records a message the user is about to send by hand. Nothing is sent from
+ * here: the browser copies the text and opens the DM, the Creator Connections
+ * page or the mail app; this writes the Message and Activity rows and moves
+ * the creator on:
  *
  *   not yet contacted -> Contacted
  *   Follow-up due     -> Contacted, with one more follow-up counted
@@ -88,8 +98,20 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
   if (!sendable.ok) return sendable;
   const { creator } = sendable;
 
-  const profile = creator.influencer.profiles.find((p) => p.id === input.socialProfileId);
-  if (!profile) return { ok: false, error: "That profile does not belong to this creator." };
+  // Where it went, in words for the activity log; each channel checks it really exists for this creator.
+  let target: string;
+  if (input.channel === "dm") {
+    const profile = creator.influencer.profiles.find((p) => p.id === input.socialProfileId);
+    if (!profile) return { ok: false, error: "That profile does not belong to this creator." };
+    target = `${PLATFORM_LABELS[profile.platform]} ${displayHandle(profile.handle)}`;
+  } else if (input.channel === "email") {
+    if (!creator.influencer.email) return { ok: false, error: "This creator has no email address on record." };
+    target = `email ${creator.influencer.email}`;
+  } else if (input.channel === "amazon") {
+    target = "Amazon Creator Connections";
+  } else {
+    return { ok: false, error: "Unknown channel." };
+  }
 
   const template = input.templateId
     ? await db.template.findUnique({ where: { id: input.templateId }, select: { id: true, name: true } })
@@ -100,14 +122,13 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
   const movedToContacted = firstContact || isFollowUp;
   const sharesSelectionLink = Boolean(creator.selectionToken && body.includes(`/select/${creator.selectionToken}`));
   const now = new Date();
-  const target = `${PLATFORM_LABELS[profile.platform]} ${displayHandle(profile.handle)}`;
 
   await db.$transaction(async (tx) => {
     await tx.message.create({
       data: {
         campaignCreatorId: creator.id,
         userId: user.id,
-        channel: "dm",
+        channel: input.channel,
         direction: "outbound",
         body,
         templateId: template?.id ?? null,
@@ -128,7 +149,7 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
       kind: "message_logged",
       campaignCreatorId: creator.id,
       influencerId: creator.influencerId,
-      body: `Message copied and ${target} opened${template ? ` (template "${template.name}")` : ""}${isFollowUp ? `, follow-up ${creator.followUpsSent + 1}` : ""}${sharesSelectionLink ? ", with the product selection link" : ""}.`,
+      body: `${input.channel === "email" ? `Message prepared for ${target}` : `Message copied and ${target} opened`}${template ? ` (template "${template.name}")` : ""}${isFollowUp ? `, follow-up ${creator.followUpsSent + 1}` : ""}${sharesSelectionLink ? ", with the product selection link" : ""}.`,
     });
     if (movedToContacted) {
       await logActivity(tx, {

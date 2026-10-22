@@ -18,6 +18,8 @@ export type CreatorToMessage = {
   statusLabel: string;
   handle: string | null;
   profiles: { id: string; platform: Platform; handle: string }[];
+  email: string | null;
+  amazonCreator: boolean;
   blockedReason: string | null;
   purpose: TemplatePurpose | null;
 };
@@ -46,7 +48,7 @@ export async function findCreatorsToMessage(rawQuery: string): Promise<CreatorTo
       status: true,
       nextAction: true,
       campaign: { select: { name: true } },
-      influencer: { select: { id: true, name: true, email: true, profiles: { select: { id: true, platform: true, handle: true }, orderBy: { platform: "asc" } } } },
+      influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true }, orderBy: { platform: "asc" } } } },
     },
   });
   const suppressions = await loadSuppressions(rows.map((row) => row.influencer));
@@ -62,6 +64,8 @@ export async function findCreatorsToMessage(rawQuery: string): Promise<CreatorTo
       statusLabel: CREATOR_STATUS_LABELS[row.status],
       handle: row.influencer.profiles[0] ? `@${row.influencer.profiles[0].handle}` : null,
       profiles: row.influencer.profiles,
+      email: row.influencer.email,
+      amazonCreator: row.influencer.amazonTier !== null,
       blockedReason: suppressed ? `On the do-not-contact list: ${suppressed}` : SEND_BLOCKED_STATUSES.has(row.status) ? `Marked ${CREATOR_STATUS_LABELS[row.status]}.` : null,
       purpose: suggestedTemplate(row.status, row.nextAction),
     };

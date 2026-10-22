@@ -22,14 +22,18 @@ export async function saveBrandTargets(_prev: FormState, formData: FormData): Pr
   for (const value of [daily, weekly]) {
     if (!Number.isInteger(value) || value < 0 || value > TARGET_MAX) return { error: `Targets must be whole numbers from 0 to ${TARGET_MAX}.` };
   }
+  // The brand's Creator Connections page: empty means the Amazon Ads console home.
+  const link = field(formData, "creatorConnectionsUrl");
+  if (link && (link.length > 500 || !/^https:\/\/[^\s]+$/.test(link))) return { error: "The Creator Connections link must start with https:// and contain no spaces." };
+  const creatorConnectionsUrl = link || null;
 
   await db.$transaction(async (tx) => {
     await tx.brandSettings.upsert({
       where: { brandId },
-      update: { dailyMessageTarget: daily, weeklyMessageTarget: weekly, updatedById: user.id },
-      create: { brandId, dailyMessageTarget: daily, weeklyMessageTarget: weekly, updatedById: user.id },
+      update: { dailyMessageTarget: daily, weeklyMessageTarget: weekly, creatorConnectionsUrl, updatedById: user.id },
+      create: { brandId, dailyMessageTarget: daily, weeklyMessageTarget: weekly, creatorConnectionsUrl, updatedById: user.id },
     });
-    await logActivity(tx, { userId: user.id, kind: "note", body: `Set ${brandName(brandId)} message targets to ${daily} a day and ${weekly} a week.` });
+    await logActivity(tx, { userId: user.id, kind: "note", body: `Set ${brandName(brandId)} message targets to ${daily} a day and ${weekly} a week${creatorConnectionsUrl ? ", and the Creator Connections link" : ""}.` });
   });
   revalidatePath("/settings");
   revalidatePath("/today");

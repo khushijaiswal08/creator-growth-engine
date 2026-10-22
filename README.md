@@ -602,6 +602,30 @@ workspace"). Nothing in the data model changed; every page keeps its data and ac
   "Log a reply" and "Edit" as dialogs (`src/components/creator-actions.tsx`) and a "⋯"
   menu for archiving. Gifts has the short tab words, a sort select and a footer line.
 
+## Phase 3C: reaching Amazon Creator Connections creators
+
+Amazon offers no API for the message thread inside Creator Connections, no notification
+when a creator writes, and no way to contact a creator outside a campaign they joined. So
+the portal does everything around that one manual paste (2026-10-22):
+
+- **Channels** (`src/lib/channels.ts`). The Message dialog has a "Send via" choice: each
+  profile (Instagram DM, YouTube, TikTok), **Amazon Creator Connections** for creators
+  with an Amazon tier, and **Email** for creators with an address. Amazon copies the text
+  and opens the brand's Creator Connections page (set per brand on Settings,
+  `BrandSettings.creatorConnectionsUrl`; empty opens the Ads console home); email opens
+  the mail app with a `mailto:` link. Both log the message with its channel
+  (`MessageChannel` gained `amazon`) and move the creator on exactly like a DM. Nothing is
+  sent by the portal on any channel.
+- **Amazon first, then move the conversation.** A Creator Connections creator not yet
+  contacted defaults to the Amazon channel and the "Amazon: first message" template, which
+  asks for an email or Instagram handle; once in conversation, the DM or email channel
+  comes first, so Amazon is touched once per creator.
+- **Home banner.** "Check Amazon messages" appears when creators were written to inside
+  Creator Connections and are still in conversation, since Amazon will not say when they
+  answer; it opens Amazon, and the reply is logged with the usual button.
+- Tested in `tests/guards.test.ts` (channel order, defaults, template choice, mailto, and an
+  Amazon message counting in the outreach figures).
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

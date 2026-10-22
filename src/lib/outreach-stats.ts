@@ -16,17 +16,22 @@ import { startOfDayInZone, startOfWeekInZone } from "@/lib/format";
  *   shipped         gift orders shipped to creators the person owns
  *   posted          posts recorded for creators the person owns
  */
-export const DEFAULT_TARGETS = { daily: 20, weekly: 100 };
+export const DEFAULT_TARGETS: Targets = { daily: 20, weekly: 100, creatorConnectionsUrl: null };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type Targets = { daily: number; weekly: number };
+export type Targets = {
+  daily: number;
+  weekly: number;
+  /** The brand's Creator Connections page in the Amazon Ads console, which the Message button opens. */
+  creatorConnectionsUrl: string | null;
+};
 
 export async function brandTargets(brandIds: string[]): Promise<Map<string, Targets>> {
   const rows = await db.brandSettings.findMany({ where: { brandId: { in: brandIds } } });
   const map = new Map<string, Targets>();
   for (const brandId of brandIds) {
     const row = rows.find((item) => item.brandId === brandId);
-    map.set(brandId, row ? { daily: row.dailyMessageTarget, weekly: row.weeklyMessageTarget } : { ...DEFAULT_TARGETS });
+    map.set(brandId, row ? { daily: row.dailyMessageTarget, weekly: row.weeklyMessageTarget, creatorConnectionsUrl: row.creatorConnectionsUrl } : { ...DEFAULT_TARGETS });
   }
   return map;
 }

@@ -75,6 +75,8 @@ export function NewMessageButton() {
       influencerName: creator.influencerName,
       status: creator.status,
       profiles: creator.profiles,
+      email: creator.email,
+      amazonCreator: creator.amazonCreator,
       blockedReason: creator.blockedReason,
       purpose: creator.purpose,
     });
@@ -114,8 +116,8 @@ export function NewMessageButton() {
                 <li key={creator.campaignCreatorId}>
                   <button
                     type="button"
-                    disabled={creator.blockedReason !== null || creator.profiles.length === 0}
-                    title={creator.blockedReason ?? (creator.profiles.length === 0 ? "No profile to message" : undefined)}
+                    disabled={creator.blockedReason !== null || (creator.profiles.length === 0 && !creator.email && !creator.amazonCreator)}
+                    title={creator.blockedReason ?? (creator.profiles.length === 0 && !creator.email && !creator.amazonCreator ? "No way to reach this creator" : undefined)}
                     onClick={() => choose(creator)}
                     className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
                   >
@@ -123,7 +125,7 @@ export function NewMessageButton() {
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold">{creator.influencerName}</span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {creator.handle ?? "No profile"} · {creator.campaignName} · {creator.statusLabel}
+                        {creator.handle ?? (creator.amazonCreator ? "Amazon Creator Connections" : (creator.email ?? "No profile"))} · {creator.campaignName} · {creator.statusLabel}
                       </span>
                     </span>
                   </button>

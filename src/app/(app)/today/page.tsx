@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { runAutomationsIfStale } from "@/lib/automation";
 import { activityIn, viewed } from "@/lib/brand-scope";
 import { BRANDS, brandName } from "@/lib/brands";
+import { AMAZON_CONSOLE_URL } from "@/lib/channels";
 import { db } from "@/lib/db";
 import { QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
 import { startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format";
@@ -85,7 +86,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const activeQueue = QUEUES.some((queue) => queue.key === params.queue) ? params.queue! : null;
   const showAll = params.all === "1" || activeQueue !== null;
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
         const where = dueWhere(view, queue.statuses, now);
@@ -102,7 +103,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   status: true,
                   nextAction: true,
                   nextActionDueAt: true,
-                  influencer: { select: { id: true, name: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
+                  influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
                 },
               }),
         ]);
@@ -128,6 +129,15 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     figuresFor(thisMonth, openCampaign),
     figuresFor(lastMonth, openCampaign),
     db.campaign.findMany({ where: openCampaign, orderBy: { updatedAt: "desc" }, select: { id: true, name: true } }),
+    // Creators written to inside Amazon Creator Connections who may have answered there: Amazon never tells us.
+    db.campaignCreator.count({
+      where: {
+        campaign: openCampaign,
+        status: { in: ["contacted", "follow_up_due", "replied", "interested", "negotiating", "agreed"] },
+        influencer: { archived: false, amazonTier: { not: null } },
+        messages: { some: { channel: "amazon" } },
+      },
+    }),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
@@ -164,6 +174,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         primary: queue.key === "replies" || queue.key === "selection" || queue.key === "gifts" || lateDays > 0,
         href: queue.message ? null : queue.key === "gifts" ? "/orders?status=needs_approval" : `/influencers/${item.influencer.id}`,
         profiles: item.influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
+        email: item.influencer.email,
+        amazonCreator: item.influencer.amazonTier !== null,
         blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
         purpose: suggestedTemplate(item.status, item.nextAction),
       };
@@ -171,6 +183,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   );
   const shown = rows.length;
   const funnelCampaign = openCampaigns.length === 1 ? openCampaigns[0] : null;
+  // The Creator Connections page of the brand in view, or the first brand that has one.
+  const amazonUrl = [...targets.values()].map((row) => row.creatorConnectionsUrl).find(Boolean) ?? AMAZON_CONSOLE_URL;
 
   return (
     <MessageComposer templates={templates} senderName={user.name}>
@@ -235,6 +249,24 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             ) : null}
           </div>
 
+          {amazonWaiting > 0 ? (
+            <div className="flex flex-wrap items-center gap-3 border-t bg-warning-soft/40 px-4 py-2.5 text-sm">
+              <span aria-hidden className="flex size-7 items-center justify-center rounded-full bg-warning-soft text-[12px] font-bold text-warning-text">
+                a
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Check Amazon messages</p>
+                <p className="text-xs text-muted-foreground">
+                  {amazonWaiting} {amazonWaiting === 1 ? "creator was" : "creators were"} written to inside Creator Connections. Amazon does not tell us when they answer: open the thread, then press Log a reply on the creator.
+                </p>
+              </div>
+              <Button asChild size="sm" variant="outline">
+                <a href={amazonUrl} target="_blank" rel="noopener noreferrer">
+                  Open Amazon
+                </a>
+              </Button>
+            </div>
+          ) : null}
           {total === 0 ? (
             <p className="border-t px-4 py-12 text-center text-muted-foreground">All quiet. New replies, parcels and content dates show up here as they come due.</p>
           ) : (

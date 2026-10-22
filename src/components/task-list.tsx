@@ -28,6 +28,8 @@ export type TaskRow = {
   /** Where the non-message verbs go. */
   href: string | null;
   profiles: { id: string; platform: Platform; handle: string }[];
+  email: string | null;
+  amazonCreator: boolean;
   blockedReason: string | null;
   purpose: TemplatePurpose | null;
 };
@@ -93,7 +95,7 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
                 {row.name}
               </Link>
               <div className="truncate text-xs text-muted-foreground">
-                {row.handle ?? "No profile"}
+                {row.handle ?? (row.amazonCreator ? "Amazon Creator Connections" : (row.email ?? "No profile"))}
                 {row.followers !== null ? ` · ${formatCount(row.followers)}` : ""}
               </div>
             </div>
@@ -117,7 +119,7 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
                 size="sm"
                 variant={row.primary ? "action" : "outline"}
                 label={row.verb}
-                target={{ campaignCreatorId: row.id, influencerName: row.name, status: row.status, profiles: row.profiles, blockedReason: row.blockedReason, purpose: row.purpose }}
+                target={{ campaignCreatorId: row.id, influencerName: row.name, status: row.status, profiles: row.profiles, email: row.email, amazonCreator: row.amazonCreator, blockedReason: row.blockedReason, purpose: row.purpose }}
               />
             )}
           </div>

@@ -186,6 +186,8 @@ export default async function InfluencerPage({
     influencerName: influencer.name,
     status: link.status,
     profiles: messageProfiles,
+    email: influencer.email,
+    amazonCreator: influencer.amazonTier !== null,
     blockedReason: blockedReason ?? (SEND_BLOCKED_STATUSES.has(link.status) ? `Marked ${CREATOR_STATUS_LABELS[link.status]}.` : null),
     purpose: suggestedTemplate(link.status, link.nextAction),
   });
@@ -508,7 +510,7 @@ export default async function InfluencerPage({
                     <li key={message.id} className={cn("max-w-[85%] rounded-lg border px-4 py-3", message.direction === "outbound" ? "justify-self-end bg-primary-soft/40" : "justify-self-start bg-surface-2/60")}>
                       <p className="mb-1 text-xs text-muted-foreground">
                         {message.direction === "outbound" ? `${message.user.name} sent` : `${influencer.name} replied`}
-                        {message.template ? ` · ${message.template.name}` : ""} · {message.channel === "dm" ? "DM" : "Email"} · {formatDay(message.sentAt)} · {message.campaignCreator.campaign.name}
+                        {message.template ? ` · ${message.template.name}` : ""} · {message.channel === "dm" ? "DM" : message.channel === "amazon" ? "Amazon Creator Connections" : "Email"} · {formatDay(message.sentAt)} · {message.campaignCreator.campaign.name}
                       </p>
                       <p className="text-sm whitespace-pre-line">{message.body}</p>
                     </li>
