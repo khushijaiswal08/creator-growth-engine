@@ -71,7 +71,7 @@ function verbFor(queueKey: string, message: boolean): string {
   return message ? "Message" : "Open";
 }
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ queue?: string; all?: string }> }) {
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ queue?: string; all?: string; source?: string }> }) {
   const user = await requireUser();
   const view = viewed(user);
   const params = await searchParams;
@@ -84,12 +84,16 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const lastMonth = previousPeriod(thisMonth);
   const notArchived = { influencer: { archived: false }, campaign: openCampaign };
   const activeQueue = QUEUES.some((queue) => queue.key === params.queue) ? params.queue! : null;
-  const showAll = params.all === "1" || activeQueue !== null;
+  // "Creator Connections" narrows the task list to creators who came through Amazon.
+  const amazonOnly = params.source === "amazon";
+  const showAll = params.all === "1" || activeQueue !== null || amazonOnly;
+  const amazonInfluencer = { archived: false, amazonTier: { not: null } };
+  const ccWhere = { campaign: openCampaign, influencer: amazonInfluencer };
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccToContact, ccMoved, ccPosted, ccDue] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
-        const where = dueWhere(view, queue.statuses, now);
+        const where = amazonOnly ? { ...dueWhere(view, queue.statuses, now), influencer: amazonInfluencer } : dueWhere(view, queue.statuses, now);
         const [count, items] = await Promise.all([
           db.campaignCreator.count({ where }),
           activeQueue && activeQueue !== queue.key
@@ -131,13 +135,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     db.campaign.findMany({ where: openCampaign, orderBy: { updatedAt: "desc" }, select: { id: true, name: true } }),
     // Creators written to inside Amazon Creator Connections who may have answered there: Amazon never tells us.
     db.campaignCreator.count({
-      where: {
-        campaign: openCampaign,
-        status: { in: ["contacted", "follow_up_due", "replied", "interested", "negotiating", "agreed"] },
-        influencer: { archived: false, amazonTier: { not: null } },
-        messages: { some: { channel: "amazon" } },
-      },
+      where: { ...ccWhere, status: { in: ["contacted", "follow_up_due", "replied", "interested", "negotiating", "agreed"] }, messages: { some: { channel: "amazon" } } },
     }),
+    // The Creator Connections column: where the Amazon creators stand.
+    db.campaignCreator.count({ where: ccWhere }),
+    db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["discovered", "scored", "review_later", "approved", "outreach_scheduled"] } } }),
+    db.campaignCreator.count({ where: { ...ccWhere, messages: { some: { channel: { in: ["dm", "email"] } } } } }),
+    db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["content_posted", "completed"] } } }),
+    db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), influencer: amazonInfluencer } }),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
@@ -233,18 +238,23 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
             <h2 id="tasks-title">My tasks today</h2>
             <span className="chip border-transparent bg-surface-2">{total}</span>
-            {total > 0 ? (
+            {total > 0 || amazonOnly ? (
               <div className="ml-auto flex flex-wrap gap-1.5">
-                <Link href="/today" className="chip" aria-current={activeQueue === null ? "true" : undefined}>
-                  All {total}
+                <Link href="/today" className="chip" aria-current={activeQueue === null && !amazonOnly ? "true" : undefined}>
+                  All {amazonOnly ? "" : total}
                 </Link>
                 {queues
                   .filter((queue) => queue.count > 0)
                   .map((queue) => (
-                    <Link key={queue.key} href={`/today?queue=${queue.key}`} className="chip" aria-current={activeQueue === queue.key ? "true" : undefined}>
+                    <Link key={queue.key} href={`/today?queue=${queue.key}${amazonOnly ? "&source=amazon" : ""}`} className="chip" aria-current={activeQueue === queue.key ? "true" : undefined}>
                       {QUEUE_CHIPS[queue.key] ?? queue.title} {queue.count}
                     </Link>
                   ))}
+                {ccTotal > 0 ? (
+                  <Link href="/today?source=amazon" className="chip" aria-current={amazonOnly ? "true" : undefined}>
+                    Creator Connections {ccDue}
+                  </Link>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -268,7 +278,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             </div>
           ) : null}
           {total === 0 ? (
-            <p className="border-t px-4 py-12 text-center text-muted-foreground">All quiet. New replies, parcels and content dates show up here as they come due.</p>
+            <p className="border-t px-4 py-12 text-center text-muted-foreground">
+              {amazonOnly ? "No Creator Connections creator needs you today." : "All quiet. New replies, parcels and content dates show up here as they come due."}
+            </p>
           ) : (
             <TaskList rows={rows} />
           )}
@@ -289,6 +301,50 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </section>
 
         <div className="grid content-start gap-5">
+          {ccTotal > 0 ? (
+            <section className="card p-4" aria-labelledby="cc-title">
+              <div className="mb-1 flex items-center justify-between">
+                <h2 id="cc-title">Creator Connections</h2>
+                <a href={amazonUrl} target="_blank" rel="noopener noreferrer" className="link text-xs">
+                  Open Amazon
+                </a>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {ccTotal} {ccTotal === 1 ? "creator" : "creators"} from Amazon in open campaigns
+              </p>
+              <dl className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-muted-foreground">Need you today</dt>
+                  <dd className="stat-number text-[20px]">{ccDue}</dd>
+                </div>
+                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-muted-foreground">Not messaged yet</dt>
+                  <dd className="stat-number text-[20px]">{ccToContact}</dd>
+                </div>
+                <div className="rounded-lg bg-warning-soft/60 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-warning-text">Waiting inside Amazon</dt>
+                  <dd className="stat-number text-[20px]">{amazonWaiting}</dd>
+                </div>
+                <div className="rounded-lg bg-info-soft/70 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-info-text">Moved to DM or email</dt>
+                  <dd className="stat-number text-[20px]">{ccMoved}</dd>
+                </div>
+                <div className="rounded-lg bg-success-soft/70 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-success-text">Posted</dt>
+                  <dd className="stat-number text-[20px]">{ccPosted}</dd>
+                </div>
+                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
+                  <dt className="text-[11px] font-semibold text-muted-foreground">Tasks</dt>
+                  <dd>
+                    <Link href="/today?source=amazon" className="link text-sm">
+                      See theirs
+                    </Link>
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-xs text-muted-foreground">Message them once inside Amazon with the Amazon template, ask for an email or handle, then carry on from here.</p>
+            </section>
+          ) : null}
           <section className="card p-4" aria-labelledby="funnel-title">
             <div className="mb-1 flex items-center justify-between">
               <h2 id="funnel-title">Pipeline</h2>

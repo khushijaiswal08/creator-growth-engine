@@ -623,6 +623,10 @@ the portal does everything around that one manual paste (2026-10-22):
 - **Home banner.** "Check Amazon messages" appears when creators were written to inside
   Creator Connections and are still in conversation, since Amazon will not say when they
   answer; it opens Amazon, and the reply is logged with the usual button.
+- **Creator Connections column on Home.** A card with the Amazon creators in open
+  campaigns: need you today, not messaged yet, waiting inside Amazon, moved to DM or
+  email, posted, and "Open Amazon". A "Creator Connections" chip narrows the task list
+  to them (`/today?source=amazon`).
 - Tested in `tests/guards.test.ts` (channel order, defaults, template choice, mailto, and an
   Amazon message counting in the outreach figures).
 
