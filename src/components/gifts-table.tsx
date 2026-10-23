@@ -8,12 +8,12 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { decideGift, markDelivered } from "@/actions/gifts";
 import { Avatar } from "@/components/avatar";
-import { useChhoti } from "@/components/chhoti/chhoti";
+import { useRachna } from "@/components/rachna/rachna";
 import { GiftTrackingForm } from "@/components/journey-forms";
 import { ProductPhoto } from "@/components/product-photo";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
-import { MILESTONES } from "@/lib/chhoti";
+import { MILESTONES } from "@/lib/rachna";
 import { formatDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
 import { trackingUrl } from "@/lib/tracking";
@@ -43,7 +43,7 @@ export type GiftRow = {
   product: { title: string; color: string | null; size: string | null; sku: string; amazonUrl: string | null; price: number | null; imageUrl: string | null; stock: number | null };
   creator: { id: string; name: string };
   campaign: string;
-  /** The creator's campaign link, for Chhoti's nudge after a delivery. */
+  /** The creator's campaign link, for Rachna's nudge after a delivery. */
   campaignCreatorId: string;
   /** The campaign's arrival-check timer, in days. */
   arrivalCheckDays: number;
@@ -79,15 +79,15 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
-  const chhoti = useChhoti();
+  const rachna = useRachna();
   const open = orders.find((order) => order.id === openId) ?? null;
 
-  /** Marks a parcel delivered, then lets Chhoti say what comes next (and cheer the campaign's first delivery). */
+  /** Marks a parcel delivered, then lets Rachna say what comes next (and cheer the campaign's first delivery). */
   function deliver(order: GiftRow) {
     run("Marked delivered.", async () => {
       await markDelivered(order.id);
-      if (order.firstDeliveryInCampaign) chhoti?.milestone(`first-delivery:${order.campaign}`, MILESTONES.firstDelivery(order.campaign));
-      chhoti?.nudge(order.campaignCreatorId, "content_expected", { arrivalDays: order.arrivalCheckDays });
+      if (order.firstDeliveryInCampaign) rachna?.milestone(`first-delivery:${order.campaign}`, MILESTONES.firstDelivery(order.campaign));
+      rachna?.nudge(order.campaignCreatorId, "content_expected", { arrivalDays: order.arrivalCheckDays });
     });
   }
 
@@ -212,6 +212,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                     <tr
                       key={order.id}
                       onClick={() => setOpenId(order.id)}
+                      data-rachna-point={order.status === "needs_approval" ? `Approve: ${order.creator.name}` : order.status === "shipped" ? `Check the parcel: ${order.creator.name}` : undefined}
                       className={cn("cursor-pointer border-t hover:bg-surface-2/50", openId === order.id && "bg-primary-soft/30", selected.has(order.id) && "bg-primary-soft/20")}
                     >
                       <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>

@@ -72,10 +72,10 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
   return { message: "Saved." };
 }
 
-/** Settings: whether Chhoti, the guide, shows her notes and nudges to this person. The "?" tour always stays. */
-export async function setChhotiTips(on: boolean): Promise<void> {
+/** Settings: whether Rachna, the guide, shows her notes and nudges to this person. The "?" tour always stays. */
+export async function setRachnaTips(on: boolean): Promise<void> {
   const user = await requireUserForPasswordChange();
-  await db.user.update({ where: { id: user.id }, data: { showChhotiTips: on } });
+  await db.user.update({ where: { id: user.id }, data: { showRachnaTips: on } });
   revalidatePath("/settings");
   revalidatePath("/", "layout");
 }

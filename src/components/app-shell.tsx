@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfile } from "@/actions/account";
 import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-switcher";
-import { ChhotiProvider, ChhotiTourButton } from "@/components/chhoti/chhoti";
+import { RachnaCameo, RachnaProvider, RachnaSlot, RachnaStrip } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
 import { SidebarNav } from "@/components/nav";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
@@ -16,14 +16,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { RachnaCounts } from "@/lib/rachna";
 import { SIDEBAR_COOKIE } from "@/lib/sidebar";
 
 export type ShellUser = {
   id: string;
   name: string;
   email: string;
-  /** Whether Chhoti, the guide, shows her notes and nudges. */
-  chhotiTips: boolean;
+  /** Whether Rachna, the guide, shows her notes and nudges. */
+  rachnaTips: boolean;
   role: string;
   avatarUrl: string | null;
   /** The brand on the account, when there is one. */
@@ -40,6 +41,8 @@ export type ShellStats = {
   /** Messages this person logged since Monday, against the brand's weekly target. */
   weekSent: number;
   weekTarget: number;
+  /** The live counts behind Rachna's quests and her mood. */
+  rachna: RachnaCounts;
 };
 
 function initials(name: string): string {
@@ -71,6 +74,7 @@ export function AppShell({
   isAdmin,
   initialPreference,
   stats,
+  rachnaIntro,
   logout,
   children,
 }: {
@@ -78,6 +82,8 @@ export function AppShell({
   isAdmin: boolean;
   initialPreference: SidebarPreference;
   stats: ShellStats;
+  /** True on the first visit after signing in: Rachna introduces herself. */
+  rachnaIntro: boolean;
   logout: () => Promise<void>;
   children: React.ReactNode;
 }) {
@@ -98,17 +104,21 @@ export function AppShell({
 
   return (
     <SidebarContext.Provider value={ui}>
-      <ChhotiProvider userId={user.id} tipsOn={user.chhotiTips}>
+      <RachnaProvider userId={user.id} tipsOn={user.rachnaTips} counts={stats.rachna} intro={rachnaIntro}>
       <div className="flex min-h-screen flex-col">
         <TopBar user={user} due={stats.due} preference={preference} onToggle={toggle} logout={logout} onEdit={() => setEditing(true)} />
 
         <div className="flex flex-1">
           <aside className={cn("sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col gap-4 overflow-y-auto border-r bg-surface px-2 py-4 md:flex lg:px-3", width)}>
             <SidebarNav isAdmin={isAdmin} />
-            <WeekBox sent={stats.weekSent} target={stats.weekTarget} />
+            <div className="mt-auto">
+              <RachnaSlot />
+              <WeekBox sent={stats.weekSent} target={stats.weekTarget} />
+            </div>
           </aside>
 
           <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-6 md:py-7 lg:px-8">
+            <RachnaStrip />
             <div className="mx-auto max-w-[1320px]">{children}</div>
           </main>
         </div>
@@ -116,7 +126,7 @@ export function AppShell({
         <MobileBar user={user} isAdmin={isAdmin} logout={logout} onEdit={() => setEditing(true)} />
         <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
       </div>
-      </ChhotiProvider>
+      </RachnaProvider>
     </SidebarContext.Provider>
   );
 }
@@ -208,7 +218,7 @@ function TopBar({
             <BrandSegments current={user.viewBrand} />
           </span>
         )}
-        <ChhotiTourButton />
+        <RachnaCameo />
         <Link href="/today" title={due === 0 ? "Nothing is due right now" : `${due} ${due === 1 ? "thing needs" : "things need"} you today`} aria-label={due === 0 ? "Nothing is due" : `${due} due today`} className={ICON_BUTTON}>
           <Bell className="size-[18px]" strokeWidth={1.9} />
           {due > 0 ? (
@@ -228,7 +238,7 @@ function WeekBox({ sent, target }: { sent: number; target: number }) {
   const ui = useSidebar();
   const share = target > 0 ? Math.min(1, sent / target) : 0;
   return (
-    <div className={cn("mt-auto rounded-lg border bg-surface-2/60 p-3", ui.wideOnly)}>
+    <div className={cn("rounded-lg border bg-surface-2/60 p-3", ui.wideOnly)}>
       <p className="label">This week</p>
       <p className="mt-1 flex items-baseline gap-1.5">
         <span className="stat-number text-[22px]">{sent}</span>

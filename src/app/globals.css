@@ -202,31 +202,127 @@
     @apply border-primary text-primary-text;
   }
 
-  /* Chhoti, the guide: the ring around a tour step's target, and her one-second confetti. */
-  .chhoti-spot {
+  /* Rachna, the guide: her slot, her glowing portrait, the cloud she speaks in, the ring and arrows on the page, her confetti. */
+  .rachna-home {
+    @apply rounded-2xl border p-3;
+    border-color: #f3cdd9;
+    background: linear-gradient(160deg, #fff4f8 0%, #ffffff 70%);
+    box-shadow: 0 6px 18px rgba(178, 74, 107, 0.08);
+  }
+  .rachna-ring {
+    box-shadow:
+      0 0 0 3px #fff,
+      0 0 0 6px #f6c5d2,
+      0 6px 16px rgba(178, 74, 107, 0.25);
+  }
+  .rachna-float {
+    animation: rachna-float 3s ease-in-out infinite;
+  }
+  @keyframes rachna-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+  .rachna-cloud {
+    position: relative;
+    filter: drop-shadow(0 1px 0 #f0b9c9) drop-shadow(0 -1px 0 #f0b9c9) drop-shadow(1px 0 0 #f0b9c9) drop-shadow(-1px 0 0 #f0b9c9) drop-shadow(0 8px 16px rgba(178, 74, 107, 0.1));
+  }
+  .rachna-cloud > .body {
+    position: relative;
+    background: #fff;
+    border-radius: 22px;
+    padding: 14px 16px 12px;
+  }
+  .rachna-cloud > .puff {
+    position: absolute;
+    background: #fff;
+    border-radius: 999px;
+  }
+  .rachna-spot {
     outline: 3px solid var(--primary);
     outline-offset: 6px;
     border-radius: 12px;
   }
-  .chhoti-confetti span {
-    position: absolute;
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    animation: chhoti-pop 1s ease-out 1 both;
+  /* A pointed row: a rose tint and an inset line, so stacked rows never collide. */
+  .rachna-mark {
+    background: #fff1f5 !important;
+    box-shadow: inset 3px 0 0 var(--primary), inset 0 0 0 1px #f0b9c9;
   }
-  @keyframes chhoti-pop {
+  .rachna-arrow {
+    @apply inline-flex size-7 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-on-primary;
+    box-shadow:
+      0 0 0 3px #fff,
+      0 4px 10px rgba(178, 74, 107, 0.35);
+  }
+  .rachna-arrow.fixed::after {
+    content: "";
+    position: absolute;
+    right: -9px;
+    top: 50%;
+    margin-top: -6px;
+    border: 6px solid transparent;
+    border-left-color: var(--primary);
+  }
+  .rachna-in {
+    animation: rachna-in 260ms ease-out both;
+  }
+  @keyframes rachna-in {
     from {
-      transform: translateY(0) scale(1);
-      opacity: 1;
+      transform: translateY(10px);
+      opacity: 0;
     }
     to {
-      transform: translateY(-28px) scale(0.4);
-      opacity: 0;
+      transform: translateY(0);
+      opacity: 1;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .chhoti-confetti span {
+    .rachna-in,
+    .rachna-float {
+      animation: none;
+    }
+  }
+  /* Confetti across her whole slot when she cheers. */
+  .rachna-burst span {
+    position: absolute;
+    top: -14px;
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+    animation: rachna-fall 2.6s ease-in 1 both;
+  }
+  .rachna-burst span:nth-child(odd) {
+    border-radius: 999px;
+    width: 10px;
+    height: 10px;
+  }
+  @keyframes rachna-fall {
+    from {
+      transform: translateY(0) translateX(0) rotate(0deg);
+      opacity: 1;
+    }
+    40% {
+      transform: translateY(90px) translateX(10px) rotate(220deg);
+      opacity: 1;
+    }
+    80% {
+      opacity: 1;
+    }
+    to {
+      transform: translateY(240px) translateX(-8px) rotate(620deg);
+      opacity: 0;
+    }
+  }
+  .rachna-quest-ring {
+    transform: rotate(-90deg);
+    transition: stroke-dashoffset 400ms ease-out;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rachna-burst span {
       animation: none;
       opacity: 0;
     }

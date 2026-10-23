@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { updateCreatorStatus } from "@/actions/campaign-creators";
 import { Avatar } from "@/components/avatar";
-import { useChhoti } from "@/components/chhoti/chhoti";
+import { useRachna } from "@/components/rachna/rachna";
 import { MessageButton } from "@/components/message-button";
 import { formatCount, formatDay } from "@/lib/format";
 import { LANES, type Lane } from "@/lib/pipeline";
@@ -84,7 +84,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
   const [dragging, setDragging] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-  const chhoti = useChhoti();
+  const rachna = useRachna();
 
   const statusOf = (card: BoardCard) => moved[card.id] ?? card.status;
 
@@ -96,7 +96,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
     setMoved((current) => ({ ...current, [id]: lane.dropTo }));
     startTransition(async () => {
       const result = await updateCreatorStatus(id, lane.dropTo);
-      if (result.ok) chhoti?.nudge(id, lane.dropTo);
+      if (result.ok) rachna?.nudge(id, lane.dropTo);
       if (!result.ok) {
         setError(result.error);
         setMoved((current) => {
@@ -164,6 +164,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                         setDragging(card.id);
                       }}
                       onDragEnd={() => setDragging(null)}
+                      data-rachna-point={due && verb ? `${verb}: ${card.name}` : undefined}
                       className={cn("card grid cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", dragging === card.id && "opacity-50")}
                     >
                       <div className="flex min-w-0 items-center gap-3">

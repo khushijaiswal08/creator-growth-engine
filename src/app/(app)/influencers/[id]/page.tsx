@@ -158,7 +158,7 @@ export default async function InfluencerPage({
     loadSuppressions([influencer]),
     // Campaigns of the brand not on screen. Only the number is used, never their details.
     view.brandId ? db.campaignCreator.count({ where: { influencerId: id, NOT: view.creators } }) : 0,
-    // Posts recorded so far across the brand in view, so Chhoti can cheer the tenth.
+    // Posts recorded so far across the brand in view, so Rachna can cheer the tenth.
     db.post.count({ where: { campaignCreator: view.creators } }),
   ]);
   // Archiving hides a creator from everyone, so someone tied to one brand cannot do it to a shared creator.
@@ -346,7 +346,7 @@ export default async function InfluencerPage({
                         )}
                       </section>
 
-                      <section className="card border-[#f1c7d4] bg-[#fffafb] p-5">
+                      <section className="card border-[#f1c7d4] bg-[#fffafb] p-5" data-rachna-point={link.nextAction ? `${link.nextAction} (${link.campaign.name})` : undefined}>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                           <div className="min-w-0 flex-1">
                             <p className="label text-primary-text">

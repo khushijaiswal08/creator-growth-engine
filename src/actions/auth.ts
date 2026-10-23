@@ -1,8 +1,10 @@
 "use server";
 
 import { AuthError } from "next-auth";
+import { cookies } from "next/headers";
 import { signIn, signOut } from "@/auth";
 import { field, type FormState } from "@/lib/form";
+import { RACHNA_INTRO_COOKIE } from "@/lib/rachna";
 import { signInErrorMessage, wasRefused } from "@/lib/sign-in-errors";
 
 export async function login(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -15,6 +17,9 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
       redirectTo: field(formData, "callbackUrl") || "/today",
     });
 
+  // Rachna introduces herself on the first page after a sign-in. Auth.js redirects by throwing,
+  // so the cookie is left before the attempt; a failed attempt leaves a harmless cookie behind.
+  (await cookies()).set(RACHNA_INTRO_COOKIE, "1", { path: "/", maxAge: 600, sameSite: "lax" });
   try {
     try {
       await attempt();

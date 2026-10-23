@@ -20,8 +20,8 @@ export type SessionUser = {
   viewBrand: string | null;
   /** Profile photo as a data URL, when the person has set one. */
   avatarUrl: string | null;
-  /** Whether Chhoti, the guide, shows her notes and nudges (the "?" tour always works). */
-  showChhotiTips: boolean;
+  /** Whether Rachna, the guide, shows her notes and nudges (the "?" tour always works). */
+  showRachnaTips: boolean;
 };
 
 const loadSessionUser = cache(async () => {
@@ -31,7 +31,7 @@ const loadSessionUser = cache(async () => {
 
   const user = await db.user.findUnique({
     where: { id },
-    select: { id: true, name: true, email: true, role: true, brandId: true, mustChangePassword: true, avatarUrl: true, showChhotiTips: true },
+    select: { id: true, name: true, email: true, role: true, brandId: true, mustChangePassword: true, avatarUrl: true, showRachnaTips: true },
   });
   if (!user) redirect("/logout");
 

@@ -140,8 +140,8 @@ model User {
   brandId               String?
   // A small profile photo chosen by the person, stored as a data URL (resized in the browser before upload).
   avatarUrl             String?   @db.Text
-  // Chhoti, the guide: her morning note, nudges and milestones. Off leaves only the "?" tour.
-  showChhotiTips        Boolean   @default(true)
+  // Rachna, the guide: her morning note, nudges and milestones. Off leaves only the "?" tour.
+  showRachnaTips        Boolean   @default(true)
   // The built-in "Automation" account that automatic actions are logged under. Cannot sign in.
   isSystem              Boolean   @default(false)
   createdAt             DateTime  @default(now())

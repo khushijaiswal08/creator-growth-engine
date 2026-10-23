@@ -1378,8 +1378,8 @@ test("Creator Connections creators are reached inside Amazon first, then by DM o
   assert.equal(stats.find((row) => row.userId === user.id)?.messages, 1);
 });
 
-test("Chhoti greets once a day, obeys the tips toggle, and never sits on a button or a field", async () => {
-  const { greetingDue, tipsAllowed, placeBubble, greetingFor, nudgeFor, tourKeyFor } = await import("@/lib/chhoti");
+test("Rachna greets once a day, obeys the tips toggle, and never sits on a button or a field", async () => {
+  const { greetingDue, tipsAllowed, placeBubble, greetingFor, nudgeFor, tourKeyFor } = await import("@/lib/rachna");
 
   // Once per day: the first visit greets, the second does not, tomorrow does again.
   assert.equal(greetingDue(null, "2026-10-23"), true);
@@ -1409,13 +1409,64 @@ test("Chhoti greets once a day, obeys the tips toggle, and never sits on a butto
   assert.equal(placeBubble({ anchor: null, size, viewport, blocked: [] }).placement, "corner");
 
   // The copy is built from the counts, dropping a clause whose count is zero.
-  assert.equal(greetingFor("Preeti", { replies: 2, parcels: 1, total: 9 }).text, "Morning, Preeti! 2 replies first, then 1 parcel check.");
-  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }).text, "Morning, Preeti! 1 reply first.");
-  assert.equal(greetingFor("Preeti", { replies: 0, parcels: 0, total: 0 }).pose, "think");
+  assert.equal(greetingFor("Preeti", { replies: 2, parcels: 1, total: 9 }, 9).text, "Morning, Preeti! 2 replies first, then 1 parcel check.");
+  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 9).text, "Morning, Preeti! 1 reply first.");
+  assert.equal(greetingFor("Preeti", { replies: 0, parcels: 0, total: 0 }, 9).pose, "think");
+  // She matches the page's own greeting through the day.
+  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 14).text, "Afternoon, Preeti! 1 reply first.");
+  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 19).text, "Evening, Preeti! 1 reply first.");
   assert.equal(nudgeFor("agreed")?.text, "Send the selection link, one click.");
   assert.equal(nudgeFor("content_expected", { arrivalDays: 3 })?.text, "Delivery note today, arrival check in 3 days. I'll remind you.");
   assert.equal(nudgeFor("content_posted")?.pose, "cheer");
   assert.equal(nudgeFor("contacted"), null);
   assert.equal(tourKeyFor("/campaigns/abc"), "pipeline");
   assert.equal(tourKeyFor("/campaigns/abc/review"), null);
+});
+
+test("Rachna's quests, moods and pick come from the real counts", async () => {
+  const { questsFor, dayCleared, questProgress, moodFor, pickFor, pickReason, INTRO } = await import("@/lib/rachna");
+
+  // Quests measure the day against where it began; messages count up to the daily target.
+  const start = { replies: 3, parcels: 1, approvals: 0, todaySent: 0, dailyTarget: 20 };
+  const midday = questsFor({ replies: 1, parcels: 1, approvals: 0, todaySent: 5, dailyTarget: 20 }, start);
+  assert.deepEqual(
+    midday.map((quest) => [quest.key, quest.done, quest.total]),
+    [
+      ["replies", 2, 3],
+      ["messages", 5, 20],
+      ["parcels", 0, 1],
+    ],
+  );
+  assert.equal(midday[0].label, "Reply to 3 creators");
+  assert.equal(dayCleared(midday), false);
+  assert.equal(questProgress(midday), 7 / 24);
+  // A queue that grew during the day keeps an honest total; a queue empty all day is not a quest.
+  const grown = questsFor({ replies: 5, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 20 }, start);
+  assert.deepEqual([grown[0].done, grown[0].total], [0, 5]);
+  assert.equal(grown.some((quest) => quest.key === "approvals"), false);
+  // Every quest done clears the day; with nothing to do there are no quests and no false cheer.
+  assert.equal(dayCleared(questsFor({ replies: 0, parcels: 0, approvals: 0, todaySent: 20, dailyTarget: 20 }, start)), true);
+  const nothing = { replies: 0, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0 };
+  assert.equal(questsFor(nothing, nothing).length, 0);
+  assert.equal(dayCleared([]), false);
+
+  // Her face: worried once anything is three days late, happy with an empty list.
+  assert.equal(moodFor({ due: 0, lateMax: 0 }), "happy");
+  assert.equal(moodFor({ due: 4, lateMax: 2 }), "idle");
+  assert.equal(moodFor({ due: 4, lateMax: 3 }), "worried");
+
+  // The pick: a reply beats a late follow-up; among replies the bigger audience; nothing picks nobody.
+  const rows = [
+    { queue: "followups", lateDays: 5, followers: 90_000, name: "A" },
+    { queue: "replies", lateDays: 0, followers: 1_000, name: "B" },
+    { queue: "replies", lateDays: 0, followers: 50_000, name: "C" },
+  ];
+  assert.equal(pickFor(rows)?.name, "C");
+  assert.equal(pickFor([]), null);
+  assert.equal(pickReason({ queue: "replies", lateDays: 0 }), "Replied, waiting for you");
+  assert.equal(pickReason({ queue: "followups", lateDays: 2 }), "Follow-up due · 2 days late");
+
+  // Her hello after sign-in.
+  assert.match(INTRO.text, /^Hare Krishna! I'm Rachna/);
+  assert.equal(INTRO.pose, "cheer");
 });

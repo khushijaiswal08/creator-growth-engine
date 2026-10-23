@@ -4,7 +4,7 @@ import { startTransition, useActionState, useEffect, useRef, useState } from "re
 import { importTracking, updateGift } from "@/actions/gifts";
 import { addPost, runAutomationsNow, saveCampaignAutomation, setOfferedForList, uploadProducts } from "@/actions/journey";
 import { logReply } from "@/actions/replies";
-import { useChhoti } from "@/components/chhoti/chhoti";
+import { useRachna } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
 import { NativeSelect } from "@/components/native-select";
 import { SubmitButton } from "@/components/submit-button";
@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { LISTING_SHEET, readListingRows } from "@/lib/amazon-listing";
 import { BRANDS } from "@/lib/brands";
-import { MILESTONES } from "@/lib/chhoti";
+import { MILESTONES } from "@/lib/rachna";
 import type { FormState } from "@/lib/form";
 import { REPLY_CLASS_LABELS, REPLY_CLASSES, REPLY_OUTCOMES, type ReplyClass } from "@/lib/replies";
 
@@ -141,18 +141,18 @@ const POST_CHECKS = [
   ["collabInvite", "Collab or partnership invite added"],
 ];
 
-/** Records a creator's live post with the four checks a reviewer makes. Chhoti cheers it, and the tenth post of all. */
+/** Records a creator's live post with the four checks a reviewer makes. Rachna cheers it, and the tenth post of all. */
 export function AddPostForm({ campaignCreatorId, postsSoFar = 0 }: { campaignCreatorId: string; postsSoFar?: number }) {
   const [state, action] = useActionState(addPost, null);
   const id = `post-${campaignCreatorId}`;
-  const chhoti = useChhoti();
+  const rachna = useRachna();
   const celebrated = useRef(false);
   useEffect(() => {
     if (!state?.message || celebrated.current) return;
     celebrated.current = true;
-    chhoti?.nudge(campaignCreatorId, "content_posted");
-    if (postsSoFar + 1 === 10) chhoti?.milestone("posts:10", MILESTONES.tenthPost());
-  }, [state, chhoti, campaignCreatorId, postsSoFar]);
+    rachna?.nudge(campaignCreatorId, "content_posted");
+    if (postsSoFar + 1 === 10) rachna?.milestone("posts:10", MILESTONES.tenthPost());
+  }, [state, rachna, campaignCreatorId, postsSoFar]);
 
   return (
     <form action={action} className="grid gap-3">

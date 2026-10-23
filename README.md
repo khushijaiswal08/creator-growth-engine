@@ -630,30 +630,48 @@ the portal does everything around that one manual paste (2026-10-22):
 - Tested in `tests/guards.test.ts` (channel order, defaults, template choice, mailto, and an
   Amazon message counting in the outreach figures).
 
-## Phase 3D: Chhoti, the guide
+## Phase 3D: Rachna, the guide
 
-A guide character (2026-10-23). Her art is Khushi's own illustration in
-`public/chhoti/chhoti.webp`, shown with small overlays per pose (point mirrors her,
-cheer adds one second of CSS confetti, think a "?", sleep a tilt and "z z"); no sound,
-no outside images, reduced motion respected.
+A guide character (2026-10-23; first shipped as "Chhoti", renamed Rachna, "creativity",
+the same day). Her art is Khushi's own illustration in `public/rachna/rachna.webp`,
+cropped to head and shoulders in a circle with a rose ring; poses are small overlays
+(point mirrors her, cheer bounces her and drops confetti over her whole card, think a
+"?", worried an amber "!", happy a heart, sleep a tilt and "z z"). No sound, no outside
+images, reduced motion respected.
 
-- `src/lib/chhoti.ts`: the rules, pure and tested. Greets once per day per person
-  (`greetingDue`), everything but the tour obeys the toggle (`tipsAllowed`), the bubble
-  goes below the anchor, else right, else above, else the bottom-right corner, never
-  over a button, a field or anything marked `data-no-overlay` (`placeBubble`). Copy
-  for the greeting, nudges and milestones lives here too.
-- `src/components/chhoti/chhoti.tsx`: `ChhotiProvider` (in the app shell) holds the one
-  bubble at a time with a queue, the ten-minute idle nap, Esc to close and the tour;
-  `useChhoti()` gives `say`, `nudge`, `milestone`, `startTour`. `ChhotiGreeting` on Home
-  says the morning note from the real counts and cheers the weekly target;
-  `ChhotiTourButton` is the round "?" in the top bar, three steps per page from
-  `tours.json` (Home, Creators, Pipeline, Gifts, Reports), anchored by element ids;
-  `ChhotiTipsToggle` on Settings saves `User.showChhotiTips`.
+Where she lives: her own slot at the foot of the sidebar (a card beside the icon rail
+when the sidebar is collapsed, a strip at the top of the page on a phone), so her words
+never sit on a row, a button or a line of text. The thing she means gets a rose ring on
+the page. Her face cameo in the top bar replaces the old "?" button.
+
+- `src/lib/rachna.ts`: the rules, pure and tested. Greets once per day per person
+  (`greetingDue`, `greetingFor` follows the time of day), everything but the tour obeys
+  the toggle (`tipsAllowed`); the daily quests (`questsFor`: replies, parcels and
+  approvals measured against where they stood at the day's first visit, messages against
+  the daily target; `dayCleared` earns one cheer a day), her mood (`moodFor`: worried at
+  three or more days late, happy with an empty list), her pick (`pickFor`: a reply beats
+  a gift to approve beats the rest, late first, then the bigger audience; `pickReason`),
+  the sign-in hello (`INTRO`, left by the login action as cookie `RACHNA_INTRO_COOKIE`
+  and read once by the app layout), copy for nudges and milestones, and the tour keys.
+- `src/components/rachna/rachna.tsx`: `RachnaProvider` (in the app shell, fed the live
+  counts by the layout) holds the one bubble at a time with a queue, the ten-minute idle
+  nap, Esc to close, the tour and the pointing mode; `useRachna()` gives `say`, `nudge`,
+  `milestone`, `startTour`, `togglePointing`. `RachnaSlot` is the sidebar slot: her
+  face and name are one button (click: numbered rose arrows beside everything on the
+  page marked `data-rachna-point`, with the matching list in her cloud), the cloud is
+  tappable (its main button's job), and when she is quiet the slot shows today's quests
+  with a progress ring. `RachnaCameo` is the top-bar face (tour on a wide screen, "what
+  needs doing now" on a phone). `RachnaGreeting` on Home says the day's note from the
+  real counts and cheers the weekly target. `RachnaPick` (`rachna-pick.tsx`) is the
+  "Rachna's pick" card on Home. `RachnaTipsToggle` on Settings saves `User.showRachnaTips`.
+  Tours: three steps per page from `tours.json` (Home, Creators, Pipeline, Gifts,
+  Reports), anchored by element ids.
 - Nudges, once per creator per session: Agreed from the status menu or a board drop,
   Delivered from the Gifts page (with the campaign's arrival-check days), a post logged
-  (cheer). Milestones once ever: weekly target, first delivery in a campaign, tenth post.
-- Tests in `tests/guards.test.ts`: once a day, the toggle, and placement off blocked
-  elements.
+  (cheer). Milestones once ever: weekly target, first delivery in a campaign, tenth post,
+  and the day cleared (once a day).
+- Tests in `tests/guards.test.ts`: once a day, the toggle, time of day, placement off
+  blocked elements, quests, moods, the pick and the intro.
 
 ## Phase 1 discovery and scoring
 

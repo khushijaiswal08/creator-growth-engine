@@ -3,7 +3,8 @@ import { cn } from "cn";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
-import { ChhotiGreeting } from "@/components/chhoti/chhoti";
+import { RachnaGreeting } from "@/components/rachna/rachna";
+import { RachnaPick } from "@/components/rachna/rachna-pick";
 import { CheckProfileButton, NewMessageButton } from "@/components/home-actions";
 import { RunAutomationsButton } from "@/components/journey-forms";
 import { MessageComposer } from "@/components/message-button";
@@ -19,6 +20,7 @@ import { startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format"
 import { suggestedTemplate } from "@/lib/next-action";
 import { brandTargets, personStats, replyRate, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
+import { pickFor } from "@/lib/rachna";
 import { requireUser } from "@/lib/session";
 import { SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { firstName } from "@/lib/template";
@@ -108,6 +110,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   status: true,
                   nextAction: true,
                   nextActionDueAt: true,
+                  campaign: { select: { name: true } },
                   influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
                 },
               }),
@@ -184,6 +187,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         amazonCreator: item.influencer.amazonTier !== null,
         blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
         purpose: suggestedTemplate(item.status, item.nextAction),
+        campaignName: item.campaign.name,
       };
     }),
   );
@@ -212,7 +216,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </div>
       </header>
 
-      <ChhotiGreeting
+      <RachnaGreeting
         name={firstName(user.name)}
         replies={queues.find((queue) => queue.key === "replies")?.count ?? 0}
         parcels={queues.find((queue) => queue.key === "delivery")?.count ?? 0}
@@ -311,6 +315,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </section>
 
         <div id="home-side" className="grid content-start gap-5">
+          {activeQueue === null && !amazonOnly ? <RachnaPick row={pickFor(rows)} /> : null}
           {ccTotal > 0 ? (
             <section className="card p-4" aria-labelledby="cc-title">
               <div className="mb-1 flex items-center justify-between">
