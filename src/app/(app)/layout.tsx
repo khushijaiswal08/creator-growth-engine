@@ -30,8 +30,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <AppShell
       user={{
+        id: user.id,
         name: user.name,
         email: user.email,
+        chhotiTips: user.showChhotiTips,
         role: user.role,
         avatarUrl: user.avatarUrl,
         brandName: user.brandId ? brandName(user.brandId) : null,

@@ -85,8 +85,8 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
           ) : null}
         </div>
       ) : null}
-      {rows.map((row) => (
-        <div key={row.id} className={cn("grid gap-x-3 gap-y-2 border-t px-4 py-3 hover:bg-surface-2/40 md:grid-cols-[24px_minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_104px] md:items-center md:py-2.5", selected.has(row.id) && "bg-primary-soft/20")}>
+      {rows.map((row, index) => (
+        <div key={row.id} id={index === 0 ? "task-first" : undefined} className={cn("grid gap-x-3 gap-y-2 border-t px-4 py-3 hover:bg-surface-2/40 md:grid-cols-[24px_minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_104px] md:items-center md:py-2.5", selected.has(row.id) && "bg-primary-soft/20")}>
           <input type="checkbox" aria-label={`Select ${row.name}`} checked={selected.has(row.id)} onChange={() => toggle(row.id)} className="max-md:hidden" />
           <div className="flex min-w-0 items-center gap-2.5">
             <Avatar name={row.name} />

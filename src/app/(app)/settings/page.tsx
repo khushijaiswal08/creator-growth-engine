@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ChhotiTipsToggle } from "@/components/chhoti/chhoti";
 import { AutomationSettingsForm } from "@/components/journey-forms";
 import { PageHeader, Panel } from "@/components/panel";
 import { ScoringPromptForm, TargetsForm, type PromptVersionRow } from "@/components/settings-forms";
@@ -63,6 +64,11 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" meta="Targets, timers and the scoring prompt, per brand. Change a value, save, and it applies from the next check." />
+
+      <section className="card mb-10 p-5">
+        <h2 className="mb-3">Chhoti, your guide</h2>
+        <ChhotiTipsToggle on={user.showChhotiTips} />
+      </section>
 
       <div className="grid gap-12">
         {brands.map(({ brand, campaigns, articles, prompt, versions }) => {

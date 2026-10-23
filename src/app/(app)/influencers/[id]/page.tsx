@@ -119,7 +119,7 @@ export default async function InfluencerPage({
   });
   if (!influencer) notFound();
 
-  const [activities, messages, allCampaigns, templates, suppressions, elsewhere] = await Promise.all([
+  const [activities, messages, allCampaigns, templates, suppressions, elsewhere, postsSoFar] = await Promise.all([
     db.activity.findMany({
       where: activityOfInfluencer(view, id),
       orderBy: { createdAt: "desc" },
@@ -158,6 +158,8 @@ export default async function InfluencerPage({
     loadSuppressions([influencer]),
     // Campaigns of the brand not on screen. Only the number is used, never their details.
     view.brandId ? db.campaignCreator.count({ where: { influencerId: id, NOT: view.creators } }) : 0,
+    // Posts recorded so far across the brand in view, so Chhoti can cheer the tenth.
+    db.post.count({ where: { campaignCreator: view.creators } }),
   ]);
   // Archiving hides a creator from everyone, so someone tied to one brand cannot do it to a shared creator.
   const mayArchive = scope.brandId === null || elsewhere === 0;
@@ -581,7 +583,7 @@ export default async function InfluencerPage({
               {active ? (
                 <div className="p-5">
                   <h3 className="mb-3">Record a post</h3>
-                  <AddPostForm campaignCreatorId={active.id} />
+                  <AddPostForm campaignCreatorId={active.id} postsSoFar={postsSoFar} />
                 </div>
               ) : null}
             </section>

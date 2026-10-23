@@ -1,0 +1,27 @@
+{
+  "home": [
+    { "anchor": "tasks-card", "title": "Your tasks, most urgent first", "text": "Everything due today is here. The button on each row is the one thing to do: Reply, Send link, Approve, Message." },
+    { "anchor": "home-tiles", "title": "This week at a glance", "text": "Messages against your target, replies, gifts on the way, content due and the content rate. Each one says how it compares." },
+    { "anchor": "home-side", "title": "Pipeline and team", "text": "Where every creator stands, and what the team did last. Open board takes you to the lanes." }
+  ],
+  "creators": [
+    { "anchor": "creators-search", "title": "Find or add someone", "text": "Search by name, handle, email or place. To add a creator, paste their profile link under Add creator." },
+    { "anchor": "creators-table", "title": "Open a creator for the whole story", "text": "Click a name: journey, messages, gifts, content and history on one page." },
+    { "anchor": "creators-ranking", "title": "Who delivers", "text": "Ranking sorts everyone by content delivered, Amazon sales, followers or engagement." }
+  ],
+  "pipeline": [
+    { "anchor": "board-lanes", "title": "Five lanes", "text": "To contact, In conversation, Gifting, Content due, Done. Drag a card to the next lane to move the creator." },
+    { "anchor": "board-toolbar", "title": "Narrow it down", "text": "Search, Filter by owner, platform or followers, or tick Only mine." },
+    { "anchor": "campaign-tabs", "title": "List, review queue and settings", "text": "List shows every status in a table; the review queue holds new candidates; Settings has the timers." }
+  ],
+  "gifts": [
+    { "anchor": "gifts-table", "title": "One row per order", "text": "Tick rows to approve, copy addresses or cancel several at once. Click a row for the address, the rules and tracking." },
+    { "anchor": "gifts-tabs", "title": "By status", "text": "Needs approval first, then To order, Shipped and Delivered." },
+    { "anchor": "tracking", "title": "The Amazon file, then tracking", "text": "Export the Amazon order file at the top, upload it in Seller Central, then paste the tracking back here." }
+  ],
+  "reports": [
+    { "anchor": "report-periods", "title": "Pick a period", "text": "This or last week, month or quarter, or any two dates. Narrow to one campaign on the right." },
+    { "anchor": "report-tiles", "title": "Four figures", "text": "Each one beside the same figure for the period before, so you can see the direction." },
+    { "anchor": "report-funnel", "title": "Where creators drop off", "text": "Contacted to posted, step by step, and the biggest leak in words." }
+  ]
+}

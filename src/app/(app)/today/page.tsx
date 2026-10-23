@@ -3,6 +3,7 @@ import { cn } from "cn";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { ChhotiGreeting } from "@/components/chhoti/chhoti";
 import { CheckProfileButton, NewMessageButton } from "@/components/home-actions";
 import { RunAutomationsButton } from "@/components/journey-forms";
 import { MessageComposer } from "@/components/message-button";
@@ -211,7 +212,16 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </div>
       </header>
 
-      <section aria-label="This week at a glance" className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
+      <ChhotiGreeting
+        name={firstName(user.name)}
+        replies={queues.find((queue) => queue.key === "replies")?.count ?? 0}
+        parcels={queues.find((queue) => queue.key === "delivery")?.count ?? 0}
+        total={total}
+        weekSent={sent}
+        weekTarget={target.weekly}
+        weekKey={weekStart.toISOString().slice(0, 10)}
+      />
+      <section id="home-tiles" aria-label="This week at a glance" className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
         <Tile label="Messages this week" value={sent} note={target.weekly > 0 ? `of ${target.weekly} target · ${mineToday?.messages ?? 0} today` : `${mineToday?.messages ?? 0} today`}>
           {target.weekly > 0 ? <Bar value={sent} target={target.weekly} /> : null}
         </Tile>
@@ -234,7 +244,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section className="card overflow-hidden" aria-labelledby="tasks-title">
+        <section id="tasks-card" className="card overflow-hidden" aria-labelledby="tasks-title">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
             <h2 id="tasks-title">My tasks today</h2>
             <span className="chip border-transparent bg-surface-2">{total}</span>
@@ -300,7 +310,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           </div>
         </section>
 
-        <div className="grid content-start gap-5">
+        <div id="home-side" className="grid content-start gap-5">
           {ccTotal > 0 ? (
             <section className="card p-4" aria-labelledby="cc-title">
               <div className="mb-1 flex items-center justify-between">

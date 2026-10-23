@@ -71,3 +71,11 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
   revalidatePath("/", "layout");
   return { message: "Saved." };
 }
+
+/** Settings: whether Chhoti, the guide, shows her notes and nudges to this person. The "?" tour always stays. */
+export async function setChhotiTips(on: boolean): Promise<void> {
+  const user = await requireUserForPasswordChange();
+  await db.user.update({ where: { id: user.id }, data: { showChhotiTips: on } });
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+}

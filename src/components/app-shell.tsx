@@ -7,6 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfile } from "@/actions/account";
 import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-switcher";
+import { ChhotiProvider, ChhotiTourButton } from "@/components/chhoti/chhoti";
 import { FormError } from "@/components/form-error";
 import { SidebarNav } from "@/components/nav";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
@@ -18,8 +19,11 @@ import { Label } from "@/components/ui/label";
 import { SIDEBAR_COOKIE } from "@/lib/sidebar";
 
 export type ShellUser = {
+  id: string;
   name: string;
   email: string;
+  /** Whether Chhoti, the guide, shows her notes and nudges. */
+  chhotiTips: boolean;
   role: string;
   avatarUrl: string | null;
   /** The brand on the account, when there is one. */
@@ -94,6 +98,7 @@ export function AppShell({
 
   return (
     <SidebarContext.Provider value={ui}>
+      <ChhotiProvider userId={user.id} tipsOn={user.chhotiTips}>
       <div className="flex min-h-screen flex-col">
         <TopBar user={user} due={stats.due} preference={preference} onToggle={toggle} logout={logout} onEdit={() => setEditing(true)} />
 
@@ -111,6 +116,7 @@ export function AppShell({
         <MobileBar user={user} isAdmin={isAdmin} logout={logout} onEdit={() => setEditing(true)} />
         <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
       </div>
+      </ChhotiProvider>
     </SidebarContext.Provider>
   );
 }
@@ -202,6 +208,7 @@ function TopBar({
             <BrandSegments current={user.viewBrand} />
           </span>
         )}
+        <ChhotiTourButton />
         <Link href="/today" title={due === 0 ? "Nothing is due right now" : `${due} ${due === 1 ? "thing needs" : "things need"} you today`} aria-label={due === 0 ? "Nothing is due" : `${due} due today`} className={ICON_BUTTON}>
           <Bell className="size-[18px]" strokeWidth={1.9} />
           {due > 0 ? (

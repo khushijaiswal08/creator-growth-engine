@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { updateCreatorStatus } from "@/actions/campaign-creators";
 import { Avatar } from "@/components/avatar";
+import { useChhoti } from "@/components/chhoti/chhoti";
 import { MessageButton } from "@/components/message-button";
 import { formatCount, formatDay } from "@/lib/format";
 import { LANES, type Lane } from "@/lib/pipeline";
@@ -83,6 +84,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
   const [dragging, setDragging] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const chhoti = useChhoti();
 
   const statusOf = (card: BoardCard) => moved[card.id] ?? card.status;
 
@@ -94,6 +96,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
     setMoved((current) => ({ ...current, [id]: lane.dropTo }));
     startTransition(async () => {
       const result = await updateCreatorStatus(id, lane.dropTo);
+      if (result.ok) chhoti?.nudge(id, lane.dropTo);
       if (!result.ok) {
         setError(result.error);
         setMoved((current) => {
@@ -115,7 +118,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
           {error}
         </p>
       ) : null}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_200px]">
+      <div id="board-lanes" className="grid gap-4 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_200px]">
         {LANES.map((lane) => {
           const isDone = lane.key === "done";
           const inLane = isDone

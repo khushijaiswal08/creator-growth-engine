@@ -75,7 +75,7 @@ export default async function InfluencersPage({
           <Link href="/import">Import CSV</Link>
         </Button>
         <Button asChild variant="outline">
-          <Link href="/influencers/ranking">Ranking</Link>
+          <Link id="creators-ranking" href="/influencers/ranking">Ranking</Link>
         </Button>
         <Button asChild variant="action">
           <Link href="/influencers/new">+ Add creator</Link>
@@ -83,7 +83,7 @@ export default async function InfluencersPage({
       </PageHeader>
 
       <Panel>
-        <form method="get" className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+        <form id="creators-search" method="get" className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
           <label htmlFor="q" className="sr-only">
             Search creators
           </label>
@@ -104,7 +104,7 @@ export default async function InfluencersPage({
           </Button>
         </form>
 
-        <Table>
+        <Table id="creators-table">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>

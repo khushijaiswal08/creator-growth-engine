@@ -1377,3 +1377,45 @@ test("Creator Connections creators are reached inside Amazon first, then by DM o
   const stats = await personStats({ from: new Date(Date.now() - DAY_MS), to: new Date(Date.now() + 60_000) }, { id: campaign.id });
   assert.equal(stats.find((row) => row.userId === user.id)?.messages, 1);
 });
+
+test("Chhoti greets once a day, obeys the tips toggle, and never sits on a button or a field", async () => {
+  const { greetingDue, tipsAllowed, placeBubble, greetingFor, nudgeFor, tourKeyFor } = await import("@/lib/chhoti");
+
+  // Once per day: the first visit greets, the second does not, tomorrow does again.
+  assert.equal(greetingDue(null, "2026-10-23"), true);
+  assert.equal(greetingDue("2026-10-23", "2026-10-23"), false);
+  assert.equal(greetingDue("2026-10-22", "2026-10-23"), true);
+
+  // The toggle silences everything but the tour.
+  assert.equal(tipsAllowed(false, "greeting"), false);
+  assert.equal(tipsAllowed(false, "nudge"), false);
+  assert.equal(tipsAllowed(false, "milestone"), false);
+  assert.equal(tipsAllowed(false, "tour"), true);
+  assert.equal(tipsAllowed(true, "nudge"), true);
+
+  // Placement: below the anchor when free; moved when a blocked element sits there; the corner when nothing fits.
+  const anchor = { x: 100, y: 100, w: 800, h: 40 };
+  const size = { w: 400, h: 140 };
+  const viewport = { w: 1400, h: 900 };
+  const free = placeBubble({ anchor, size, viewport, blocked: [] });
+  assert.equal(free.placement, "below");
+  const belowButton = { x: 160, y: 160, w: 80, h: 32 };
+  const moved = placeBubble({ anchor, size, viewport, blocked: [belowButton] });
+  assert.notEqual(moved.placement, "below");
+  const movedRect = { x: moved.x, y: moved.y, ...size };
+  assert.ok(!(movedRect.x < belowButton.x + belowButton.w && movedRect.x + movedRect.w > belowButton.x && movedRect.y < belowButton.y + belowButton.h && movedRect.y + movedRect.h > belowButton.y), "the bubble is not over the blocked element");
+  const everywhere = [{ x: 0, y: 0, w: 1400, h: 700 }];
+  assert.equal(placeBubble({ anchor, size, viewport, blocked: everywhere }).placement, "corner");
+  assert.equal(placeBubble({ anchor: null, size, viewport, blocked: [] }).placement, "corner");
+
+  // The copy is built from the counts, dropping a clause whose count is zero.
+  assert.equal(greetingFor("Preeti", { replies: 2, parcels: 1, total: 9 }).text, "Morning, Preeti! 2 replies first, then 1 parcel check.");
+  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }).text, "Morning, Preeti! 1 reply first.");
+  assert.equal(greetingFor("Preeti", { replies: 0, parcels: 0, total: 0 }).pose, "think");
+  assert.equal(nudgeFor("agreed")?.text, "Send the selection link, one click.");
+  assert.equal(nudgeFor("content_expected", { arrivalDays: 3 })?.text, "Delivery note today, arrival check in 3 days. I'll remind you.");
+  assert.equal(nudgeFor("content_posted")?.pose, "cheer");
+  assert.equal(nudgeFor("contacted"), null);
+  assert.equal(tourKeyFor("/campaigns/abc"), "pipeline");
+  assert.equal(tourKeyFor("/campaigns/abc/review"), null);
+});

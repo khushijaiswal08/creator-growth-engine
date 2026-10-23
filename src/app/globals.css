@@ -202,6 +202,36 @@
     @apply border-primary text-primary-text;
   }
 
+  /* Chhoti, the guide: the ring around a tour step's target, and her one-second confetti. */
+  .chhoti-spot {
+    outline: 3px solid var(--primary);
+    outline-offset: 6px;
+    border-radius: 12px;
+  }
+  .chhoti-confetti span {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    animation: chhoti-pop 1s ease-out 1 both;
+  }
+  @keyframes chhoti-pop {
+    from {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+    to {
+      transform: translateY(-28px) scale(0.4);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chhoti-confetti span {
+      animation: none;
+      opacity: 0;
+    }
+  }
+
   /* A disclosure whose header reads as a link. */
   .disclosure > summary {
     @apply inline-flex items-center gap-1.5 text-sm font-semibold text-accent-text;

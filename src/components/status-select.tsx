@@ -4,6 +4,7 @@ import type { CreatorStatus } from "@prisma/client";
 import { cn } from "cn";
 import { useOptimistic, useState, useTransition } from "react";
 import { updateCreatorStatus } from "@/actions/campaign-creators";
+import { useChhoti } from "@/components/chhoti/chhoti";
 import { NativeSelect } from "@/components/native-select";
 import { CREATOR_STATUS_LABELS, CREATOR_STATUS_TONES, CREATOR_STATUSES, NEXT_STATUS_SUGGESTIONS, TONE_TEXT } from "@/lib/status";
 
@@ -26,6 +27,7 @@ export function StatusSelect({
   const [shown, setShown] = useOptimistic(status);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const chhoti = useChhoti();
 
   function onChange(event: React.ChangeEvent<HTMLSelectElement>) {
     const next = event.target.value as CreatorStatus;
@@ -33,6 +35,7 @@ export function StatusSelect({
       setShown(next);
       const result = await updateCreatorStatus(campaignCreatorId, next);
       setError(result.ok ? null : result.error);
+      if (result.ok) chhoti?.nudge(campaignCreatorId, next);
     });
   }
 

@@ -630,6 +630,31 @@ the portal does everything around that one manual paste (2026-10-22):
 - Tested in `tests/guards.test.ts` (channel order, defaults, template choice, mailto, and an
   Amazon message counting in the outreach figures).
 
+## Phase 3D: Chhoti, the guide
+
+A guide character (2026-10-23). Her art is Khushi's own illustration in
+`public/chhoti/chhoti.webp`, shown with small overlays per pose (point mirrors her,
+cheer adds one second of CSS confetti, think a "?", sleep a tilt and "z z"); no sound,
+no outside images, reduced motion respected.
+
+- `src/lib/chhoti.ts`: the rules, pure and tested. Greets once per day per person
+  (`greetingDue`), everything but the tour obeys the toggle (`tipsAllowed`), the bubble
+  goes below the anchor, else right, else above, else the bottom-right corner, never
+  over a button, a field or anything marked `data-no-overlay` (`placeBubble`). Copy
+  for the greeting, nudges and milestones lives here too.
+- `src/components/chhoti/chhoti.tsx`: `ChhotiProvider` (in the app shell) holds the one
+  bubble at a time with a queue, the ten-minute idle nap, Esc to close and the tour;
+  `useChhoti()` gives `say`, `nudge`, `milestone`, `startTour`. `ChhotiGreeting` on Home
+  says the morning note from the real counts and cheers the weekly target;
+  `ChhotiTourButton` is the round "?" in the top bar, three steps per page from
+  `tours.json` (Home, Creators, Pipeline, Gifts, Reports), anchored by element ids;
+  `ChhotiTipsToggle` on Settings saves `User.showChhotiTips`.
+- Nudges, once per creator per session: Agreed from the status menu or a board drop,
+  Delivered from the Gifts page (with the campaign's arrival-check days), a post logged
+  (cheer). Milestones once ever: weekly target, first delivery in a campaign, tenth post.
+- Tests in `tests/guards.test.ts`: once a day, the toggle, and placement off blocked
+  elements.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

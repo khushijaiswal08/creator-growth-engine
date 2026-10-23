@@ -8,10 +8,12 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { decideGift, markDelivered } from "@/actions/gifts";
 import { Avatar } from "@/components/avatar";
+import { useChhoti } from "@/components/chhoti/chhoti";
 import { GiftTrackingForm } from "@/components/journey-forms";
 import { ProductPhoto } from "@/components/product-photo";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
+import { MILESTONES } from "@/lib/chhoti";
 import { formatDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
 import { trackingUrl } from "@/lib/tracking";
@@ -41,6 +43,12 @@ export type GiftRow = {
   product: { title: string; color: string | null; size: string | null; sku: string; amazonUrl: string | null; price: number | null; imageUrl: string | null; stock: number | null };
   creator: { id: string; name: string };
   campaign: string;
+  /** The creator's campaign link, for Chhoti's nudge after a delivery. */
+  campaignCreatorId: string;
+  /** The campaign's arrival-check timer, in days. */
+  arrivalCheckDays: number;
+  /** True when no gift in this campaign has been delivered yet: delivering this one is a milestone. */
+  firstDeliveryInCampaign: boolean;
   /** The gifting rules, each passed or not. Empty for closed orders. */
   checks: { rule: string; passed: boolean; reason: string | null }[];
 };
@@ -71,7 +79,17 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [notice, setNotice] = useState<string | null>(null);
+  const chhoti = useChhoti();
   const open = orders.find((order) => order.id === openId) ?? null;
+
+  /** Marks a parcel delivered, then lets Chhoti say what comes next (and cheer the campaign's first delivery). */
+  function deliver(order: GiftRow) {
+    run("Marked delivered.", async () => {
+      await markDelivered(order.id);
+      if (order.firstDeliveryInCampaign) chhoti?.milestone(`first-delivery:${order.campaign}`, MILESTONES.firstDelivery(order.campaign));
+      chhoti?.nudge(order.campaignCreatorId, "content_expected", { arrivalDays: order.arrivalCheckDays });
+    });
+  }
 
   const chosen = orders.filter((order) => selected.has(order.id));
   const approvable = chosen.filter((order) => order.status === "needs_approval");
@@ -107,7 +125,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
 
   return (
     <div className="flex items-start gap-5">
-      <section className="card min-w-0 flex-1 overflow-hidden">
+      <section id="gifts-table" className="card min-w-0 flex-1 overflow-hidden">
         <div className={cn("flex min-h-12 flex-wrap items-center gap-2 border-b px-4 py-2", selected.size > 0 ? "bg-primary-soft/40" : "bg-surface")}>
           {selected.size > 0 ? (
             <>
@@ -257,7 +275,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                             Approve
                           </Button>
                         ) : order.status === "shipped" || order.status === "ordered" || order.status === "exception" ? (
-                          <Button size="sm" variant="outline" disabled={pending} onClick={(event) => { event.stopPropagation(); run("Marked delivered.", () => markDelivered(order.id)); }}>
+                          <Button size="sm" variant="outline" disabled={pending} onClick={(event) => { event.stopPropagation(); deliver(order); }}>
                             Delivered
                           </Button>
                         ) : (
@@ -386,7 +404,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                 </Button>
               ) : null}
               {open.status === "shipped" || open.status === "ordered" || open.status === "exception" ? (
-                <Button variant="outline" disabled={pending} onClick={() => run("Marked delivered.", () => markDelivered(open.id))}>
+                <Button variant="outline" disabled={pending} onClick={() => deliver(open)}>
                   Mark delivered today
                 </Button>
               ) : null}

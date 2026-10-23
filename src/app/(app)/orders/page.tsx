@@ -46,12 +46,16 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       include: {
         product: { select: { title: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true, stock: true } },
         campaignCreator: {
-          select: { influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { name: true } }, influencer: { select: { id: true, name: true } } },
+          select: { id: true, influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { id: true, name: true, arrivalCheckDays: true } }, influencer: { select: { id: true, name: true } } },
         },
       },
     }),
     db.giftOrder.groupBy({ by: ["status"], where: view.gifts, _count: { _all: true } }),
   ]);
+  // Campaigns that have had a delivery already: delivering a gift in any other campaign is its first.
+  const delivered = await db.giftOrder.groupBy({ by: ["campaignCreatorId"], where: { ...view.gifts, deliveredAt: { not: null } } });
+  const deliveredLinks = delivered.length ? await db.campaignCreator.findMany({ where: { id: { in: delivered.map((row) => row.campaignCreatorId) } }, select: { campaignId: true } }) : [];
+  const campaignsWithDelivery = new Set(deliveredLinks.map((row) => row.campaignId));
   const countOf = new Map(counts.map((row) => [row.status, row._count._all]));
   const openCount = GIFT_STATUSES.filter((status) => status !== "cancelled" && status !== "delivered").reduce((sum, status) => sum + (countOf.get(status) ?? 0), 0);
 
@@ -83,6 +87,9 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       product: { ...order.product, price: order.product.price === null ? null : Number(order.product.price) },
       creator: order.campaignCreator.influencer,
       campaign: order.campaignCreator.campaign.name,
+      campaignCreatorId: order.campaignCreator.id,
+      arrivalCheckDays: order.campaignCreator.campaign.arrivalCheckDays,
+      firstDeliveryInCampaign: !campaignsWithDelivery.has(order.campaignCreator.campaign.id),
       checks: CHECKED.has(order.status)
         ? await approvalChecks({
             influencerId: order.campaignCreator.influencerId,
@@ -124,7 +131,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         ))}
       </PageHeader>
 
-      <nav aria-label="Filter by status" className="tabs mb-5">
+      <nav id="gifts-tabs" aria-label="Filter by status" className="tabs mb-5">
         <Link href={sort === "newest" ? "/orders" : `/orders?sort=${sort}`} className="tab" aria-current={filter === null ? "true" : undefined}>
           All open <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{openCount}</span>
         </Link>

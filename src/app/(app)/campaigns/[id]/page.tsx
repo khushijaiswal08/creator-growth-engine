@@ -141,7 +141,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
         </div>
       </header>
 
-      <nav aria-label="Campaign sections" className="tabs mb-5">
+      <nav id="campaign-tabs" aria-label="Campaign sections" className="tabs mb-5">
         <Link href={tabHref("board")} className="tab" aria-current={view === "board" ? "true" : undefined}>
           Board
         </Link>
@@ -164,7 +164,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       </nav>
 
       {view === "board" || view === "list" ? (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div id="board-toolbar" className="mb-4 flex flex-wrap items-center gap-2">
           <form method="get" className="relative">
             {view === "list" ? <input type="hidden" name="view" value="list" /> : null}
             {filter ? <input type="hidden" name="status" value={filter} /> : null}

@@ -156,7 +156,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
       </PageHeader>
       <ReportTabs current="performance" />
 
-      <div className="mb-5 flex flex-wrap items-center gap-2">
+      <div id="report-periods" className="mb-5 flex flex-wrap items-center gap-2">
         {PERIOD_KEYS.filter((key) => key !== "custom").map((key) => (
           <Link key={key} href={href({ period: key, from: undefined, to: undefined })} className="chip" aria-current={period.key === key ? "true" : undefined}>
             {PERIOD_LABELS[key]}
@@ -196,7 +196,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         ) : null}
       </div>
 
-      <section aria-label="Headline figures" className="mb-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+      <section id="report-tiles" aria-label="Headline figures" className="mb-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <div className="card grid gap-1.5 p-4">
           <p className="label">Messages sent</p>
           <p className="stat-number text-[28px]">{figures.messages}</p>
@@ -251,7 +251,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           <TrendChart points={trend.map((bucket) => ({ label: formatDay(bucket.from).replace(/, \d{4}$/, ""), messages: bucket.figures.messages, replies: bucket.figures.replies }))} />
         </section>
 
-        <section className="card flex flex-col p-5" aria-labelledby="funnel-title">
+        <section id="report-funnel" className="card flex flex-col p-5" aria-labelledby="funnel-title">
           <h2 id="funnel-title" className="mb-3">
             Where creators drop off
           </h2>
