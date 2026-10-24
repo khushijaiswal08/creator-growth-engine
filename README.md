@@ -530,9 +530,10 @@ month-by-month table. "Attributed orders" is a placeholder until the Amazon Attr
 Definitions live in `src/lib/performance-stats.ts`; period boundaries follow `APP_TIME_ZONE`.
 
 **Creator ranking** (Creators > Ranking, `/influencers/ranking`). Every creator in view sorted by
-content delivered, content rate, Amazon sales, followers, engagement or most recent
-collaboration, with filters for worked-with-before, US based, Amazon tier, minimum followers and a
-search. Amazon Creator Connections creators carry their tier and average monthly sales as fields
+content delivered, gifts given, content rate, Amazon sales, followers, engagement, most recent
+collaboration or newest added (an "Added" column shows the date), each with a "Reverse order"
+switch (`dir=asc`) for oldest or fewest first; filters for worked-with-before, US based, Amazon
+tier, minimum followers and a search. Amazon Creator Connections creators carry their tier and average monthly sales as fields
 (`Influencer.amazonTier`, `amazonMonthlyGmvUsd`, `amazonGmvDetail`), filled from the imported
 notes; attributed sales from Amazon Attribution join the table in Phase 3B.
 

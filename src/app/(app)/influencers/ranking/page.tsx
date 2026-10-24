@@ -19,11 +19,13 @@ const PAGE_SIZE = 100;
 
 const SORTS = {
   posts: "Most content delivered",
+  gifts: "Most gifts given",
   rate: "Best content rate",
   gmv: "Highest Amazon sales",
   followers: "Most followers",
   engagement: "Highest engagement",
   recent: "Most recent collaboration",
+  added: "Newest added",
 } as const;
 type SortKey = keyof typeof SORTS;
 
@@ -41,11 +43,13 @@ const TIER_ORDER = ["platinum", "gold", "silver", "bronze", "entry"];
 export default async function RankingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sort?: string; worked?: string; us?: string; tier?: string; min?: string; q?: string; page?: string }>;
+  searchParams: Promise<{ sort?: string; dir?: string; worked?: string; us?: string; tier?: string; min?: string; q?: string; page?: string }>;
 }) {
   const view = viewed(await requireUser());
   const params = await searchParams;
   const sort: SortKey = (Object.keys(SORTS) as SortKey[]).includes(params.sort as SortKey) ? (params.sort as SortKey) : "posts";
+  // Every sort runs biggest or newest first; "Reverse order" turns it round (oldest first, fewest gifts first).
+  const reversed = params.dir === "asc";
   const worked: WorkedKey = (Object.keys(WORKED) as WorkedKey[]).includes(params.worked as WorkedKey) ? (params.worked as WorkedKey) : "any";
   const usOnly = params.us === "1";
   const tier = (params.tier ?? "").toLowerCase();
@@ -59,6 +63,7 @@ export default async function RankingPage({
       id: true,
       name: true,
       location: true,
+      createdAt: true,
       usSignal: true,
       amazonTier: true,
       amazonMonthlyGmvUsd: true,
@@ -94,6 +99,7 @@ export default async function RankingPage({
         tier: row.amazonTier,
         gmv: row.amazonMonthlyGmvUsd === null ? null : Number(row.amazonMonthlyGmvUsd),
         lastCollaboration: [lastPost, lastGift].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+        added: row.createdAt,
         us,
       };
     })
@@ -116,16 +122,21 @@ export default async function RankingPage({
         return b.engagement - a.engagement;
       case "recent":
         return (b.lastCollaboration?.getTime() ?? 0) - (a.lastCollaboration?.getTime() ?? 0);
+      case "gifts":
+        return b.gifts - a.gifts || b.posts - a.posts || b.followers - a.followers;
+      case "added":
+        return b.added.getTime() - a.added.getTime();
       default:
         return b.posts - a.posts || (b.rate ?? -1) - (a.rate ?? -1) || b.followers - a.followers;
     }
   });
+  if (reversed) rows.reverse();
 
   const lastPage = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const shown = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const href = (overrides: Record<string, string | undefined>) => {
     const query = new URLSearchParams();
-    const merged = { sort, worked, us: usOnly ? "1" : undefined, tier: tier || undefined, min: minFollowers ? String(minFollowers) : undefined, q: q || undefined, ...overrides };
+    const merged = { sort, dir: reversed ? "asc" : undefined, worked, us: usOnly ? "1" : undefined, tier: tier || undefined, min: minFollowers ? String(minFollowers) : undefined, q: q || undefined, ...overrides };
     for (const [key, value] of Object.entries(merged)) if (value) query.set(key, value);
     const text = query.toString();
     return text ? `/influencers/ranking?${text}` : "/influencers/ranking";
@@ -134,19 +145,23 @@ export default async function RankingPage({
 
   return (
     <>
-      <PageHeader title="Creator ranking" meta={`${rows.length} creators. Sorted by ${SORTS[sort].toLowerCase()}. Attributed sales join once the Amazon reports are imported.`}>
+      <PageHeader title="Creator ranking" meta={`${rows.length} creators. Sorted by ${SORTS[sort].toLowerCase()}${reversed ? ", in reverse order" : ""}. Attributed sales join once the Amazon reports are imported.`}>
         <Button asChild variant="outline">
           <Link href="/influencers">All creators</Link>
         </Button>
       </PageHeader>
 
       <div className="mb-6 grid gap-3">
-        <nav aria-label="Sort" className="flex flex-wrap gap-1.5">
+        <nav aria-label="Sort" className="flex flex-wrap items-center gap-1.5">
           {(Object.keys(SORTS) as SortKey[]).map((key) => (
             <Link key={key} href={href({ sort: key, page: undefined })} className="chip" aria-current={sort === key ? "true" : undefined}>
               {SORTS[key]}
             </Link>
           ))}
+          <span className="mx-1 text-muted-foreground">·</span>
+          <Link href={href({ dir: reversed ? undefined : "asc", page: undefined })} className="chip" aria-current={reversed ? "true" : undefined} title="Oldest or smallest first">
+            {reversed ? "↑ Reverse order" : "↓ Reverse order"}
+          </Link>
         </nav>
         <div className="flex flex-wrap items-center gap-1.5">
           {(Object.keys(WORKED) as WorkedKey[]).map((key) => (
@@ -167,6 +182,7 @@ export default async function RankingPage({
         </div>
         <form method="get" className="flex flex-wrap items-end gap-2">
           <input type="hidden" name="sort" value={sort} />
+          {reversed ? <input type="hidden" name="dir" value="asc" /> : null}
           <input type="hidden" name="worked" value={worked} />
           {usOnly ? <input type="hidden" name="us" value="1" /> : null}
           {tier ? <input type="hidden" name="tier" value={tier} /> : null}
@@ -197,12 +213,13 @@ export default async function RankingPage({
             <TableHead className="text-right">Content rate</TableHead>
             <TableHead>Amazon</TableHead>
             <TableHead>Last collaboration</TableHead>
+            <TableHead>Added</TableHead>
             <TableHead>Record</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {shown.length === 0 ? (
-            <EmptyRow colSpan={11}>No creators match these filters.</EmptyRow>
+            <EmptyRow colSpan={12}>No creators match these filters.</EmptyRow>
           ) : (
             shown.map((row, index) => (
               <TableRow key={row.id}>
@@ -237,6 +254,7 @@ export default async function RankingPage({
                   )}
                 </TableCell>
                 <TableCell className="text-muted-foreground">{formatDay(row.lastCollaboration)}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDay(row.added)}</TableCell>
                 <TableCell>{row.record ? <Pill tone={row.record.tone}>{row.record.text}</Pill> : null}</TableCell>
               </TableRow>
             ))
