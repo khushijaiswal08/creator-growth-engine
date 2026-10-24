@@ -11,6 +11,7 @@ import { useRachna } from "@/components/rachna/rachna";
 import { MessageButton } from "@/components/message-button";
 import { formatCount, formatDay } from "@/lib/format";
 import { LANES, type Lane } from "@/lib/pipeline";
+import type { Warmth } from "@/lib/reply-reader";
 import { CREATOR_STATUS_LABELS } from "@/lib/status";
 
 export type BoardCard = {
@@ -29,6 +30,9 @@ export type BoardCard = {
   amazonCreator: boolean;
   blockedReason: string | null;
   purpose: TemplatePurpose | null;
+  /** The latest reply as Rachna read it. */
+  warmth: Warmth | null;
+  readSummary: string | null;
 };
 
 const SHOWN = 3;
@@ -42,6 +46,9 @@ function shorten(action: string): string {
 
 /** The chip on a card: what is due, in red when late; otherwise where the creator is. */
 function chipFor(card: BoardCard, now: Date): { text: string; tone: "red" | "amber" | "blue" | "grey" } {
+  // A reply Rachna read as hot or warm: the chip says so, in front of what is due.
+  if (card.warmth === "hot" && card.dueAt && card.dueAt <= now && card.waitingOn !== "creator" && card.nextAction) return { text: `Hot · ${shorten(card.nextAction)}`, tone: "red" };
+  if (card.warmth === "warm" && card.dueAt && card.dueAt <= now && card.waitingOn !== "creator" && card.nextAction) return { text: `Warm · ${shorten(card.nextAction)}`, tone: "amber" };
   if (card.dueAt && card.dueAt <= now && card.waitingOn !== "creator" && card.nextAction) {
     const late = Math.floor((now.getTime() - card.dueAt.getTime()) / DAY);
     return { text: late > 0 ? `${shorten(card.nextAction)} · ${late === 1 ? "1 day" : `${late} days`} late` : `${shorten(card.nextAction)} · today`, tone: late > 0 ? "red" : "amber" };
@@ -165,7 +172,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                       }}
                       onDragEnd={() => setDragging(null)}
                       data-rachna-point={due && verb ? `${verb}: ${card.name}` : undefined}
-                      className={cn("card grid cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", dragging === card.id && "opacity-50")}
+                      className={cn("card grid cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", card.warmth === "hot" && !late && "border-l-[3px] border-l-primary", dragging === card.id && "opacity-50")}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <Avatar name={card.name} className="size-9" />
@@ -181,7 +188,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="min-w-0 flex-1">
-                          <span className={cn("inline-flex max-w-full min-w-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", CHIP[chip.tone])}>
+                          <span title={card.readSummary ?? undefined} className={cn("inline-flex max-w-full min-w-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", CHIP[chip.tone])}>
                             <span className="truncate">{chip.text}</span>
                           </span>
                         </span>

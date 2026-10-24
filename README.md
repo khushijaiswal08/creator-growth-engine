@@ -673,6 +673,43 @@ the page. Her face cameo in the top bar replaces the old "?" button.
 - Tests in `tests/guards.test.ts`: once a day, the toggle, time of day, placement off
   blocked elements, quests, moods, the pick and the intro.
 
+## Phase 3E: the reply reader
+
+Rachna reads what a creator wrote (2026-10-24). Built without any outside API first:
+the rules read replies today and Claude takes over the day `ANTHROPIC_API_KEY` is set,
+on the same screens. Instagram and Amazon replies are pasted in; the Instagram Messaging
+API can feed them in later. A person always confirms. Nothing moves on its own.
+
+- `src/lib/reply-reader.ts`: the built-in reader, pure and tested. `readWithRules` sorts
+  a reply into one of the eight classes from signals in the words (declines, parking,
+  fees, affiliate, product questions, enthusiasm), with a confidence; under 70 percent
+  (`SURE`) she says "not sure" and leaves the choice empty. It pulls the fee (`feeIn`),
+  the questions asked (`questionsIn`, at most three), writes a one-line summary and
+  gives a warmth: hot, warm or cold (`WARMTH_OF` per class). `isReading` checks what the
+  form sends back. `afterReplyLine` is her one line once the reply is logged.
+- `src/lib/reply-reader-claude.ts`: `readReply` asks Claude (`claude-sonnet-5-5`, or
+  `ANTHROPIC_READER_MODEL`) for the same fields as JSON, with the brand, campaign, the
+  last message the team sent and the channel as context; any failure, or no key, falls
+  back to the rules. The key stays on the server.
+- `src/actions/replies.ts`: `readReplyText` reads a pasted reply for a creator the person
+  may see. `logReply` stores her guess beside the person's choice on the `Message`
+  (`suggestedClass`, `suggestedConfidence`, `warmth`, `readSummary`, `readQuestions`,
+  `readBy`) and the latest warmth and line on the creator (`replyWarmth`, `replyRead`).
+  Warmth follows the class the person confirms, so a reply logged by hand counts too.
+  The activity line says "Rachna agreed" or what she read it as.
+- The Log a reply dialog (`LogReplyForm`): paste first; a moment later her cloud shows
+  the warmth, the class, the confidence, her summary and the questions as a list. Her
+  class is pre-selected with a "Rachna's suggestion" tag until the person changes it;
+  a fee is pre-filled. After Log reply she says what comes next.
+- Home: hot rows rise inside their queue and get a flame chip and a tint, her summary
+  shows under the next step, a "Hot N" chip narrows the list (`/today?hot=1`), the
+  pick prefers hot (then warm) within a queue, and the day's quests start with
+  "Answer N hot replies". Board cards say "Hot · ..." or "Warm · ..." with a rose edge.
+- Reports: "Replies read by Rachna", "Rachna was right" (her class matched the team's)
+  and "Hot replies answered in a day" (`readingFiguresFor`).
+- Tests in `tests/guards.test.ts`: the rules on real-looking replies, fees, questions,
+  the not-sure case, the shape check, and hot before warm in the pick.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

@@ -7,8 +7,10 @@ import { useState } from "react";
 import { Avatar } from "@/components/avatar";
 import { MessageButton } from "@/components/message-button";
 import { CreatorStatusPill } from "@/components/status-pill";
+import { WarmthChip } from "@/components/warmth-chip";
 import { Button } from "@/components/ui/button";
 import { formatCount, formatDay } from "@/lib/format";
+import type { Warmth } from "@/lib/reply-reader";
 
 export type TaskRow = {
   id: string;
@@ -34,6 +36,9 @@ export type TaskRow = {
   purpose: TemplatePurpose | null;
   /** The campaign the step belongs to, for Rachna's pick. */
   campaignName?: string;
+  /** The latest reply as Rachna read it: hot rows rise and get a flame. */
+  warmth?: Warmth | null;
+  readSummary?: string | null;
 };
 
 /** The flat list of today's tasks with a checkbox per row for copying handles in bulk. */
@@ -63,11 +68,12 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
 
   return (
     <div>
-      <div className="hidden grid-cols-[24px_minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_104px] items-center gap-3 bg-surface-2/60 px-4 py-2 text-xs font-semibold text-muted-foreground md:grid">
+      <div className="hidden grid-cols-[24px_minmax(0,1.4fr)_140px_minmax(0,1.6fr)_88px_104px_104px] items-center gap-3 bg-surface-2/60 px-4 py-2 text-xs font-semibold text-muted-foreground md:grid">
         <input type="checkbox" aria-label="Select all tasks" checked={rows.length > 0 && selected.size === rows.length} onChange={(event) => setSelected(event.target.checked ? new Set(rows.map((row) => row.id)) : new Set())} />
         <span>Creator</span>
         <span>Stage</span>
         <span>Next step</span>
+        <span>Warmth</span>
         <span>Due</span>
         <span />
       </div>
@@ -88,7 +94,7 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
         </div>
       ) : null}
       {rows.map((row, index) => (
-        <div key={row.id} id={index === 0 ? "task-first" : undefined} data-rachna-point={`${row.verb}: ${row.name}`} className={cn("grid gap-x-3 gap-y-2 border-t px-4 py-3 hover:bg-surface-2/40 md:grid-cols-[24px_minmax(0,1.5fr)_150px_minmax(0,1.7fr)_110px_104px] md:items-center md:py-2.5", selected.has(row.id) && "bg-primary-soft/20")}>
+        <div key={row.id} id={index === 0 ? "task-first" : undefined} data-rachna-point={`${row.verb}: ${row.name}`} className={cn("grid gap-x-3 gap-y-2 border-t px-4 py-3 hover:bg-surface-2/40 md:grid-cols-[24px_minmax(0,1.4fr)_140px_minmax(0,1.6fr)_88px_104px_104px] md:items-center md:py-2.5", row.warmth === "hot" && "bg-[#fff7f7]", selected.has(row.id) && "bg-primary-soft/20")}>
           <input type="checkbox" aria-label={`Select ${row.name}`} checked={selected.has(row.id)} onChange={() => toggle(row.id)} className="max-md:hidden" />
           <div className="flex min-w-0 items-center gap-2.5">
             <Avatar name={row.name} />
@@ -105,7 +111,11 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
           <div>
             <CreatorStatusPill status={row.status} />
           </div>
-          <div className="text-sm max-md:text-muted-foreground">{row.nextAction}</div>
+          <div className="text-sm max-md:text-muted-foreground">
+            {row.nextAction}
+            {row.readSummary ? <span className="block text-xs text-muted-foreground">Rachna: {row.readSummary}</span> : null}
+          </div>
+          <div>{row.warmth ? <WarmthChip warmth={row.warmth} className="px-2.5 py-1 text-[12px]" /> : <span className="text-xs text-muted-foreground max-md:hidden">—</span>}</div>
           <div>
             <span title={row.dueAt ? `Since ${formatDay(row.dueAt)}` : undefined} className={cn("chip border-transparent", row.lateDays > 0 ? "bg-danger-soft text-danger-text" : row.primary ? "bg-danger-soft text-danger-text" : "bg-surface-2")}>
               {row.lateDays === 0 ? "Today" : row.lateDays === 1 ? "1 day late" : `${row.lateDays} days late`}

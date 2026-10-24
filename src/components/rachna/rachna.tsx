@@ -381,7 +381,7 @@ export function RachnaPortrait({ pose, size = 80, lively, className }: { pose: R
 }
 
 /** The cloud she speaks in. The tail points up towards her portrait, or left when she is beside the words. */
-function Cloud({ tail = "up", onTap, children }: { tail?: "up" | "left"; onTap?: () => void; children: React.ReactNode }) {
+export function Cloud({ tail = "up", onTap, children }: { tail?: "up" | "left"; onTap?: () => void; children: React.ReactNode }) {
   return (
     <div
       className={cn("rachna-cloud", tail === "up" ? "mt-4" : "ml-4", onTap && "cursor-pointer")}
@@ -588,7 +588,7 @@ function Quests() {
         // Unreadable: today's counts become the start.
       }
     }
-    const snapshot: QuestCounts = { replies: counts.replies, parcels: counts.parcels, approvals: counts.approvals, todaySent: counts.todaySent, dailyTarget: counts.dailyTarget };
+    const snapshot: QuestCounts = { replies: counts.replies, parcels: counts.parcels, approvals: counts.approvals, todaySent: counts.todaySent, dailyTarget: counts.dailyTarget, hot: counts.hot };
     store.set(key, JSON.stringify(snapshot));
     setStart(snapshot);
     // The snapshot is taken once per day, not on every count change.

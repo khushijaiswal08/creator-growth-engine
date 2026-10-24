@@ -15,10 +15,10 @@ export function LogReplyButton({ campaignCreatorId, campaignName }: { campaignCr
         Log a reply
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Log a reply</DialogTitle>
-            <DialogDescription>What the creator said in {campaignName}. The choice moves them to the right stage and sets the next step.</DialogDescription>
+            <DialogDescription>Paste what the creator wrote in {campaignName}. Rachna reads it and suggests what it means; your choice moves them to the right stage and sets the next step.</DialogDescription>
           </DialogHeader>
           <LogReplyForm campaignCreatorId={campaignCreatorId} />
         </DialogContent>

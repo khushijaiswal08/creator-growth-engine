@@ -1,4 +1,5 @@
 import type { CreatorStatus } from "@prisma/client";
+import { warmthRank, type Warmth } from "@/lib/reply-reader";
 
 /**
  * Rachna, the guide: the rules behind her, kept free of the browser so they
@@ -123,10 +124,10 @@ export function placeBubble(input: { anchor: Rect | null; size: { w: number; h: 
 export const INTRO: Speech = { pose: "cheer", text: "Hare Krishna! I'm Rachna, your creative companion. How can I help you today?" };
 
 /** The live counts behind her quests and her mood, gathered by the app layout for every page. */
-export type QuestCounts = { replies: number; parcels: number; approvals: number; todaySent: number; dailyTarget: number };
+export type QuestCounts = { replies: number; parcels: number; approvals: number; todaySent: number; dailyTarget: number; hot: number };
 export type RachnaCounts = QuestCounts & { due: number; lateMax: number };
 
-export type Quest = { key: "replies" | "messages" | "approvals" | "parcels"; label: string; done: number; total: number; href: string };
+export type Quest = { key: "hot" | "replies" | "messages" | "approvals" | "parcels"; label: string; done: number; total: number; href: string };
 
 /**
  * The day's quests. The three queues run until empty, measured against where
@@ -140,6 +141,7 @@ export function questsFor(now: QuestCounts, start: QuestCounts): Quest[] {
     const total = Math.max(began, current);
     if (total > 0) quests.push({ key, label: label(total), done: total - current, total, href });
   };
+  queue("hot", start.hot ?? 0, now.hot ?? 0, (n) => `Answer ${n} hot ${n === 1 ? "reply" : "replies"}`, "/today?hot=1");
   queue("replies", start.replies, now.replies, (n) => `Reply to ${n} ${n === 1 ? "creator" : "creators"}`, "/today?queue=replies");
   if (now.dailyTarget > 0) quests.push({ key: "messages", label: `Send ${now.dailyTarget} messages`, done: Math.min(now.todaySent, now.dailyTarget), total: now.dailyTarget, href: "/today#tasks-card" });
   queue("approvals", start.approvals, now.approvals, (n) => `Approve ${n} ${n === 1 ? "gift" : "gifts"}`, "/orders?status=needs_approval");
@@ -166,17 +168,17 @@ export function moodFor(counts: { due: number; lateMax: number }): Mood {
   return "idle";
 }
 
-export type PickCandidate = { queue: string; lateDays: number; followers: number | null; name: string };
+export type PickCandidate = { queue: string; lateDays: number; followers: number | null; name: string; warmth?: Warmth | null };
 
 const PICK_ORDER = ["replies", "gifts", "selection", "first", "followups", "delivery", "content", "posted", "review"];
 
-/** Her one creator to act on first: a reply beats everything, then a gift to approve, then the queues in order; late first, then the bigger audience. */
+/** Her one creator to act on first: a reply beats everything, then a gift to approve, then the queues in order; hot before warm before cold, late first, then the bigger audience. */
 export function pickFor<T extends PickCandidate>(rows: T[]): T | null {
   const rank = (queue: string) => {
     const index = PICK_ORDER.indexOf(queue);
     return index === -1 ? PICK_ORDER.length : index;
   };
-  return [...rows].sort((a, b) => rank(a.queue) - rank(b.queue) || b.lateDays - a.lateDays || (b.followers ?? 0) - (a.followers ?? 0) || a.name.localeCompare(b.name))[0] ?? null;
+  return [...rows].sort((a, b) => rank(a.queue) - rank(b.queue) || warmthRank(a.warmth) - warmthRank(b.warmth) || b.lateDays - a.lateDays || (b.followers ?? 0) - (a.followers ?? 0) || a.name.localeCompare(b.name))[0] ?? null;
 }
 
 const REASONS: Record<string, string> = {
@@ -191,7 +193,7 @@ const REASONS: Record<string, string> = {
   review: "Waiting for review",
 };
 
-export function pickReason(row: { queue: string; lateDays: number }): string {
-  const base = REASONS[row.queue] ?? "Needs you";
+export function pickReason(row: { queue: string; lateDays: number; warmth?: Warmth | null }): string {
+  const base = row.warmth === "hot" && row.queue === "replies" ? "Hot reply, waiting for you" : (REASONS[row.queue] ?? "Needs you");
   return row.lateDays > 0 ? `${base} · ${row.lateDays === 1 ? "1 day" : `${row.lateDays} days`} late` : base;
 }

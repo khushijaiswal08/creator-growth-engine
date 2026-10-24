@@ -21,6 +21,7 @@ import { suggestedTemplate } from "@/lib/next-action";
 import { brandTargets, personStats, replyRate, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
 import { pickFor } from "@/lib/rachna";
+import { isWarmth, warmthRank } from "@/lib/reply-reader";
 import { requireUser } from "@/lib/session";
 import { SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { firstName } from "@/lib/template";
@@ -74,7 +75,7 @@ function verbFor(queueKey: string, message: boolean): string {
   return message ? "Message" : "Open";
 }
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ queue?: string; all?: string; source?: string }> }) {
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ queue?: string; all?: string; source?: string; hot?: string }> }) {
   const user = await requireUser();
   const view = viewed(user);
   const params = await searchParams;
@@ -89,14 +90,16 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const activeQueue = QUEUES.some((queue) => queue.key === params.queue) ? params.queue! : null;
   // "Creator Connections" narrows the task list to creators who came through Amazon.
   const amazonOnly = params.source === "amazon";
-  const showAll = params.all === "1" || activeQueue !== null || amazonOnly;
+  // "Hot" narrows the list to creators whose latest reply Rachna read as keen.
+  const hotOnly = params.hot === "1";
+  const showAll = params.all === "1" || activeQueue !== null || amazonOnly || hotOnly;
   const amazonInfluencer = { archived: false, amazonTier: { not: null } };
   const ccWhere = { campaign: openCampaign, influencer: amazonInfluencer };
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccToContact, ccMoved, ccPosted, ccDue] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccToContact, ccMoved, ccPosted, ccDue, hotTotal] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
-        const where = amazonOnly ? { ...dueWhere(view, queue.statuses, now), influencer: amazonInfluencer } : dueWhere(view, queue.statuses, now);
+        const where = { ...dueWhere(view, queue.statuses, now), ...(amazonOnly ? { influencer: amazonInfluencer } : {}), ...(hotOnly ? { replyWarmth: "hot" } : {}) };
         const [count, items] = await Promise.all([
           db.campaignCreator.count({ where }),
           activeQueue && activeQueue !== queue.key
@@ -110,6 +113,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   status: true,
                   nextAction: true,
                   nextActionDueAt: true,
+                  replyWarmth: true,
+                  replyRead: true,
                   campaign: { select: { name: true } },
                   influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
                 },
@@ -147,6 +152,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     db.campaignCreator.count({ where: { ...ccWhere, messages: { some: { channel: { in: ["dm", "email"] } } } } }),
     db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["content_posted", "completed"] } } }),
     db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), influencer: amazonInfluencer } }),
+    db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), replyWarmth: "hot" } }),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
@@ -188,9 +194,13 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         blockedReason: SEND_BLOCKED_STATUSES.has(item.status) ? "Do not contact." : null,
         purpose: suggestedTemplate(item.status, item.nextAction),
         campaignName: item.campaign.name,
+        warmth: isWarmth(item.replyWarmth) ? item.replyWarmth : null,
+        readSummary: item.replyRead,
       };
     }),
   );
+  // Inside each queue the hot replies come first; the sort is stable, so the due order holds otherwise.
+  rows.sort((a, b) => QUEUES.findIndex((queue) => queue.key === a.queue) - QUEUES.findIndex((queue) => queue.key === b.queue) || warmthRank(a.warmth) - warmthRank(b.warmth));
   const shown = rows.length;
   const funnelCampaign = openCampaigns.length === 1 ? openCampaigns[0] : null;
   // The Creator Connections page of the brand in view, or the first brand that has one.
@@ -254,9 +264,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             <span className="chip border-transparent bg-surface-2">{total}</span>
             {total > 0 || amazonOnly ? (
               <div className="ml-auto flex flex-wrap gap-1.5">
-                <Link href="/today" className="chip" aria-current={activeQueue === null && !amazonOnly ? "true" : undefined}>
-                  All {amazonOnly ? "" : total}
+                <Link href="/today" className="chip" aria-current={activeQueue === null && !amazonOnly && !hotOnly ? "true" : undefined}>
+                  All {amazonOnly || hotOnly ? "" : total}
                 </Link>
+                {hotTotal > 0 ? (
+                  <Link href="/today?hot=1" className={cn("chip", !hotOnly && "border-transparent bg-danger-soft text-danger-text hover:text-danger-text")} aria-current={hotOnly ? "true" : undefined}>
+                    Hot {hotTotal}
+                  </Link>
+                ) : null}
                 {queues
                   .filter((queue) => queue.count > 0)
                   .map((queue) => (
@@ -293,7 +308,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           ) : null}
           {total === 0 ? (
             <p className="border-t px-4 py-12 text-center text-muted-foreground">
-              {amazonOnly ? "No Creator Connections creator needs you today." : "All quiet. New replies, parcels and content dates show up here as they come due."}
+              {amazonOnly ? "No Creator Connections creator needs you today." : hotOnly ? "No hot replies waiting. Rachna marks a reply hot when the creator sounds keen." : "All quiet. New replies, parcels and content dates show up here as they come due."}
             </p>
           ) : (
             <TaskList rows={rows} />
@@ -315,7 +330,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </section>
 
         <div id="home-side" className="grid content-start gap-5">
-          {activeQueue === null && !amazonOnly ? <RachnaPick row={pickFor(rows)} /> : null}
+          {activeQueue === null && !amazonOnly && !hotOnly ? <RachnaPick row={pickFor(rows)} /> : null}
           {ccTotal > 0 ? (
             <section className="card p-4" aria-labelledby="cc-title">
               <div className="mb-1 flex items-center justify-between">

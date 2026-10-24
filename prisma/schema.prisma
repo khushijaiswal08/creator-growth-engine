@@ -266,6 +266,9 @@ model CampaignCreator {
   waitingOn         String? // "team" or "creator"
   followUpsSent     Int                @default(0)
   reengageAfter     DateTime?
+  // The latest logged reply as Rachna read it: hot, warm or cold, and her one line. Drives the order on Home and the board.
+  replyWarmth       String?
+  replyRead         String?
   // The creator's private product-selection link.
   selectionToken    String?            @unique
   selectionSentAt   DateTime?
@@ -378,6 +381,13 @@ model Message {
   sentAt                   DateTime         @default(now())
   classification           String?
   classificationConfidence Float?
+  // Rachna's reading of an inbound reply, kept beside the person's choice so Reports can show how often she was right.
+  suggestedClass           String?
+  suggestedConfidence      Float?
+  warmth                   String?
+  readSummary              String?
+  readQuestions            String[]         @default([])
+  readBy                   String?
 
   campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
   user            User            @relation(fields: [userId], references: [id])

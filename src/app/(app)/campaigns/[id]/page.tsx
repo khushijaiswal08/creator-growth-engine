@@ -12,6 +12,7 @@ import { AutomationSettingsForm } from "@/components/journey-forms";
 import { MessageButton, MessageComposer } from "@/components/message-button";
 import { EmptyRow } from "@/components/panel";
 import { PipelineBoard, type BoardCard } from "@/components/pipeline-board";
+import { isWarmth } from "@/lib/reply-reader";
 import { ProfileLinks } from "@/components/profile-links";
 import { ScoringButton } from "@/components/scoring-button";
 import { CampaignStatusPill, CreatorStatusPill } from "@/components/status-pill";
@@ -251,6 +252,8 @@ async function BoardView({
         nextActionDueAt: true,
         waitingOn: true,
         fitScore: true,
+        replyWarmth: true,
+        replyRead: true,
         influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
       },
     }),
@@ -271,6 +274,8 @@ async function BoardView({
       dueAt: row.nextActionDueAt,
       waitingOn: row.waitingOn,
       fitScore: row.fitScore,
+      warmth: isWarmth(row.replyWarmth) ? row.replyWarmth : null,
+      readSummary: row.replyRead,
       profiles: row.influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
       email: row.influencer.email,
       amazonCreator: row.influencer.amazonTier !== null,

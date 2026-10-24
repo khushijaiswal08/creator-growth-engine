@@ -12,7 +12,7 @@ import { viewed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { dayValueInZone, formatCount, formatDay, startOfWeekInZone } from "@/lib/format";
-import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, resolvePeriod, type Figures } from "@/lib/performance-stats";
+import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, readingFiguresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 import { trackRecordFor } from "@/lib/track-record";
@@ -80,6 +80,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     messagedIn(period),
     messagedIn(earlier),
   ]);
+  const [reading, readingBefore] = await Promise.all([readingFiguresFor(period, where), readingFiguresFor(earlier, where)]);
   // Reply rate the way the outreach report defines it: replies divided by the creators messaged in the period.
   const replyRateNow = messagedNow.length > 0 ? Math.round((figures.replies / messagedNow.length) * 100) : null;
   const replyRateBefore = messagedBefore.length > 0 ? Math.round((before.replies / messagedBefore.length) * 100) : null;
@@ -231,6 +232,33 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <span>
               {figures.posted} posted, {figures.noContent} no content
             </span>
+          </div>
+        </div>
+      </section>
+
+      <section aria-label="Rachna's reading of replies" className="mb-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-3">
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Replies read by Rachna</p>
+          <p className="stat-number text-[28px]">{reading.repliesRead}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={reading.repliesRead} before={readingBefore.repliesRead} />
+            <span>{reading.hot} hot</span>
+          </div>
+        </div>
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Rachna was right</p>
+          <p className="stat-number text-[28px]">{reading.accuracy === null ? "–" : `${reading.accuracy}%`}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={reading.accuracy} before={readingBefore.accuracy} points />
+            <span>matched the team&apos;s choice</span>
+          </div>
+        </div>
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Hot replies answered in a day</p>
+          <p className="stat-number text-[28px]">{reading.hotAnsweredInDay === null ? "–" : `${reading.hotAnsweredInDay}%`}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={reading.hotAnsweredInDay} before={readingBefore.hotAnsweredInDay} points />
+            <span>of {reading.hot} hot {reading.hot === 1 ? "reply" : "replies"}</span>
           </div>
         </div>
       </section>

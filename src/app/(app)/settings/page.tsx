@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { formatDay } from "@/lib/format";
 import { GIFT_RULES } from "@/lib/gift-rules";
 import { brandTargets } from "@/lib/outreach-stats";
+import { readerConfigured } from "@/lib/reply-reader-claude";
 import { OFFER_STATUS_WHERE } from "@/lib/product-list";
 import { activePromptFor } from "@/lib/scoring-prompts";
 import { SELECTION_LINK_DAYS } from "@/lib/selection";
@@ -68,6 +69,7 @@ export default async function SettingsPage() {
       <section className="card mb-10 p-5">
         <h2 className="mb-3">Rachna, your guide</h2>
         <RachnaTipsToggle on={user.showRachnaTips} />
+        <p className="mt-3 text-xs text-muted-foreground">Reply reading: {readerConfigured() ? "Claude reads the replies the team pastes in." : "built-in rules read the replies the team pastes in. Add ANTHROPIC_API_KEY on the server and Claude takes over on the same screens."}</p>
       </section>
 
       <div className="grid gap-12">

@@ -1427,8 +1427,8 @@ test("Rachna's quests, moods and pick come from the real counts", async () => {
   const { questsFor, dayCleared, questProgress, moodFor, pickFor, pickReason, INTRO } = await import("@/lib/rachna");
 
   // Quests measure the day against where it began; messages count up to the daily target.
-  const start = { replies: 3, parcels: 1, approvals: 0, todaySent: 0, dailyTarget: 20 };
-  const midday = questsFor({ replies: 1, parcels: 1, approvals: 0, todaySent: 5, dailyTarget: 20 }, start);
+  const start = { replies: 3, parcels: 1, approvals: 0, todaySent: 0, dailyTarget: 20, hot: 0 };
+  const midday = questsFor({ replies: 1, parcels: 1, approvals: 0, todaySent: 5, dailyTarget: 20, hot: 0 }, start);
   assert.deepEqual(
     midday.map((quest) => [quest.key, quest.done, quest.total]),
     [
@@ -1441,12 +1441,15 @@ test("Rachna's quests, moods and pick come from the real counts", async () => {
   assert.equal(dayCleared(midday), false);
   assert.equal(questProgress(midday), 7 / 24);
   // A queue that grew during the day keeps an honest total; a queue empty all day is not a quest.
-  const grown = questsFor({ replies: 5, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 20 }, start);
+  const grown = questsFor({ replies: 5, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 20, hot: 0 }, start);
   assert.deepEqual([grown[0].done, grown[0].total], [0, 5]);
   assert.equal(grown.some((quest) => quest.key === "approvals"), false);
   // Every quest done clears the day; with nothing to do there are no quests and no false cheer.
-  assert.equal(dayCleared(questsFor({ replies: 0, parcels: 0, approvals: 0, todaySent: 20, dailyTarget: 20 }, start)), true);
-  const nothing = { replies: 0, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0 };
+  assert.equal(dayCleared(questsFor({ replies: 0, parcels: 0, approvals: 0, todaySent: 20, dailyTarget: 20, hot: 0 }, start)), true);
+  // Hot replies are the first quest of the day.
+  const withHot = questsFor({ replies: 2, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0, hot: 1 }, { ...start, hot: 2 });
+  assert.deepEqual([withHot[0].key, withHot[0].label, withHot[0].done, withHot[0].total], ["hot", "Answer 2 hot replies", 1, 2]);
+  const nothing = { replies: 0, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0, hot: 0 };
   assert.equal(questsFor(nothing, nothing).length, 0);
   assert.equal(dayCleared([]), false);
 
@@ -1469,4 +1472,64 @@ test("Rachna's quests, moods and pick come from the real counts", async () => {
   // Her hello after sign-in.
   assert.match(INTRO.text, /^Hare Krishna! I'm Rachna/);
   assert.equal(INTRO.pose, "cheer");
+});
+
+test("Rachna reads a reply with the built-in rules: class, warmth, fee and questions, and never decides alone", async () => {
+  const { readWithRules, feeIn, questionsIn, isReading, WARMTH_OF, SURE, afterReplyLine } = await import("@/lib/reply-reader");
+  const { pickFor } = await import("@/lib/rachna");
+
+  // The keen reply from the mockup: gifted, hot, two questions, no fee.
+  const keen = readWithRules("Omg I love these tablecloths!! 😍 Which ones can I pick? Also do you ship to Canada? I usually do a reel + 3 stories for gifted collabs.");
+  assert.equal(keen.replyClass, "interested_gifted");
+  assert.equal(keen.sure, true);
+  assert.equal(keen.warmth, "hot");
+  assert.deepEqual(keen.questions, ["Which ones can I pick?", "Do you ship to Canada?"]);
+  assert.equal(keen.summary, 'Keen on a gifted collab, asks which products, asks "Do you ship to Canada?"');
+  assert.equal(keen.fee, null);
+  assert.match(keen.summary, /^Keen on a gifted collab/);
+  assert.equal(keen.reader, "rules");
+
+  // A fee: rate_requested, warm, the number pulled out.
+  const fee = readWithRules("Hi! My rate for a reel is $150, happy to send my media kit.");
+  assert.deepEqual([fee.replyClass, fee.warmth, fee.fee], ["rate_requested", "warm", 150]);
+  assert.equal(feeIn("around 1,200 USD for the bundle"), 1200);
+  assert.equal(feeIn("no numbers here"), null);
+
+  // Declines and parking read cold; affiliate reads warm; a product question alone is product_info.
+  assert.deepEqual([readWithRules("Thanks but I'm not interested right now.").replyClass, readWithRules("Thanks but I'm not interested right now.").warmth], ["not_interested", "cold"]);
+  assert.equal(readWithRules("Could we circle back after the holidays? Swamped till then.").replyClass, "maybe_later");
+  assert.equal(readWithRules("Do you have an affiliate program or a promo code I could share?").replyClass, "interested_affiliate");
+  assert.deepEqual([readWithRules("Which products are available to choose from?").replyClass, readWithRules("Which products are available to choose from?").warmth], ["product_info", "hot"]);
+
+  // A question with no other signal needs an answer; a bare "ok" is not sure, so the person picks.
+  assert.equal(readWithRules("How long would I have to post after it arrives?").replyClass, "needs_details");
+  const unsure = readWithRules("ok");
+  assert.equal(unsure.sure, false);
+  assert.ok(unsure.confidence < SURE);
+  assert.equal(unsure.warmth, null);
+  assert.match(unsure.summary, /Not sure/);
+
+  // Questions are tidy and capped at three.
+  assert.equal(questionsIn("One? Two? Three? Four?").length, 3);
+  assert.deepEqual(questionsIn("Love it. Sure thing!"), []);
+
+  // What the form sends back must look like her reading, or it is dropped.
+  assert.equal(isReading(keen), true);
+  assert.equal(isReading({ ...keen, replyClass: "nonsense" }), false);
+  assert.equal(isReading({ ...keen, confidence: 7 }), false);
+  assert.equal(isReading("{}"), false);
+
+  // Warmth follows the class the person confirms, so a hand-logged "interested" is hot too.
+  assert.equal(WARMTH_OF.interested_gifted, "hot");
+  assert.equal(WARMTH_OF.not_interested, "cold");
+  assert.equal(WARMTH_OF.other, null);
+  assert.match(afterReplyLine("interested_gifted")?.text ?? "", /selection link/);
+  assert.equal(afterReplyLine("other"), null);
+
+  // On Home a hot reply beats a warm one with the bigger audience.
+  const rows = [
+    { queue: "replies", lateDays: 0, followers: 90_000, name: "Warm", warmth: "warm" as const },
+    { queue: "replies", lateDays: 0, followers: 5_000, name: "Hot", warmth: "hot" as const },
+  ];
+  assert.equal(pickFor(rows)?.name, "Hot");
 });

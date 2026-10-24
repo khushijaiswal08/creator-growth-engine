@@ -17,7 +17,7 @@ import { pickReason } from "@/lib/rachna";
 export function RachnaPick({ row }: { row: TaskRow | null }) {
   const rachna = useRachna();
   if (!row || !rachna?.tipsOn) return null;
-  const why = [pickReason(row), row.followers !== null ? `${formatCount(row.followers)} followers` : null, row.campaignName ?? null].filter(Boolean).join(" · ");
+  const why = [row.readSummary ?? pickReason(row), row.followers !== null ? `${formatCount(row.followers)} followers` : null, row.campaignName ?? null].filter(Boolean).join(" · ");
   return (
     <section className="rachna-home" aria-labelledby="pick-title">
       <div className="mb-2 flex items-center gap-2">

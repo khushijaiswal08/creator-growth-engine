@@ -116,6 +116,30 @@ export async function figuresFor(range: { from: Date; to: Date }, campaign: Pris
   return { creatorsAdded, messages, replies, contacted, agreed, giftsOrdered, giftsShipped, giftsDelivered, posted, completed, noContent, contentRate: finished > 0 ? Math.round((posted / finished) * 100) : null };
 }
 
+/** Rachna's reading of replies in a period: how many, how many hot, how often the team agreed, how fast hot ones were answered. */
+export type ReadingFigures = { repliesRead: number; hot: number; agreed: number; accuracy: number | null; hotAnsweredInDay: number | null };
+
+export async function readingFiguresFor(range: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<ReadingFigures> {
+  const at = { gte: range.from, lt: range.to };
+  const read = await db.message.findMany({
+    where: { direction: "inbound", sentAt: at, suggestedClass: { not: null }, campaignCreator: { campaign } },
+    select: { campaignCreatorId: true, sentAt: true, suggestedClass: true, classification: true, warmth: true },
+    take: 5000,
+  });
+  const hot = read.filter((row) => row.warmth === "hot");
+  const agreed = read.filter((row) => row.suggestedClass === row.classification).length;
+  let hotAnsweredInDay: number | null = null;
+  if (hot.length > 0) {
+    const answers = await db.message.findMany({
+      where: { direction: "outbound", campaignCreatorId: { in: [...new Set(hot.map((row) => row.campaignCreatorId))] }, sentAt: { gte: range.from } },
+      select: { campaignCreatorId: true, sentAt: true },
+    });
+    const inADay = hot.filter((row) => answers.some((answer) => answer.campaignCreatorId === row.campaignCreatorId && answer.sentAt > row.sentAt && answer.sentAt.getTime() - row.sentAt.getTime() <= DAY_MS)).length;
+    hotAnsweredInDay = Math.round((inADay / hot.length) * 100);
+  }
+  return { repliesRead: read.length, hot: hot.length, agreed, accuracy: read.length > 0 ? Math.round((agreed / read.length) * 100) : null, hotAnsweredInDay };
+}
+
 export type Bucket = { from: Date; to: Date; label: string; figures: Figures };
 
 /** The period split into weeks (short periods) or months (long ones), oldest first. */

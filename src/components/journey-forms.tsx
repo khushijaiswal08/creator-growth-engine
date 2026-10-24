@@ -3,8 +3,8 @@
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { importTracking, updateGift } from "@/actions/gifts";
 import { addPost, runAutomationsNow, saveCampaignAutomation, setOfferedForList, uploadProducts } from "@/actions/journey";
-import { logReply } from "@/actions/replies";
-import { useRachna } from "@/components/rachna/rachna";
+import { logReply, readReplyText } from "@/actions/replies";
+import { Cloud as RachnaCloud, RachnaPortrait, useRachna } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
 import { NativeSelect } from "@/components/native-select";
 import { SubmitButton } from "@/components/submit-button";
@@ -12,11 +12,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { WarmthChip } from "@/components/warmth-chip";
 import { LISTING_SHEET, readListingRows } from "@/lib/amazon-listing";
 import { BRANDS } from "@/lib/brands";
 import { MILESTONES } from "@/lib/rachna";
 import type { FormState } from "@/lib/form";
 import { REPLY_CLASS_LABELS, REPLY_CLASSES, REPLY_OUTCOMES, type ReplyClass } from "@/lib/replies";
+import { afterReplyLine, type Reading } from "@/lib/reply-reader";
+import { CREATOR_STATUS_LABELS } from "@/lib/status";
 
 function FormMessage({ state }: { state: FormState }) {
   if (!state?.message) return null;
@@ -27,23 +30,89 @@ function FormMessage({ state }: { state: FormState }) {
   );
 }
 
-/** Records what a creator replied. The class chosen decides the status and the next step. */
+/**
+ * Records what a creator replied. Paste the message and Rachna reads it: her
+ * class is pre-selected, a fee pre-filled, the questions listed. The person
+ * confirms; the class chosen decides the status and the next step.
+ */
 export function LogReplyForm({ campaignCreatorId }: { campaignCreatorId: string }) {
   const [state, action] = useActionState(logReply, null);
   const [replyClass, setReplyClass] = useState<ReplyClass | "">("");
+  const [touched, setTouched] = useState(false);
+  const [text, setText] = useState("");
+  const [fee, setFee] = useState("");
+  const [reading, setReading] = useState<Reading | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
+  const rachna = useRachna();
   const id = `reply-${campaignCreatorId}`;
+  const readFor = useRef("");
+
+  // A moment after the paste or typing stops, she reads it once.
+  useEffect(() => {
+    const trimmed = text.trim();
+    if (trimmed.length < 8 || trimmed === readFor.current) return;
+    const timer = window.setTimeout(() => {
+      readFor.current = trimmed;
+      setBusy(true);
+      setReadError(null);
+      readReplyText(campaignCreatorId, trimmed)
+        .then((result) => {
+          if (!result.ok) {
+            setReadError(result.error);
+            return;
+          }
+          setReading(result.reading);
+          if (!touched && result.reading.sure) setReplyClass(result.reading.replyClass);
+          if (result.reading.fee !== null && !fee) setFee(String(result.reading.fee));
+        })
+        .catch(() => setReadError("Rachna could not read that just now. Pick the class yourself."))
+        .finally(() => setBusy(false));
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [text, campaignCreatorId, touched, fee]);
+
+  // Once logged, one line from her about what comes next.
+  useEffect(() => {
+    if (!state?.message || !replyClass || !rachna) return;
+    const line = afterReplyLine(replyClass);
+    if (line) rachna.say({ ...line, anchor: null, kind: "nudge" });
+    // Only when the save lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  const suggested = reading?.sure && !touched && replyClass === reading.replyClass;
 
   return (
     <form action={action} className="grid gap-3">
       <input type="hidden" name="campaignCreatorId" value={campaignCreatorId} />
+      {reading ? <input type="hidden" name="reading" value={JSON.stringify(reading)} /> : null}
       <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-class`}>What did the creator say?</Label>
+        <Label htmlFor={`${id}-text`}>What did they write? Paste it here</Label>
+        <Textarea id={`${id}-text`} name="text" rows={4} maxLength={5000} value={text} onChange={(event) => setText(event.target.value)} placeholder="Paste the reply from Instagram, email or Amazon. Rachna reads it." />
+      </div>
+      {busy || reading || readError ? (
+        <div className="rachna-home flex items-start gap-3" role="status" aria-live="polite">
+          <RachnaPortrait pose={busy ? "think" : reading?.warmth === "hot" ? "cheer" : "point"} size={52} lively={busy} />
+          <div className="min-w-0 flex-1">
+            <RachnaCloud tail="left">{busy ? <p className="text-sm">Reading...</p> : readError ? <p className="text-sm">{readError}</p> : reading ? <ReadingWords reading={reading} /> : null}</RachnaCloud>
+          </div>
+        </div>
+      ) : null}
+      <div className="grid gap-1.5">
+        <Label htmlFor={`${id}-class`} className="flex flex-wrap items-center gap-2">
+          What did the creator say?
+          {suggested ? <span className="chip border-transparent bg-primary-soft text-primary-text">Rachna&apos;s suggestion</span> : null}
+        </Label>
         <NativeSelect
           id={`${id}-class`}
           name="replyClass"
           required
           value={replyClass}
-          onChange={(event) => setReplyClass(event.target.value as ReplyClass | "")}
+          onChange={(event) => {
+            setTouched(true);
+            setReplyClass(event.target.value as ReplyClass | "");
+          }}
         >
           <option value="">Choose</option>
           {REPLY_CLASSES.map((value) => (
@@ -57,7 +126,7 @@ export function LogReplyForm({ campaignCreatorId }: { campaignCreatorId: string 
       {replyClass === "rate_requested" ? (
         <div className="grid gap-1.5 sm:max-w-48">
           <Label htmlFor={`${id}-fee`}>Fee asked (US dollars)</Label>
-          <Input id={`${id}-fee`} name="requestedFee" type="number" min={0} step={1} />
+          <Input id={`${id}-fee`} name="requestedFee" type="number" min={0} step={1} value={fee} onChange={(event) => setFee(event.target.value)} />
         </div>
       ) : null}
       {replyClass === "maybe_later" ? (
@@ -67,16 +136,46 @@ export function LogReplyForm({ campaignCreatorId }: { campaignCreatorId: string 
           <p className="text-xs text-muted-foreground">Leave empty for 60 days from now.</p>
         </div>
       ) : null}
-      <div className="grid gap-1.5">
-        <Label htmlFor={`${id}-text`}>Their message (optional)</Label>
-        <Textarea id={`${id}-text`} name="text" rows={2} maxLength={5000} placeholder="Paste the reply to keep it on record" />
-      </div>
+      {reading && reading.questions.length > 0 ? (
+        <div className="grid gap-1">
+          <p className="label">Questions to answer</p>
+          <ul className="grid gap-1">
+            {reading.questions.map((question) => (
+              <li key={question} className="flex items-start gap-2 text-sm">
+                <span aria-hidden className="mt-1 size-3.5 shrink-0 rounded border border-border-strong bg-surface" />
+                {question}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <FormError state={state} />
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pendingLabel="Saving...">Log reply</SubmitButton>
         <FormMessage state={state} />
+        {replyClass && !state?.message ? <span className="ml-auto text-xs text-muted-foreground">Status will move to {CREATOR_STATUS_LABELS[REPLY_OUTCOMES[replyClass].status]}</span> : null}
       </div>
     </form>
+  );
+}
+
+/** Rachna's reading in her cloud: warmth, class, confidence, her line and the questions. */
+function ReadingWords({ reading }: { reading: Reading }) {
+  return (
+    <>
+      <div className="mb-1.5 flex flex-wrap gap-1.5">
+        {reading.warmth ? <WarmthChip warmth={reading.warmth} /> : null}
+        {reading.sure ? <span className="chip border-transparent bg-primary-soft text-primary-text">{REPLY_CLASS_LABELS[reading.replyClass]}</span> : null}
+        <span className="chip border-transparent bg-surface-2">Confidence {Math.round(reading.confidence * 100)}%</span>
+      </div>
+      <p className="text-sm">{reading.summary}</p>
+      {reading.sure ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          I&apos;d file this as <b>{REPLY_CLASS_LABELS[reading.replyClass]}</b>. {REPLY_OUTCOMES[reading.replyClass].explains}
+        </p>
+      ) : null}
+      <p className="mt-1 text-[11px] text-muted-foreground">{reading.reader === "claude" ? "Read by Claude." : "Read with built-in rules; Claude once the key is added."}</p>
+    </>
   );
 }
 

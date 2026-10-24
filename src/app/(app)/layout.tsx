@@ -29,13 +29,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The figures the frame shows everywhere: what is due today (the bell), this person's week (the sidebar),
   // and the counts behind Rachna's quests and mood.
   const dueNow = dueWhere(view, DUE_STATUSES, now);
-  const [dueByStatus, weekSent, todaySent, targets, approvals, oldest] = await Promise.all([
+  const [dueByStatus, weekSent, todaySent, targets, approvals, oldest, hotReplies] = await Promise.all([
     db.campaignCreator.groupBy({ by: ["status"], where: dueNow, _count: { _all: true } }),
     db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfWeekInZone(now) } } }),
     db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfDayInZone(now) } } }),
     brandTargets(BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id)),
     db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
     db.campaignCreator.findFirst({ where: dueNow, orderBy: { nextActionDueAt: "asc" }, select: { nextActionDueAt: true } }),
+    db.campaignCreator.count({ where: { ...dueNow, replyWarmth: "hot" } }),
   ]);
   const countOf = (statuses: CreatorStatus[]) => dueByStatus.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
   const due = countOf(DUE_STATUSES);
@@ -49,6 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     approvals,
     todaySent,
     dailyTarget: target?.daily ?? 0,
+    hot: hotReplies,
   };
 
   return (
