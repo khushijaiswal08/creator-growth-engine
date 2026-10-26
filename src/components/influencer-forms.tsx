@@ -29,7 +29,7 @@ export function EditInfluencerForm({
     email: string | null;
     location: string | null;
     usSignal: number | null;
-    notes: string | null;
+    notes: string | null; affiliateQuote: string | null;
   };
 }) {
   const { state, onSubmit, pending } = usePreservedForm(updateInfluencer);
@@ -49,6 +49,10 @@ export function EditInfluencerForm({
         <div className="grid gap-1.5">
           <Label htmlFor="inf-location">Location</Label>
           <Input id="inf-location" name="location" defaultValue={influencer.location ?? ""} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="inf-affiliate">Affiliate quote</Label>
+          <Input id="inf-affiliate" name="affiliateQuote" maxLength={200} placeholder="e.g. 10% commission, code PRIYA10" defaultValue={influencer.affiliateQuote ?? ""} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="inf-signal">US signal (0-100)</Label>

@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { EmptyRow, PageHeader, Panel } from "@/components/panel";
 import { ProfileLinks } from "@/components/profile-links";
 import { Button } from "@/components/ui/button";
@@ -126,9 +127,7 @@ export default async function InfluencersPage({
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <Avatar name={influencer.name} />
-                      <Link href={`/influencers/${influencer.id}`} className="link">
-                        {influencer.name}
-                      </Link>
+                      <CreatorName id={influencer.id} name={influencer.name} className="link" />
                     </div>
                   </TableCell>
                   <TableCell>

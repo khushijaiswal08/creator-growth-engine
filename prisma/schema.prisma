@@ -169,6 +169,8 @@ model Influencer {
   amazonTier          String?
   amazonMonthlyGmvUsd Decimal? @db.Decimal(12, 2)
   amazonGmvDetail     String?  @db.Text
+  // What the creator asks for an affiliate or paid deal, in their words: "10% commission, code PRIYA10".
+  affiliateQuote      String?
   archived  Boolean  @default(false)
   isSample  Boolean  @default(false) // seed data, archived in one click from /admin
   createdAt DateTime @default(now())
@@ -347,6 +349,9 @@ model Metric {
   comments   Int?
   shares     Int?
   codeUses   Int?
+  // Logged by hand from Amazon Attribution or the creator's own figures until the reports are imported.
+  clicks     Int?
+  salesUsd   Decimal? @db.Decimal(12, 2)
 
   post Post @relation(fields: [postId], references: [id], onDelete: Restrict)
 

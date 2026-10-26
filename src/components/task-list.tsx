@@ -5,6 +5,7 @@ import { cn } from "cn";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { MessageButton } from "@/components/message-button";
 import { CreatorStatusPill } from "@/components/status-pill";
 import { WarmthChip } from "@/components/warmth-chip";
@@ -99,9 +100,7 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
           <div className="flex min-w-0 items-center gap-2.5">
             <Avatar name={row.name} />
             <div className="min-w-0">
-              <Link href={`/influencers/${row.influencerId}`} className="block truncate font-semibold hover:text-primary-text">
-                {row.name}
-              </Link>
+              <CreatorName id={row.influencerId} name={row.name} className="block truncate font-semibold hover:text-primary-text" />
               <div className="truncate text-xs text-muted-foreground">
                 {row.handle ?? (row.amazonCreator ? "Amazon Creator Connections" : (row.email ?? "No profile"))}
                 {row.followers !== null ? ` · ${formatCount(row.followers)}` : ""}

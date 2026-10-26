@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { PageHeader } from "@/components/panel";
 import { Pill } from "@/components/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -87,9 +88,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <Avatar name={post.campaignCreator.influencer.name} className="size-7 text-[11px]" />
-                      <Link href={`/influencers/${post.campaignCreator.influencer.id}#content`} className="font-semibold hover:text-primary-text">
-                        {post.campaignCreator.influencer.name}
-                      </Link>
+                      <CreatorName id={post.campaignCreator.influencer.id} name={post.campaignCreator.influencer.name} className="font-semibold hover:text-primary-text" />
                     </div>
                   </TableCell>
                   <TableCell>

@@ -1533,3 +1533,46 @@ test("Rachna reads a reply with the built-in rules: class, warmth, fee and quest
   ];
   assert.equal(pickFor(rows)?.name, "Hot");
 });
+
+test("the creator card grades a creator from their history and Rachna's verdict follows the figures", async () => {
+  const { gradeCreator, rachnaVerdict, contentRate, reachMultiple, engagementRate, monthlySeries, PATIENCE_DAYS } = await import("@/lib/creator-card");
+  const now = new Date("2026-10-26T10:00:00Z");
+  const days = (n: number) => new Date(now.getTime() - n * 86_400_000);
+  const base = { firstName: "Priya", gifts: 0, giftValueUsd: 0, posts: 0, delivered: 0, noContent: 0, pending: 0, reach: 0, engagements: 0, clicks: 0, salesUsd: 0, followers: 20_000, fitScore: null, lastGiftAt: null, lastPostAt: null, amazonTier: null };
+
+  // Nobody we have gifted is "new"; a star needs two posts and 80% delivered.
+  assert.equal(gradeCreator(base), "new");
+  const star = { ...base, gifts: 2, posts: 3, delivered: 2, reach: 90_000, engagements: 4_500, salesUsd: 240, lastGiftAt: days(40), lastPostAt: days(5) };
+  assert.equal(gradeCreator(star), "star");
+  assert.equal(gradeCreator({ ...base, gifts: 1, posts: 1, delivered: 1 }), "good");
+  assert.equal(gradeCreator({ ...base, gifts: 3, posts: 1, delivered: 1, noContent: 2 }), "mixed");
+  assert.equal(gradeCreator({ ...base, gifts: 1, pending: 1, lastGiftAt: days(3) }), "waiting");
+  assert.equal(gradeCreator({ ...base, gifts: 1, noContent: 1 }), "risky");
+
+  // The figures behind the tiles.
+  assert.equal(contentRate(star), 100);
+  assert.equal(contentRate(base), null);
+  assert.equal(reachMultiple(star), 1.5);
+  assert.equal(engagementRate(star), 5);
+
+  // Her verdict: the grade's face and line, with the sales and reach flourishes when they exist.
+  const verdict = rachnaVerdict(star, now);
+  assert.equal(verdict.grade, "star");
+  assert.equal(verdict.pose, "cheer");
+  assert.match(verdict.text, /^Total gem\. 3 posts from 2 gifts, 100% delivered\./);
+  assert.match(verdict.text, /\$240 in Amazon sales/);
+  assert.match(verdict.text, /reach 1\.5× the follower count/);
+  // Waiting turns into a chase after the patience window.
+  assert.match(rachnaVerdict({ ...base, gifts: 1, pending: 1, lastGiftAt: days(3) }, now).text, /Give it till day 21/);
+  const late = rachnaVerdict({ ...base, gifts: 1, pending: 1, lastGiftAt: days(PATIENCE_DAYS + 5) }, now);
+  assert.equal(late.pose, "worried");
+  assert.match(late.text, /Time to chase/);
+  assert.match(rachnaVerdict({ ...base, gifts: 1, noContent: 1 }, now).text, /^Took a gift and never posted/);
+  assert.match(rachnaVerdict({ ...base, fitScore: 82, amazonTier: "gold" }, now).text, /Fit score 82.*gold creator on Amazon/);
+
+  // The six-month chart counts each gift and post in its month, oldest first.
+  const months = monthlySeries([{ at: days(2), kind: "post", reach: 1200, salesUsd: 30 }, { at: days(40), kind: "gift" }, { at: days(400), kind: "gift" }], 6, now);
+  assert.equal(months.length, 6);
+  assert.deepEqual([months[5].posts, months[5].reach, months[5].salesUsd, months[4].gifts], [1, 1200, 30, 1]);
+  assert.equal(months.reduce((sum, point) => sum + point.gifts, 0), 1);
+});

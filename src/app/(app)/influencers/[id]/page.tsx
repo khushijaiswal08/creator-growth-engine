@@ -10,6 +10,7 @@ import { Avatar } from "@/components/avatar";
 import { EditDetailsButton, LogReplyButton } from "@/components/creator-actions";
 import { AddProfileForm, AddToCampaignForm, EditInfluencerForm } from "@/components/influencer-forms";
 import { AddPostForm, CopyButton, LogReplyForm } from "@/components/journey-forms";
+import { PostNumbersForm } from "@/components/post-numbers-form";
 import { MessageButton, MessageComposer } from "@/components/message-button";
 import { ProductPhoto } from "@/components/product-photo";
 import { CreatorStatusPill, Pill } from "@/components/status-pill";
@@ -112,7 +113,20 @@ export default async function InfluencerPage({
             orderBy: { createdAt: "desc" },
             include: { product: { select: { title: true, color: true, size: true, sku: true, imageUrl: true, price: true } } },
           },
-          posts: { orderBy: { createdAt: "desc" }, select: { id: true, url: true, format: true, postedAt: true, createdAt: true, hasDisclosure: true, mentionsBrand: true, productShown: true } },
+          posts: {
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              url: true,
+              format: true,
+              postedAt: true,
+              createdAt: true,
+              hasDisclosure: true,
+              mentionsBrand: true,
+              productShown: true,
+              metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true } },
+            },
+          },
         },
       },
     },
@@ -440,7 +454,7 @@ export default async function InfluencerPage({
                 <section className="card p-5">
                   <div className="mb-3 flex items-center justify-between">
                     <h2>About</h2>
-                    <EditDetailsButton influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes }} />
+                    <EditDetailsButton influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes, affiliateQuote: influencer.affiliateQuote }} />
                   </div>
                   <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Email</dt>
@@ -458,6 +472,8 @@ export default async function InfluencerPage({
                         </dd>
                       </>
                     ) : null}
+                    <dt className="text-muted-foreground">Affiliate quote</dt>
+                    <dd>{influencer.affiliateQuote ?? <span className="text-muted-foreground">None</span>}</dd>
                     <dt className="text-muted-foreground">Notes</dt>
                     <dd className="whitespace-pre-line">{influencer.notes ?? <span className="text-muted-foreground">None</span>}</dd>
                   </dl>
@@ -576,6 +592,9 @@ export default async function InfluencerPage({
                       {post.mentionsBrand ? <Pill tone="success">Brand tagged</Pill> : null}
                       {post.productShown ? <Pill tone="success">Product shown</Pill> : null}
                       {post.hasDisclosure ? <Pill tone="success">Disclosure</Pill> : null}
+                      <div className="basis-full">
+                        <PostNumbersForm postId={post.id} latest={post.metrics[0] ? { ...post.metrics[0], salesUsd: post.metrics[0].salesUsd === null ? null : Number(post.metrics[0].salesUsd) } : null} />
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -603,7 +622,7 @@ export default async function InfluencerPage({
             <section className="card p-5">
               <h2 className="mb-1">Notes and details</h2>
               <p className="text-sm text-muted-foreground">Anything the team should know before the next message: preferred colours, posting days, how they like to be approached.</p>
-              <EditInfluencerForm influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes }} />
+              <EditInfluencerForm influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes, affiliateQuote: influencer.affiliateQuote }} />
             </section>
           ),
         }}

@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { updateCreatorStatus } from "@/actions/campaign-creators";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
 import { MessageButton } from "@/components/message-button";
 import { formatCount, formatDay } from "@/lib/format";
@@ -177,9 +178,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                       <div className="flex min-w-0 items-center gap-3">
                         <Avatar name={card.name} className="size-9" />
                         <div className="min-w-0">
-                          <Link href={`/influencers/${card.influencerId}`} className="block truncate text-sm font-semibold hover:text-primary-text">
-                            {card.name}
-                          </Link>
+                          <CreatorName id={card.influencerId} name={card.name} className="block truncate text-sm font-semibold hover:text-primary-text" />
                           <p className="truncate text-xs text-muted-foreground">
                             {card.handle ?? (card.amazonCreator ? "Amazon Creator Connections" : (card.email ?? "No profile"))}
                             {card.followers !== null ? ` · ${formatCount(card.followers)}` : ""}

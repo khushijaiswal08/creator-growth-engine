@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { MessageButton } from "@/components/message-button";
 import { RachnaPortrait, useRachna } from "@/components/rachna/rachna";
 import type { TaskRow } from "@/components/task-list";
@@ -32,9 +33,7 @@ export function RachnaPick({ row }: { row: TaskRow | null }) {
       <div className="flex items-center gap-3 rounded-xl bg-surface/80 p-3">
         <Avatar name={row.name} className="size-10" />
         <div className="min-w-0 flex-1">
-          <Link href={`/influencers/${row.influencerId}`} className="block truncate font-semibold hover:text-primary-text">
-            {row.name}
-          </Link>
+          <CreatorName id={row.influencerId} name={row.name} className="block truncate font-semibold hover:text-primary-text" />
           <p className="truncate text-xs text-muted-foreground" title={why}>
             {why}
           </p>

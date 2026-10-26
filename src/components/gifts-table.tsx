@@ -3,11 +3,11 @@
 import type { GiftOrderStatus } from "@prisma/client";
 import { cn } from "cn";
 import { X } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { decideGift, markDelivered } from "@/actions/gifts";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
 import { GiftTrackingForm } from "@/components/journey-forms";
 import { ProductPhoto } from "@/components/product-photo";
@@ -222,9 +222,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                         <div className="flex items-center gap-2.5">
                           <Avatar name={order.creator.name} className="size-7 text-[11px]" />
                           <div className="min-w-0">
-                            <Link href={`/influencers/${order.creator.id}`} className="font-semibold hover:text-primary-text" onClick={(event) => event.stopPropagation()}>
-                              {order.creator.name}
-                            </Link>
+                            <CreatorName id={order.creator.id} name={order.creator.name} className="font-semibold hover:text-primary-text" />
                             <div className="truncate text-xs text-muted-foreground">{order.campaign}</div>
                           </div>
                         </div>
@@ -303,9 +301,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
           <div className="flex items-center gap-3 border-b px-4 py-3">
             <Avatar name={open.creator.name} />
             <div className="min-w-0 flex-1">
-              <Link href={`/influencers/${open.creator.id}`} className="font-semibold hover:text-primary-text">
-                {open.creator.name}
-              </Link>
+              <CreatorName id={open.creator.id} name={open.creator.name} className="font-semibold hover:text-primary-text" />
               <div className="truncate text-xs text-muted-foreground">
                 {open.campaign} · {open.reference}
               </div>

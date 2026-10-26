@@ -228,6 +228,7 @@ export async function updateInfluencer(_prev: FormState, formData: FormData): Pr
     location: optionalField(formData, "location"),
     usSignal,
     notes: optionalField(formData, "notes"),
+    affiliateQuote: optionalField(formData, "affiliateQuote"),
   };
 
   const current = await db.influencer.findFirst({ where: { id: influencerId, ...allowed(user).influencers } });

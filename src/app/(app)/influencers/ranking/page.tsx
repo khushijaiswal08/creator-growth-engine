@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { CreatorName } from "@/components/creator-card";
 import { EmptyRow, PageHeader } from "@/components/panel";
 import { ProfileLinks } from "@/components/profile-links";
 import { Pill } from "@/components/status-pill";
@@ -11,6 +12,7 @@ import { viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatCount, formatDay } from "@/lib/format";
 import { requireUser } from "@/lib/session";
+import { GRADES, gradeCreator } from "@/lib/creator-card";
 import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Creator ranking" };
@@ -101,6 +103,24 @@ export default async function RankingPage({
         lastCollaboration: [lastPost, lastGift].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
         added: row.createdAt,
         us,
+        grade: gradeCreator({
+          firstName: "",
+          gifts: record?.gifts ?? 0,
+          giftValueUsd: 0,
+          posts: record?.posts ?? 0,
+          delivered: record?.delivered ?? 0,
+          noContent: record?.noContent ?? 0,
+          pending: record?.pending ?? 0,
+          reach: 0,
+          engagements: 0,
+          clicks: 0,
+          salesUsd: 0,
+          followers,
+          fitScore: null,
+          lastGiftAt: lastGift,
+          lastPostAt: lastPost,
+          amazonTier: row.amazonTier,
+        }),
       };
     })
     .filter((row) => (worked === "yes" ? row.gifts > 0 : worked === "no" ? row.gifts === 0 : true))
@@ -214,7 +234,7 @@ export default async function RankingPage({
             <TableHead>Amazon</TableHead>
             <TableHead>Last collaboration</TableHead>
             <TableHead>Added</TableHead>
-            <TableHead>Record</TableHead>
+            <TableHead>Rachna says</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -228,9 +248,7 @@ export default async function RankingPage({
                   <div className="flex items-center gap-2.5">
                     <Avatar name={row.name} />
                     <div className="min-w-0">
-                      <Link href={`/influencers/${row.id}`} className="font-medium text-foreground hover:text-primary-text">
-                        {row.name}
-                      </Link>
+                      <CreatorName id={row.id} name={row.name} className="font-medium text-foreground hover:text-primary-text" />
                       {row.location ? <div className="text-xs text-muted-foreground">{row.location}</div> : null}
                     </div>
                   </div>
@@ -255,7 +273,11 @@ export default async function RankingPage({
                 </TableCell>
                 <TableCell className="text-muted-foreground">{formatDay(row.lastCollaboration)}</TableCell>
                 <TableCell className="text-muted-foreground">{formatDay(row.added)}</TableCell>
-                <TableCell>{row.record ? <Pill tone={row.record.tone}>{row.record.text}</Pill> : null}</TableCell>
+                <TableCell>
+                  <span title={row.record?.text}>
+                    <Pill tone={GRADES[row.grade].tone}>{GRADES[row.grade].label}</Pill>
+                  </span>
+                </TableCell>
               </TableRow>
             ))
           )}

@@ -28,7 +28,7 @@ export function LogReplyButton({ campaignCreatorId, campaignName }: { campaignCr
 }
 
 /** "Edit" on the About card: the details form in a dialog. */
-export function EditDetailsButton({ influencer }: { influencer: { id: string; name: string; email: string | null; location: string | null; usSignal: number | null; notes: string | null } }) {
+export function EditDetailsButton({ influencer }: { influencer: { id: string; name: string; email: string | null; location: string | null; usSignal: number | null; notes: string | null; affiliateQuote: string | null; } }) {
   const [open, setOpen] = useState(false);
   return (
     <>

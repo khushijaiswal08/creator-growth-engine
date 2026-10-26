@@ -711,6 +711,42 @@ API can feed them in later. A person always confirms. Nothing moves on its own.
 - Tests in `tests/guards.test.ts`: the rules on real-looking replies, fees, questions,
   the not-sure case, the shape check, and hot before warm in the pick.
 
+## Phase 3F: the creator card
+
+Tap a creator's name anywhere (Home, the board, Creators, Ranking, Gifts, Content,
+Rachna's pick) and their whole history with us opens in a card (2026-10-26). Every
+number on it is something the portal recorded; nothing is invented. Middle-click or
+Ctrl-click still opens the profile page.
+
+- `src/lib/creator-card.ts`: the rules, pure and tested. `gradeCreator` gives Star (two
+  or more posts, 80% of collaborations delivered), Good bet, Hit and miss, Gift landed
+  waiting (a gift with no post yet, a chase after `PATIENCE_DAYS` = 21), Took the gift no
+  post, or New face. `rachnaVerdict` turns the grade into her face and a line in her
+  voice, with flourishes for Amazon sales, clicks and reach against followers.
+  `contentRate`, `reachPerPost`, `reachMultiple`, `engagementRate` and `monthlySeries`
+  are the figures behind the tiles and charts.
+- `src/lib/creator-card-data.ts`: `loadCreatorCard` gathers it in one query inside the
+  brand scope: profiles, every campaign with its gifts (product and Amazon price) and
+  posts (latest logged numbers), the Amazon Creator Connections fields, the affiliate
+  quote, and a message target for the open campaign. `src/actions/creator-card.ts`
+  serves it (`getCreatorCard`) and takes a post's numbers (`logPostNumbers`).
+- `src/components/creator-card.tsx`: `CreatorName` (the name that opens the card) and
+  the card itself: header with the grade and warmth, Rachna's verdict in her cloud,
+  six tiles (gifts and their value, posts and content rate, reach, engagement, clicks
+  to Amazon, sales from their content), the affiliate quote, fee and collaboration
+  type, an Amazon block for Creator Connections creators, two SVG charts (reach per
+  post; gifts, posts and sales by month) and the timeline per campaign.
+- Numbers per post: `PostNumbersForm` on the profile's Content tab logs views, likes,
+  comments, shares, clicks and sales as a new `Metric` reading (`clicks` and
+  `salesUsd` are new columns); the card and Reports use the latest. These are typed in
+  from the creator's screenshots or Amazon Attribution until those reports are imported.
+- `Influencer.affiliateQuote` (new column) is the creator's own quote, editable under
+  Edit on the profile and shown on the About card and the creator card.
+- The ranking's Record column became "Rachna says", her grade per creator, with the
+  record as its tooltip.
+- Tests in `tests/guards.test.ts`: every grade, the figures, the verdict's lines and
+  flourishes, the patience window, and the six-month series.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a
