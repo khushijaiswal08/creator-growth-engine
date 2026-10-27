@@ -42,13 +42,13 @@ export default async function AdminPage() {
               <div key={service.name} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
                 <dt className="font-medium">{service.name}</dt>
                 <dd className={service.ready ? "" : "text-muted-foreground"}>
-                  {service.ready ? "Configured" : `Not configured: ${service.setting} is missing`}
+                  {service.ready ? "Configured" : `Not configured: ${service.setting} ${service.setting.includes(" and ") ? "are" : "is"} missing`}
                 </dd>
               </div>
             ))}
           </dl>
           <p className="border-t px-4 py-2.5 text-muted-foreground">
-            Keys are set in the server environment (.env locally, Project Settings on Vercel) and are never shown here.
+            Keys are set in the server environment (.env locally, Site configuration › Environment variables on Netlify) and are never shown here.
           </p>
         </Panel>
 

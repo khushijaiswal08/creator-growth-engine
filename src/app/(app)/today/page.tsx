@@ -257,8 +257,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         </Tile>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section id="tasks-card" className="card overflow-hidden" aria-labelledby="tasks-title">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <section id="tasks-card" className="card min-w-0 overflow-hidden" aria-labelledby="tasks-title">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
             <h2 id="tasks-title">My tasks today</h2>
             <span className="chip border-transparent bg-surface-2">{total}</span>
@@ -329,7 +329,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           </div>
         </section>
 
-        <div id="home-side" className="grid content-start gap-5">
+        <div id="home-side" className="grid min-w-0 grid-cols-1 content-start gap-5">
           {activeQueue === null && !amazonOnly && !hotOnly ? <RachnaPick row={pickFor(rows)} /> : null}
           {ccTotal > 0 ? (
             <section className="card p-4" aria-labelledby="cc-title">

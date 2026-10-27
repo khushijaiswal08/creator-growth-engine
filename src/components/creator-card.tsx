@@ -34,7 +34,7 @@ export function CreatorName({ id, name, className, children }: { id: string; nam
     <>
       <a
         href={`/influencers/${id}`}
-        className={cn("group/name inline-flex max-w-full cursor-pointer items-center gap-1", className)}
+        className={cn(className, "group/name inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1 align-bottom")}
         title="Open the creator card"
         onClick={(event) => {
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
@@ -138,7 +138,19 @@ function CardBody({ card }: { card: CreatorCard }) {
       {/* The figures */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <Tile label="Gifts given" value={String(stats.gifts)} note={stats.giftValueUsd > 0 ? `${money(stats.giftValueUsd)} in products` : stats.gifts > 0 ? "value not on file" : "none yet"} />
-        <Tile label="Posts" value={String(stats.posts)} note={figures.contentRate !== null ? `${figures.contentRate}% of collaborations delivered` : stats.pending > 0 ? `${stats.pending} in progress` : "none yet"} />
+        <Tile
+          label="Content delivered"
+          value={String(figures.content)}
+          note={
+            figures.content > stats.posts
+              ? `${stats.posts === 0 ? "no" : stats.posts} post ${stats.posts === 1 ? "link" : "links"} on file${figures.contentRate !== null ? `, ${figures.contentRate}% delivered` : ""}`
+              : figures.contentRate !== null
+                ? `${figures.contentRate}% of collaborations delivered`
+                : stats.pending > 0
+                  ? `${stats.pending} in progress`
+                  : "none yet"
+          }
+        />
         <Tile label="Reach" value={stats.reach > 0 ? formatCount(stats.reach) : "–"} note={figures.reachPerPost !== null ? `about ${formatCount(figures.reachPerPost)} a post${figures.reachMultiple !== null ? `, ${figures.reachMultiple}× followers` : ""}` : "no views logged yet"} />
         <Tile label="Engagement" value={figures.engagementRate !== null ? `${figures.engagementRate}%` : "–"} note={stats.engagements > 0 ? `${formatCount(stats.engagements)} likes, comments and shares` : "no likes logged yet"} />
         <Tile label="Clicks to Amazon" value={stats.clicks > 0 ? formatCount(stats.clicks) : "–"} note={stats.clicks > 0 ? "from their posts" : "none logged yet"} />

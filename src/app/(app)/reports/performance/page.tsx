@@ -296,7 +296,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           </ol>
           <p className="mt-auto border-t pt-3 text-xs text-muted-foreground">
             {biggestDrop
-              ? `Biggest drop: ${biggestDrop.from.toLowerCase()} to ${biggestDrop.to.toLowerCase()}, ${biggestDrop.lost} ${biggestDrop.lost === 1 ? "creator" : "creators"} lost in this period.`
+              ? `Biggest gap: ${biggestDrop.lost} ${biggestDrop.lost === 1 ? "creator" : "creators"} reached ${biggestDrop.from.toLowerCase()} but not ${biggestDrop.to.toLowerCase()} yet in this period.`
               : "Each step counts what happened inside the period, so a creator contacted earlier and posting now appears only under Posted."}
           </p>
         </section>
@@ -408,12 +408,14 @@ function TrendChart({ points }: { points: { label: string; messages: number; rep
   const right = 12;
   const top = 14;
   const bottom = 32;
-  const max = Math.max(5, ...points.map((point) => Math.max(point.messages, point.replies)));
+  // Four equal whole-number steps, so the scale reads 0, 2, 4, 6, 8 rather than 0, 1, 3, 4, 5.
+  const tickStep = Math.max(1, Math.ceil(Math.max(4, ...points.map((point) => Math.max(point.messages, point.replies))) / 4));
+  const max = tickStep * 4;
   const step = points.length > 1 ? (width - left - right) / (points.length - 1) : 0;
   const x = (index: number) => left + index * step;
   const y = (value: number) => top + (height - top - bottom) * (1 - value / max);
   const line = (pick: (point: (typeof points)[number]) => number) => points.map((point, index) => `${x(index)},${y(pick(point))}`).join(" ");
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((share) => Math.round(max * share));
+  const ticks = [0, 1, 2, 3, 4].map((index) => index * tickStep);
   const summary = points.length ? `Messages went from ${points[0].messages} to ${points[points.length - 1].messages} a week, replies from ${points[0].replies} to ${points[points.length - 1].replies}.` : "No data yet.";
 
   return (

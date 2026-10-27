@@ -12,7 +12,7 @@ import { viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatCount, formatDay } from "@/lib/format";
 import { requireUser } from "@/lib/session";
-import { GRADES, gradeCreator } from "@/lib/creator-card";
+import { contentCount, GRADES, gradeCreator } from "@/lib/creator-card";
 import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Creator ranking" };
@@ -96,6 +96,7 @@ export default async function RankingPage({
         engagement,
         gifts: record?.gifts ?? 0,
         posts: record?.posts ?? 0,
+        content: contentCount({ posts: record?.posts ?? 0, delivered: record?.delivered ?? 0 }),
         rate: finished > 0 ? Math.round(((record?.delivered ?? 0) / finished) * 100) : null,
         record: describeTrackRecord(record),
         tier: row.amazonTier,
@@ -147,7 +148,7 @@ export default async function RankingPage({
       case "added":
         return b.added.getTime() - a.added.getTime();
       default:
-        return b.posts - a.posts || (b.rate ?? -1) - (a.rate ?? -1) || b.followers - a.followers;
+        return b.content - a.content || (b.rate ?? -1) - (a.rate ?? -1) || b.followers - a.followers;
     }
   });
   if (reversed) rows.reverse();
@@ -229,7 +230,7 @@ export default async function RankingPage({
             <TableHead className="text-right">Followers</TableHead>
             <TableHead className="text-right">Engagement</TableHead>
             <TableHead className="text-right">Gifts</TableHead>
-            <TableHead className="text-right">Posts</TableHead>
+            <TableHead className="text-right">Content</TableHead>
             <TableHead className="text-right">Content rate</TableHead>
             <TableHead>Amazon</TableHead>
             <TableHead>Last collaboration</TableHead>
@@ -259,7 +260,9 @@ export default async function RankingPage({
                 <TableCell className="text-right tabular-nums">{row.followers ? formatCount(row.followers) : ""}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.engagement ? `${row.engagement.toFixed(1)}%` : ""}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.gifts || ""}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.posts || ""}</TableCell>
+                <TableCell className="text-right tabular-nums" title={row.content > row.posts ? `${row.content} delivered, ${row.posts} post links on file` : undefined}>
+                  {row.content || ""}
+                </TableCell>
                 <TableCell className="text-right tabular-nums">{row.rate === null ? "" : `${row.rate}%`}</TableCell>
                 <TableCell className="whitespace-normal">
                   {row.tier ? (

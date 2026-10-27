@@ -1446,6 +1446,9 @@ test("Rachna's quests, moods and pick come from the real counts", async () => {
   assert.equal(grown.some((quest) => quest.key === "approvals"), false);
   // Every quest done clears the day; with nothing to do there are no quests and no false cheer.
   assert.equal(dayCleared(questsFor({ replies: 0, parcels: 0, approvals: 0, todaySent: 20, dailyTarget: 20, hot: 0 }, start)), true);
+  // A backlog is not a day: a quest asks for ten at most and names the rest.
+  const backlog = questsFor({ replies: 530, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0, hot: 0 }, { ...start, replies: 535 });
+  assert.deepEqual([backlog[0].label, backlog[0].done, backlog[0].total], ["Reply to 10 creators (535 waiting)", 5, 10]);
   // Hot replies are the first quest of the day.
   const withHot = questsFor({ replies: 2, parcels: 0, approvals: 0, todaySent: 0, dailyTarget: 0, hot: 1 }, { ...start, hot: 2 });
   assert.deepEqual([withHot[0].key, withHot[0].label, withHot[0].done, withHot[0].total], ["hot", "Answer 2 hot replies", 1, 2]);
@@ -1569,6 +1572,22 @@ test("the creator card grades a creator from their history and Rachna's verdict 
   assert.match(late.text, /Time to chase/);
   assert.match(rachnaVerdict({ ...base, gifts: 1, noContent: 1 }, now).text, /^Took a gift and never posted/);
   assert.match(rachnaVerdict({ ...base, fitScore: 82, amazonTier: "gold" }, now).text, /Fit score 82.*gold creator on Amazon/);
+
+  // Imported collaborations marked posted with no post link still count as delivered content.
+  const imported = { ...base, gifts: 1, delivered: 1, lastGiftAt: days(32) };
+  assert.equal(gradeCreator(imported), "good");
+  assert.match(rachnaVerdict(imported, now).text, /^Solid\. 1 collaboration from 1 gift, 100% delivered\./);
+  // Amazon Creator Connections creators can deliver without a gift from us.
+  const amazon = { ...base, delivered: 2, amazonTier: "silver" };
+  assert.equal(gradeCreator(amazon), "star");
+  assert.match(rachnaVerdict(amazon, now).text, /^Total gem\. 2 collaborations without a gift from us, 100% delivered\. Keep them close\./);
+  // A no-content outcome without a gift on file is still a warning, not a fresh face.
+  assert.equal(gradeCreator({ ...base, noContent: 1 }), "risky");
+  // Not gifted yet: she reads the open conversation instead of calling them a fresh face.
+  assert.match(rachnaVerdict({ ...base, stage: "replied", dueDays: 22 }, now).text, /^Replied and has been waiting on us for 22 days\. Answer today/);
+  assert.equal(rachnaVerdict({ ...base, stage: "replied", dueDays: 22 }, now).pose, "worried");
+  assert.match(rachnaVerdict({ ...base, stage: "agreed", dueDays: 0 }, now).text, /^They said yes\. Send the selection link before/);
+  assert.match(rachnaVerdict({ ...base, stage: "discovered" }, now).text, /^Fresh face/);
 
   // The six-month chart counts each gift and post in its month, oldest first.
   const months = monthlySeries([{ at: days(2), kind: "post", reach: 1200, salesUsd: 30 }, { at: days(40), kind: "gift" }, { at: days(400), kind: "gift" }], 6, now);

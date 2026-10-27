@@ -825,7 +825,7 @@ export function RachnaTipsToggle({ on }: { on: boolean }) {
         </button>
         <span>
           <span className="block font-semibold">Show Rachna tips</span>
-          <span className="block text-xs text-muted-foreground">Her morning note, nudges after a status change and milestones. Off leaves only the &quot;?&quot; tour and her pointers. Saved for you alone.</span>
+          <span className="block text-xs text-muted-foreground">Her morning note, nudges after a status change and milestones. Off leaves only her tour (tap her face in the top bar) and her pointers. Saved for you alone.</span>
         </span>
       </label>
     </div>

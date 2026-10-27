@@ -135,11 +135,17 @@ export type Quest = { key: "hot" | "replies" | "messages" | "approvals" | "parce
  * two of three); a queue that grew keeps an honest total. Messages count up
  * to the daily target. A queue that was empty all day is not a quest.
  */
+export const QUEST_CAP = 10;
+
 export function questsFor(now: QuestCounts, start: QuestCounts): Quest[] {
   const quests: Quest[] = [];
   const queue = (key: Quest["key"], began: number, current: number, label: (n: number) => string, href: string) => {
-    const total = Math.max(began, current);
-    if (total > 0) quests.push({ key, label: label(total), done: total - current, total, href });
+    const full = Math.max(began, current);
+    if (full === 0) return;
+    // 535 waiting replies is a backlog, not a day: the quest is the next ten, with the rest named.
+    const total = Math.min(full, QUEST_CAP);
+    const done = Math.min(full - current, total);
+    quests.push({ key, label: full > total ? `${label(total)} (${full} waiting)` : label(total), done, total, href });
   };
   queue("hot", start.hot ?? 0, now.hot ?? 0, (n) => `Answer ${n} hot ${n === 1 ? "reply" : "replies"}`, "/today?hot=1");
   queue("replies", start.replies, now.replies, (n) => `Reply to ${n} ${n === 1 ? "creator" : "creators"}`, "/today?queue=replies");

@@ -1,3 +1,4 @@
+import type { CreatorStatus } from "@prisma/client";
 import type { StatusTone } from "@/lib/status";
 
 /**
@@ -31,6 +32,9 @@ export type CreatorStats = {
   lastGiftAt: Date | null;
   lastPostAt: Date | null;
   amazonTier: string | null;
+  /** Where the open collaboration stands, and for how many days its next step has been due. */
+  stage?: CreatorStatus | null;
+  dueDays?: number | null;
 };
 
 export type Grade = "star" | "good" | "mixed" | "waiting" | "risky" | "new";
@@ -47,6 +51,15 @@ export const GRADES: Record<Grade, { label: string; tone: StatusTone }> = {
 const DAY = 24 * 60 * 60 * 1000;
 /** Days after the last gift before "waiting" turns into a chase. */
 export const PATIENCE_DAYS = 21;
+
+/**
+ * Content they delivered: post links on file, or collaborations marked posted or
+ * completed when the links were never recorded (the imported sheet, Amazon
+ * Creator Connections), whichever is more.
+ */
+export function contentCount(s: Pick<CreatorStats, "posts" | "delivered">): number {
+  return Math.max(s.posts, s.delivered);
+}
 
 /** Posted or no-content outcomes as a share, null before anything finished. */
 export function contentRate(s: Pick<CreatorStats, "delivered" | "noContent">): number | null {
@@ -76,10 +89,11 @@ export function engagementRate(s: Pick<CreatorStats, "reach" | "engagements">): 
  * makes it "risky". Nobody we have gifted is "new".
  */
 export function gradeCreator(s: CreatorStats): Grade {
-  if (s.gifts === 0 && s.posts === 0) return "new";
-  if (s.posts === 0) return s.noContent > 0 ? "risky" : "waiting";
+  const content = contentCount(s);
+  if (s.gifts === 0 && content === 0) return s.noContent > 0 ? "risky" : "new";
+  if (content === 0) return s.noContent > 0 ? "risky" : "waiting";
   const rate = contentRate(s) ?? 100;
-  if (s.posts >= 2 && rate >= 80) return "star";
+  if (content >= 2 && rate >= 80) return "star";
   if (rate >= 60) return "good";
   return "mixed";
 }
@@ -102,14 +116,18 @@ export function rachnaVerdict(s: CreatorStats, now = new Date()): Verdict {
   if (multiple !== null && multiple >= 1.5) flourish.push(`Posts reach ${multiple}× the follower count.`);
   else if (reachPerPost(s) !== null) flourish.push(`About ${count(reachPerPost(s)!)} views a post.`);
   const extra = flourish.length > 0 ? ` ${flourish.join(" ")}` : "";
+  const content = contentCount(s);
+  // "3 posts" when the links are on file, "3 collaborations" when only the outcome is.
+  const delivered = s.posts >= content ? plural(content, "post") : plural(content, "collaboration");
+  const fromGifts = s.gifts > 0 ? `from ${plural(s.gifts, "gift")}` : "without a gift from us";
 
   switch (grade) {
     case "star":
-      return { grade, label, tone, pose: "cheer", text: `Total gem. ${plural(s.posts, "post")} from ${plural(s.gifts, "gift")}${rate !== null ? `, ${rate}% delivered` : ""}. Gift again without a second thought.${extra}` };
+      return { grade, label, tone, pose: "cheer", text: `Total gem. ${delivered} ${fromGifts}${rate !== null ? `, ${rate}% delivered` : ""}. ${s.gifts > 0 ? "Gift again without a second thought." : "Keep them close."}${extra}` };
     case "good":
-      return { grade, label, tone, pose: "happy", text: `Solid. ${plural(s.posts, "post")} from ${plural(s.gifts, "gift")}${rate !== null ? `, ${rate}% delivered` : ""}. Worth another gift.${extra}` };
+      return { grade, label, tone, pose: "happy", text: `Solid. ${delivered} ${fromGifts}${rate !== null ? `, ${rate}% delivered` : ""}. Worth another gift.${extra}` };
     case "mixed":
-      return { grade, label, tone, pose: "think", text: `Hit and miss. ${plural(s.posts, "post")} from ${plural(s.gifts, "gift")}${rate !== null ? `, only ${rate}% delivered` : ""}. Nudge before the next gift.${extra}` };
+      return { grade, label, tone, pose: "think", text: `Hit and miss. ${delivered} ${fromGifts}${rate !== null ? `, only ${rate}% delivered` : ""}. Nudge before the next gift.${extra}` };
     case "waiting": {
       const days = s.lastGiftAt ? Math.max(0, Math.floor((now.getTime() - s.lastGiftAt.getTime()) / DAY)) : null;
       if (days !== null && days > PATIENCE_DAYS) return { grade, label, tone, pose: "worried", text: `Gift landed ${days} days ago and still no post. Time to chase, nicely.` };
@@ -117,14 +135,46 @@ export function rachnaVerdict(s: CreatorStats, now = new Date()): Verdict {
     }
     case "risky":
       return { grade, label, tone, pose: "worried", text: `Took ${s.noContent === 1 ? "a gift" : plural(s.noContent, "gift")} and never posted. I'd skip the next one unless they explain.` };
-    default:
+    default: {
+      const nowLine = stageLine(s);
+      if (nowLine) return { grade, label, tone, pose: nowLine.pose, text: `${nowLine.text}${amazonLine(s)}` };
       return {
         grade,
         label,
         tone,
         pose: "idle",
-        text: s.fitScore !== null ? `Fresh face, no history with us yet. Fit score ${s.fitScore}; a first gift is the test.${s.amazonTier ? ` They're ${/^[aeiou]/i.test(s.amazonTier) ? "an" : "a"} ${s.amazonTier} creator on Amazon, promising.` : ""}` : `Fresh face, no history with us yet. A first gift is the test.${s.amazonTier ? ` They're on Amazon Creator Connections (${s.amazonTier}), promising.` : ""}`,
+        text: `Fresh face, no history with us yet. ${s.fitScore !== null ? `Fit score ${s.fitScore}; a first gift is the test.` : "A first gift is the test."}${amazonLine(s)}`,
       };
+    }
+  }
+}
+
+function amazonLine(s: CreatorStats): string {
+  if (!s.amazonTier) return "";
+  return ` They're ${/^[aeiou]/i.test(s.amazonTier) ? "an" : "a"} ${s.amazonTier} creator on Amazon, promising.`;
+}
+
+/** For someone not gifted yet: what the open conversation needs, in her words. Null when there is nothing live. */
+function stageLine(s: CreatorStats): { pose: Verdict["pose"]; text: string } | null {
+  const days = s.dueDays ?? 0;
+  switch (s.stage) {
+    case "replied":
+    case "negotiating":
+      return days >= 7
+        ? { pose: "worried", text: `Replied and has been waiting on us for ${days} days. Answer today, before they go cold.` }
+        : { pose: "point", text: "They replied! Answer while it's fresh." };
+    case "interested":
+    case "agreed":
+      return { pose: "cheer", text: `They said yes. Send the selection link${days >= 3 ? `, it's been ${days} days` : ""} before the excitement fades.` };
+    case "address_collected":
+      return { pose: "point", text: "Address is in. Approve the gift and get it moving." };
+    case "contacted":
+    case "follow_up_due":
+      return { pose: "think", text: "Messaged, no reply yet. One friendly follow-up, then let it rest." };
+    case "on_hold":
+      return { pose: "idle", text: "Parked for now. I'll bring them back on the date that was set." };
+    default:
+      return null;
   }
 }
 

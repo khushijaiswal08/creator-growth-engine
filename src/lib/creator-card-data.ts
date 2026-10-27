@@ -1,6 +1,6 @@
 import type { CollaborationType, CreatorStatus, GiftOrderStatus, Platform, TemplatePurpose } from "@prisma/client";
 import type { BrandScope } from "@/lib/brand-scope";
-import { contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
+import { contentCount, contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
 import { db } from "@/lib/db";
 import { suggestedTemplate } from "@/lib/next-action";
 import { CLOSED_STATUSES } from "@/lib/pipeline";
@@ -79,7 +79,7 @@ export type CreatorCard = {
   profiles: { id: string; platform: Platform; handle: string; followers: number | null; engagementRate: number | null }[];
   stats: CreatorStats;
   verdict: Verdict;
-  figures: { contentRate: number | null; reachPerPost: number | null; reachMultiple: number | null; engagementRate: number | null };
+  figures: { content: number; contentRate: number | null; reachPerPost: number | null; reachMultiple: number | null; engagementRate: number | null };
   campaigns: CardCampaign[];
   months: MonthPoint[];
   message: CardMessageTarget | null;
@@ -115,6 +115,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
           replyRead: true,
           fitScore: true,
           nextAction: true,
+          nextActionDueAt: true,
           campaign: { select: { id: true, name: true } },
           giftOrders: {
             where: { status: { not: "cancelled" } },
@@ -181,6 +182,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value ?? 0), 0);
   const latest = (dates: Date[]) => dates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
+  const open = row.campaigns.find((link) => !CLOSED_STATUSES.includes(link.status)) ?? null;
   const stats: CreatorStats = {
     firstName: firstName(row.name),
     gifts: gifts.length,
@@ -198,9 +200,10 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     lastGiftAt: latest(gifts.map((gift) => gift.at)),
     lastPostAt: latest(posts.map((post) => post.at)),
     amazonTier: row.amazonTier,
+    stage: open?.status ?? null,
+    dueDays: open?.nextActionDueAt && open.nextActionDueAt <= now ? Math.floor((now.getTime() - open.nextActionDueAt.getTime()) / 86_400_000) : null,
   };
 
-  const open = row.campaigns.find((link) => !CLOSED_STATUSES.includes(link.status)) ?? null;
   const message: CardMessageTarget | null = open
     ? {
         campaignCreatorId: open.id,
@@ -230,7 +233,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     profiles: row.profiles,
     stats,
     verdict: rachnaVerdict(stats, now),
-    figures: { contentRate: contentRate(stats), reachPerPost: reachPerPost(stats), reachMultiple: reachMultiple(stats), engagementRate: engagementRate(stats) },
+    figures: { content: contentCount(stats), contentRate: contentRate(stats), reachPerPost: reachPerPost(stats), reachMultiple: reachMultiple(stats), engagementRate: engagementRate(stats) },
     campaigns,
     months: monthlySeries(
       [...gifts.map((gift) => ({ at: gift.at, kind: "gift" as const })), ...posts.map((post) => ({ at: post.at, kind: "post" as const, reach: post.views ?? 0, salesUsd: post.salesUsd ?? 0 }))],

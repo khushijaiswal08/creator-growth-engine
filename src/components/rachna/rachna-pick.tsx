@@ -20,7 +20,7 @@ export function RachnaPick({ row }: { row: TaskRow | null }) {
   if (!row || !rachna?.tipsOn) return null;
   const why = [row.readSummary ?? pickReason(row), row.followers !== null ? `${formatCount(row.followers)} followers` : null, row.campaignName ?? null].filter(Boolean).join(" · ");
   return (
-    <section className="rachna-home" aria-labelledby="pick-title">
+    <section className="rachna-home min-w-0" aria-labelledby="pick-title">
       <div className="mb-2 flex items-center gap-2">
         <RachnaPortrait pose="point" size={36} />
         <div>

@@ -746,6 +746,17 @@ Ctrl-click still opens the profile page.
   record as its tooltip.
 - Tests in `tests/guards.test.ts`: every grade, the figures, the verdict's lines and
   flourishes, the patience window, and the six-month series.
+- Fixes from the live check on 2026-10-27: content counts collaborations marked posted
+  or completed even when no post link was recorded (`contentCount`), so the creators
+  imported from the old sheet and the Amazon Creator Connections creators who delivered
+  without a gift are graded on what they did; the ranking's "Most content delivered" and
+  its Content column use the same count. Before a first gift, Rachna reads the open
+  conversation (replied and waiting, said yes, address in, messaged) instead of calling
+  them a fresh face. Daily quests ask for at most ten per queue (`QUEST_CAP`) and name the
+  backlog. The task list switches between a full table and a two-line row by the card's
+  own width (a container query), Home can no longer scroll sideways, board cards stay
+  inside their lanes, and the browser formats dates in the team's zone (`APP_TIME_ZONE`
+  is passed to the client in `next.config.ts`), which removes a hydration error.
 
 ## Phase 1 discovery and scoring
 

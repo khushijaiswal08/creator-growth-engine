@@ -155,7 +155,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                 {lane.label}
                 <span className="font-semibold text-muted-foreground">{isDone ? doneTotal + movedHere : inLane.length}</span>
               </h3>
-              <div className={cn("grid content-start gap-2.5 rounded-xl p-3 transition-colors", isDone ? "min-h-0" : "min-h-[420px]", over === lane.key ? "bg-primary-soft/60 ring-2 ring-primary/40" : "bg-[#eceef2]")}>
+              <div className={cn("grid grid-cols-1 content-start gap-2.5 rounded-xl p-3 transition-colors", isDone ? "min-h-0" : "min-h-[420px]", over === lane.key ? "bg-primary-soft/60 ring-2 ring-primary/40" : "bg-[#eceef2]")}>
                 {visible.map((card) => {
                   const chip = chipFor({ ...card, status: statusOf(card) }, now);
                   const late = chip.tone === "red";
@@ -173,7 +173,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                       }}
                       onDragEnd={() => setDragging(null)}
                       data-rachna-point={due && verb ? `${verb}: ${card.name}` : undefined}
-                      className={cn("card grid cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", card.warmth === "hot" && !late && "border-l-[3px] border-l-primary", dragging === card.id && "opacity-50")}
+                      className={cn("card grid min-w-0 grid-cols-1 cursor-grab gap-2.5 p-3.5 active:cursor-grabbing", late && "border-l-[3px] border-l-danger-text", card.warmth === "hot" && !late && "border-l-[3px] border-l-primary", dragging === card.id && "opacity-50")}
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <Avatar name={card.name} className="size-9" />
@@ -186,7 +186,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                         </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 flex-1">
+                        <span className="min-w-0 flex-1 overflow-hidden">
                           <span title={card.readSummary ?? undefined} className={cn("inline-flex max-w-full min-w-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", CHIP[chip.tone])}>
                             <span className="truncate">{chip.text}</span>
                           </span>

@@ -13,6 +13,9 @@ const SECURITY_HEADERS = [
 const nextConfig: NextConfig = {
   // The floating development badge sat on top of "Sign out" in the narrow sidebar.
   devIndicators: false,
+  // Dates are formatted on the server and in the browser; both must use the team's zone, or a date near
+  // midnight reads differently in each and React throws a hydration error. Not a secret.
+  env: { APP_TIME_ZONE: process.env.APP_TIME_ZONE ?? "" },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
   },
