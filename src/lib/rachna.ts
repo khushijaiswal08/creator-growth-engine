@@ -38,14 +38,15 @@ export function storageKey(userId: string, part: string): string {
 export type Speech = { pose: RachnaPose; text: string; action?: { label: string; href: string } };
 
 /** The morning note, built from the real counts. A count of zero drops its clause. */
-/** "Morning" until noon, "Afternoon" until five, "Evening" after: she matches the page's own greeting. */
+/** "Morning" from 5 until noon, "Afternoon" until five, "Evening" after: she matches the page's own greeting. */
 export function timeOfDay(hour: number): "Morning" | "Afternoon" | "Evening" {
-  if (hour < 12) return "Morning";
-  if (hour < 17) return "Afternoon";
+  if (hour >= 5 && hour < 12) return "Morning";
+  if (hour >= 12 && hour < 17) return "Afternoon";
   return "Evening";
 }
 
-export function greetingFor(name: string, counts: { replies: number; parcels: number; total: number }, hour = new Date().getHours()): Speech {
+/** `hour` is on the team's clock (IST); the caller passes hourInZone(now). */
+export function greetingFor(name: string, counts: { replies: number; parcels: number; total: number }, hour: number): Speech {
   if (counts.total === 0) return { pose: "think", text: "Nothing due today. Go find two new creators?", action: { label: "Check a profile", href: "/influencers/new" } };
   const parts: string[] = [];
   if (counts.replies > 0) parts.push(`${counts.replies} ${counts.replies === 1 ? "reply" : "replies"} first`);

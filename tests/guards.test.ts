@@ -1415,12 +1415,33 @@ test("Rachna greets once a day, obeys the tips toggle, and never sits on a butto
   // She matches the page's own greeting through the day.
   assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 14).text, "Afternoon, Preeti! 1 reply first.");
   assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 19).text, "Evening, Preeti! 1 reply first.");
+  // Late at night is still evening; morning starts at five.
+  assert.equal(greetingFor("Preeti", { replies: 1, parcels: 0, total: 3 }, 2).text, "Evening, Preeti! 1 reply first.");
   assert.equal(nudgeFor("agreed")?.text, "Send the selection link, one click.");
   assert.equal(nudgeFor("content_expected", { arrivalDays: 3 })?.text, "Delivery note today, arrival check in 3 days. I'll remind you.");
   assert.equal(nudgeFor("content_posted")?.pose, "cheer");
   assert.equal(nudgeFor("contacted"), null);
   assert.equal(tourKeyFor("/campaigns/abc"), "pipeline");
   assert.equal(tourKeyFor("/campaigns/abc/review"), null);
+});
+
+test("Home greets on the team's clock: morning from 5, afternoon from noon, evening from 5 pm and through the night", async () => {
+  const { hourInZone, timeOfDay } = await import("@/lib/format");
+  const rachna = await import("@/lib/rachna");
+
+  // The hour is read in the team's zone (APP_TIME_ZONE, IST on the live site), never the server's or the computer's.
+  const zone = process.env.APP_TIME_ZONE?.trim() || "UTC";
+  const noonUtc = new Date("2026-10-28T12:00:00Z");
+  assert.equal(hourInZone(noonUtc), Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: zone }).format(noonUtc)) % 24);
+
+  const expected: Record<number, string> = { 0: "Evening", 2: "Evening", 4: "Evening", 5: "Morning", 9: "Morning", 11: "Morning", 12: "Afternoon", 16: "Afternoon", 17: "Evening", 21: "Evening", 23: "Evening" };
+  for (const [hour, part] of Object.entries(expected)) assert.equal(rachna.timeOfDay(Number(hour)), part, `${hour}:00`);
+
+  // The page heading and Rachna's note never disagree, at any minute of the day.
+  for (let minutes = 0; minutes < 24 * 60; minutes += 30) {
+    const at = new Date(Date.UTC(2026, 9, 28, 0, minutes));
+    assert.equal(timeOfDay(at), rachna.timeOfDay(hourInZone(at)).toLowerCase(), at.toISOString());
+  }
 });
 
 test("Rachna's quests, moods and pick come from the real counts", async () => {

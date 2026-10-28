@@ -34,10 +34,14 @@ export const formatMonth = (date: Date) => monthYear.format(date);
 const hourOfDay = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: TIME_ZONE });
 const longDay = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: TIME_ZONE });
 
+/** 0 to 23 on the team's clock (IST), whatever zone the server or the computer is in. */
+export const hourInZone = (date: Date) => Number(hourOfDay.format(date)) % 24;
+
+/** Morning from 5 until noon, afternoon until five, evening after that and through the night. */
 export function timeOfDay(date: Date): "morning" | "afternoon" | "evening" {
-  const hour = Number(hourOfDay.format(date)) % 24;
-  if (hour < 12) return "morning";
-  if (hour < 17) return "afternoon";
+  const hour = hourInZone(date);
+  if (hour >= 5 && hour < 12) return "morning";
+  if (hour >= 12 && hour < 17) return "afternoon";
   return "evening";
 }
 

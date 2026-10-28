@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, us
 import { setRachnaTips } from "@/actions/account";
 import { useSidebar } from "@/components/sidebar-context";
 import { Button } from "@/components/ui/button";
+import { hourInZone } from "@/lib/format";
 import {
   CONFETTI_MS,
   IDLE_MS,
@@ -754,7 +755,7 @@ export function RachnaGreeting({ name, replies, parcels, total, weekSent, weekTa
     if (rachna.intro) store.set(key, today);
     else if (greetingDue(store.get(key), today)) {
       store.set(key, today);
-      const speech = greetingFor(name, { replies, parcels, total });
+      const speech = greetingFor(name, { replies, parcels, total }, hourInZone(new Date()));
       rachna.say({ ...speech, anchor: total > 0 ? "task-first" : null, kind: "greeting" });
     }
     if (weekTarget > 0 && weekSent >= weekTarget) rachna.milestone(`week:${weekKey}`, MILESTONES.weeklyTarget(weekTarget));

@@ -4,6 +4,7 @@ import { Check, ChevronRight, Clapperboard, Clock, ExternalLink, MessageCircle, 
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { HomeDate, HomeGreeting } from "@/components/home-greeting";
 import { RachnaGreeting } from "@/components/rachna/rachna";
 import { RachnaPick } from "@/components/rachna/rachna-pick";
 import { QueueTabs, type QueueTab } from "@/components/queue-tabs";
@@ -18,7 +19,7 @@ import { BRANDS, brandName } from "@/lib/brands";
 import { AMAZON_CONSOLE_URL } from "@/lib/channels";
 import { db } from "@/lib/db";
 import { QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
-import { startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format";
+import { startOfWeekInZone, timeAgo } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { brandTargets, personStats, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
@@ -218,11 +219,11 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0">
           <h1>
-            Good {timeOfDay(now)}, {firstName(user.name)}
+            <HomeGreeting name={firstName(user.name)} at={now.toISOString()} />
           </h1>
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[15px] font-medium text-muted-foreground">
             <span>
-              {todayWords(now)}
+              <HomeDate at={now.toISOString()} />
               {view.brandId ? ` · ${brandName(view.brandId)}` : ""}
             </span>
             {total > 0 ? (
