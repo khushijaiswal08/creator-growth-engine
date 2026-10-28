@@ -1,10 +1,12 @@
 import type { CreatorStatus } from "@prisma/client";
 import { cn } from "cn";
+import { Check, ChevronRight, Clapperboard, Clock, ExternalLink, MessageCircle, Plus, Reply, ShoppingBag, Truck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { RachnaGreeting } from "@/components/rachna/rachna";
 import { RachnaPick } from "@/components/rachna/rachna-pick";
+import { QueueTabs, type QueueTab } from "@/components/queue-tabs";
 import { CheckProfileButton, NewMessageButton } from "@/components/home-actions";
 import { RunAutomationsButton } from "@/components/journey-forms";
 import { MessageComposer } from "@/components/message-button";
@@ -18,7 +20,7 @@ import { db } from "@/lib/db";
 import { QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
 import { startOfWeekInZone, timeAgo, timeOfDay, todayWords } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
-import { brandTargets, personStats, replyRate, todayStats } from "@/lib/outreach-stats";
+import { brandTargets, personStats, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
 import { pickFor } from "@/lib/rachna";
 import { isWarmth, warmthRank } from "@/lib/reply-reader";
@@ -58,14 +60,6 @@ const STAGES: { label: string; statuses: CreatorStatus[]; color: string }[] = [
   { label: "Posted", statuses: ["content_posted", "completed"], color: "bg-[#16a34a]" },
 ];
 
-const WORDS = ["Nothing", "One thing", "Two things", "Three things", "Four things", "Five things", "Six things", "Seven things", "Eight things", "Nine things", "Ten things", "Eleven things", "Twelve things"];
-
-function thingsNeedYou(total: number): string {
-  if (total === 0) return "nothing needs you right now";
-  if (total < WORDS.length) return `${WORDS[total].toLowerCase()} ${total === 1 ? "needs" : "need"} you today`;
-  return `${total} things need you today`;
-}
-
 /** The word on the task button: the one thing to do, not the generic "Message". */
 function verbFor(queueKey: string, message: boolean): string {
   if (queueKey === "replies") return "Reply";
@@ -83,7 +77,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const now = new Date();
   const openCampaign = openCampaignIn(view);
   const weekStart = startOfWeekInZone(now);
-  const weekEnd = new Date(weekStart.getTime() + 7 * DAY);
   const thisMonth = resolvePeriod("this-month", undefined, undefined, now);
   const lastMonth = previousPeriod(thisMonth);
   const notArchived = { influencer: { archived: false }, campaign: openCampaign };
@@ -96,7 +89,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const amazonInfluencer = { archived: false, amazonTier: { not: null } };
   const ccWhere = { campaign: openCampaign, influencer: amazonInfluencer };
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentDueThisWeek, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccToContact, ccMoved, ccPosted, ccDue, hotTotal] = await Promise.all([
+  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccPosted, ccDue, hotTotal] = await Promise.all([
     Promise.all(
       QUEUES.map(async (queue) => {
         const where = { ...dueWhere(view, queue.statuses, now), ...(amazonOnly ? { influencer: amazonInfluencer } : {}), ...(hotOnly ? { replyWarmth: "hot" } : {}) };
@@ -137,7 +130,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     brandTargets(BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id)),
     db.giftOrder.count({ where: { ...view.gifts, status: { in: ["approved", "ordered", "shipped"] } } }),
     db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
-    db.campaignCreator.count({ where: { ...notArchived, status: "content_expected", contentDueAt: { gte: weekStart, lt: weekEnd } } }),
     db.campaignCreator.count({ where: { ...notArchived, status: "content_expected", contentDueAt: { lt: now } } }),
     figuresFor(thisMonth, openCampaign),
     figuresFor(lastMonth, openCampaign),
@@ -148,8 +140,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     }),
     // The Creator Connections column: where the Amazon creators stand.
     db.campaignCreator.count({ where: ccWhere }),
-    db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["discovered", "scored", "review_later", "approved", "outreach_scheduled"] } } }),
-    db.campaignCreator.count({ where: { ...ccWhere, messages: { some: { channel: { in: ["dm", "email"] } } } } }),
     db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["content_posted", "completed"] } } }),
     db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), influencer: amazonInfluencer } }),
     db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), replyWarmth: "hot" } }),
@@ -163,7 +153,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const mineLastWeek = lastWeek.find((row) => row.userId === user.id);
   const sent = mineWeek?.messages ?? 0;
   const replies = mineWeek?.replies ?? 0;
-  const rate = mineWeek ? replyRate(mineWeek) : null;
 
   const byStatus = new Map(groups.map((group) => [group.status, group._count._all]));
   const atStage = STAGES.map((stage) => stage.statuses.reduce((count, status) => count + (byStatus.get(status) ?? 0), 0));
@@ -206,21 +195,56 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   // The Creator Connections page of the brand in view, or the first brand that has one.
   const amazonUrl = [...targets.values()].map((row) => row.creatorConnectionsUrl).find(Boolean) ?? AMAZON_CONSOLE_URL;
 
+  // The tabs across the list: the busiest queues up front, the rest under More.
+  const FRONT = ["replies", "selection", "gifts"];
+  const href = (queue: string | null, extra = "") => `/today${queue ? `?queue=${queue}${extra}` : extra ? `?${extra.slice(1)}` : ""}`;
+  const queueTabs: QueueTab[] = [
+    { key: "all", label: "All", count: total, href: "/today", active: activeQueue === null && !amazonOnly && !hotOnly },
+    ...(hotTotal > 0 ? [{ key: "hot", label: "Hot", count: hotTotal, href: "/today?hot=1", active: hotOnly, hot: true }] : []),
+    ...FRONT.map((key) => {
+      const queue = queues.find((item) => item.key === key)!;
+      return { key, label: QUEUE_CHIPS[key], count: queue.count, href: href(key), active: activeQueue === key };
+    }),
+  ];
+  const moreTabs: QueueTab[] = [
+    ...queues.filter((queue) => !FRONT.includes(queue.key) && queue.count > 0).map((queue) => ({ key: queue.key, label: QUEUE_CHIPS[queue.key] ?? queue.title, count: queue.count, href: href(queue.key), active: activeQueue === queue.key })),
+    ...(ccTotal > 0 ? [{ key: "amazon", label: "Creator Connections", count: ccDue, href: "/today?source=amazon", active: amazonOnly }] : []),
+  ];
+  const funnelSteps = STAGES.slice(2);
+  const funnelTop = reached[2] || 1;
+
   return (
     <MessageComposer templates={templates} senderName={user.name}>
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div>
-          <h1 className="text-[26px]">
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+        <div className="min-w-0">
+          <h1>
             Good {timeOfDay(now)}, {firstName(user.name)}
           </h1>
-          <p className="mt-1 text-muted-foreground">
-            {todayWords(now)} · {view.brandId ? brandName(view.brandId) : "Both brands"} · {thingsNeedYou(total)}
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[15px] font-medium text-muted-foreground">
+            <span>
+              {todayWords(now)}
+              {view.brandId ? ` · ${brandName(view.brandId)}` : ""}
+            </span>
+            {total > 0 ? (
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-danger-soft px-3 text-[13px] font-extrabold text-danger-text">
+                <Clock className="size-3.5" strokeWidth={2.5} />
+                {total.toLocaleString("en-US")} to do
+              </span>
+            ) : (
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-success-soft px-3 text-[13px] font-extrabold text-success-text">
+                <Check className="size-3.5" strokeWidth={3} />
+                All clear
+              </span>
+            )}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <CheckProfileButton />
           <Button asChild variant="outline">
-            <Link href="/influencers/new">Add creator</Link>
+            <Link href="/influencers/new">
+              <Plus className="size-[17px]" strokeWidth={2.2} />
+              Add creator
+            </Link>
           </Button>
           <NewMessageButton />
         </div>
@@ -235,216 +259,202 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         weekTarget={target.weekly}
         weekKey={weekStart.toISOString().slice(0, 10)}
       />
-      <section id="home-tiles" aria-label="This week at a glance" className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
-        <Tile label="Messages this week" value={sent} note={target.weekly > 0 ? `of ${target.weekly} target · ${mineToday?.messages ?? 0} today` : `${mineToday?.messages ?? 0} today`}>
+      <section id="home-tiles" aria-label="This week at a glance" className="mb-6 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+        <Kpi icon={<MessageCircle className="size-[19px]" strokeWidth={2} />} tint="bg-primary-faint text-primary" label="Messages" value={sent} of={target.weekly > 0 ? target.weekly : undefined}>
           {target.weekly > 0 ? <Bar value={sent} target={target.weekly} /> : null}
-        </Tile>
-        <Tile label="Replies" value={replies} note={rate !== null ? `${rate}% reply rate` : "no one messaged yet"}>
-          <Delta value={replies - (mineLastWeek?.replies ?? 0)} suffix=" vs last week" />
-        </Tile>
-        <Tile label="Gifts in transit" value={inTransit} note={toApprove > 0 ? undefined : "none waiting for approval"}>
+          <span>This week · {mineToday?.messages ?? 0} today</span>
+        </Kpi>
+        <Kpi icon={<Reply className="size-[19px]" strokeWidth={2} />} tint="bg-info-soft text-info-text" label="Replies" value={replies}>
+          <Delta value={replies - (mineLastWeek?.replies ?? 0)} />
+          <span>vs last week</span>
+        </Kpi>
+        <Kpi icon={<Truck className="size-[19px]" strokeWidth={2} />} tint="bg-warning-soft text-warning-text" label="In transit" value={inTransit}>
           {toApprove > 0 ? (
-            <Link href="/orders?status=needs_approval" className="chip border-transparent bg-warning-soft text-warning-text hover:text-warning-text">
+            <Link href="/orders?status=needs_approval" className="inline-flex h-6 items-center rounded-full bg-warning-soft px-2.5 text-xs font-extrabold text-warning-text hover:underline">
               {toApprove} to approve
             </Link>
-          ) : null}
-        </Tile>
-        <Tile label="Content due this week" value={contentDueThisWeek} note={contentOverdue > 0 ? `${Math.max(0, contentDueThisWeek - contentOverdue)} on track` : "nothing overdue"}>
-          {contentOverdue > 0 ? <span className="chip border-transparent bg-danger-soft text-danger-text">{contentOverdue} overdue</span> : null}
-        </Tile>
-        <Tile label="Content rate" value={month.contentRate === null ? "–" : `${month.contentRate}%`} note={month.contentRate !== null && monthBefore.contentRate !== null ? "vs last month" : `${month.posted} posted, ${month.noContent} no content this month`}>
-          {month.contentRate !== null && monthBefore.contentRate !== null ? <Delta value={month.contentRate - monthBefore.contentRate} unit=" pts" /> : null}
-        </Tile>
+          ) : (
+            <span>none to approve</span>
+          )}
+        </Kpi>
+        <Kpi icon={<Clapperboard className="size-[19px]" strokeWidth={2} />} tint="bg-success-soft text-success-text" label="Content rate" value={month.contentRate === null ? "–" : `${month.contentRate}%`}>
+          {contentOverdue > 0 ? (
+            <span className="inline-flex h-6 items-center rounded-full bg-danger-soft px-2.5 text-xs font-extrabold text-danger-text">{contentOverdue} overdue</span>
+          ) : month.contentRate !== null && monthBefore.contentRate !== null ? (
+            <>
+              <Delta value={month.contentRate - monthBefore.contentRate} unit=" pts" />
+              <span>vs last month</span>
+            </>
+          ) : (
+            <span>{month.posted} posted this month</span>
+          )}
+        </Kpi>
       </section>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section id="tasks-card" className="card min-w-0 overflow-hidden" aria-labelledby="tasks-title">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 pt-4 pb-3">
-            <h2 id="tasks-title">My tasks today</h2>
-            <span className="chip border-transparent bg-surface-2">{total}</span>
-            {total > 0 || amazonOnly ? (
-              <div className="ml-auto flex flex-wrap gap-1.5">
-                <Link href="/today" className="chip" aria-current={activeQueue === null && !amazonOnly && !hotOnly ? "true" : undefined}>
-                  All {amazonOnly || hotOnly ? "" : total}
-                </Link>
-                {hotTotal > 0 ? (
-                  <Link href="/today?hot=1" className={cn("chip", !hotOnly && "border-transparent bg-danger-soft text-danger-text hover:text-danger-text")} aria-current={hotOnly ? "true" : undefined}>
-                    Hot {hotTotal}
-                  </Link>
-                ) : null}
-                {queues
-                  .filter((queue) => queue.count > 0)
-                  .map((queue) => (
-                    <Link key={queue.key} href={`/today?queue=${queue.key}${amazonOnly ? "&source=amazon" : ""}`} className="chip" aria-current={activeQueue === queue.key ? "true" : undefined}>
-                      {QUEUE_CHIPS[queue.key] ?? queue.title} {queue.count}
-                    </Link>
-                  ))}
-                {ccTotal > 0 ? (
-                  <Link href="/today?source=amazon" className="chip" aria-current={amazonOnly ? "true" : undefined}>
-                    Creator Connections {ccDue}
-                  </Link>
-                ) : null}
-              </div>
+          <div className="flex items-center gap-2.5 px-5 pt-5 md:px-[22px]">
+            <h2 id="tasks-title">Today</h2>
+            <span className="count-pill">{total.toLocaleString("en-US")}</span>
+            <span className="flex-1" />
+            {total > shown ? (
+              <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"} className="inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:underline">
+                View all
+                <ChevronRight className="size-4" strokeWidth={2.4} />
+              </Link>
             ) : null}
           </div>
+          {total > 0 || amazonOnly || hotOnly ? <QueueTabs tabs={queueTabs} more={moreTabs} /> : <div className="mt-4 border-b" />}
 
           {amazonWaiting > 0 ? (
-            <div className="flex flex-wrap items-center gap-3 border-t bg-warning-soft/40 px-4 py-2.5 text-sm">
-              <span aria-hidden className="flex size-7 items-center justify-center rounded-full bg-warning-soft text-[12px] font-bold text-warning-text">
-                a
+            <div className="flex flex-wrap items-center gap-3 border-b bg-warning-soft/60 px-5 py-3 text-sm md:px-[22px]">
+              <span aria-hidden className="flex size-8 items-center justify-center rounded-xl bg-surface text-warning-text">
+                <ShoppingBag className="size-4" strokeWidth={2.2} />
               </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">Check Amazon messages</p>
-                <p className="text-xs text-muted-foreground">
-                  {amazonWaiting} {amazonWaiting === 1 ? "creator was" : "creators were"} written to inside Creator Connections. Amazon does not tell us when they answer: open the thread, then press Log a reply on the creator.
-                </p>
-              </div>
+              <p className="min-w-0 flex-1 font-semibold">
+                Check Amazon messages <span className="font-medium text-muted-foreground">· {amazonWaiting} written to inside Creator Connections</span>
+              </p>
               <Button asChild size="sm" variant="outline">
                 <a href={amazonUrl} target="_blank" rel="noopener noreferrer">
                   Open Amazon
+                  <ExternalLink className="size-3.5" />
                 </a>
               </Button>
             </div>
           ) : null}
           {total === 0 ? (
-            <p className="border-t px-4 py-12 text-center text-muted-foreground">
-              {amazonOnly ? "No Creator Connections creator needs you today." : hotOnly ? "No hot replies waiting. Rachna marks a reply hot when the creator sounds keen." : "All quiet. New replies, parcels and content dates show up here as they come due."}
-            </p>
+            <div className="grid place-items-center gap-2 px-6 py-14 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-success-soft text-success-text">
+                <Check className="size-6" strokeWidth={2.5} />
+              </span>
+              <p className="text-[17px] font-extrabold text-foreground">{amazonOnly ? "No Amazon creator needs you" : hotOnly ? "No hot replies waiting" : "All clear for today"}</p>
+              <p className="font-medium text-muted-foreground">{hotOnly ? "Rachna marks a reply hot when the creator sounds keen." : "New replies, parcels and content dates show up here."}</p>
+            </div>
           ) : (
             <TaskList rows={rows} />
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-2.5 text-xs text-muted-foreground">
-            {total > shown ? (
-              <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"} className="link">
-                Show all {total} tasks
-              </Link>
-            ) : (
-              <span>{total === 0 ? "" : `Showing all ${shown}`}</span>
-            )}
-            <span className="flex items-center gap-3">
-              {lastRun ? `Checked ${timeAgo(lastRun.startedAt, now)}` : "Not checked yet"}
-              <RunAutomationsButton />
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-5 py-3.5 text-[13px] font-semibold text-muted-foreground md:px-[22px]">
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>{total === 0 ? "Nothing waiting" : `Showing ${shown} of ${total.toLocaleString("en-US")}`}</span>
+              <span className="flex items-center gap-1.5 font-medium">
+                {lastRun ? `Checked ${timeAgo(lastRun.startedAt, now)}` : "Not checked yet"}
+                <RunAutomationsButton />
+              </span>
             </span>
+            {total > shown ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"}>Show all tasks</Link>
+              </Button>
+            ) : null}
           </div>
         </section>
 
-        <div id="home-side" className="grid min-w-0 grid-cols-1 content-start gap-5">
+        <aside id="home-side" className="grid min-w-0 grid-cols-1 content-start gap-5">
           {activeQueue === null && !amazonOnly && !hotOnly ? <RachnaPick row={pickFor(rows)} /> : null}
-          {ccTotal > 0 ? (
-            <section className="card p-4" aria-labelledby="cc-title">
-              <div className="mb-1 flex items-center justify-between">
-                <h2 id="cc-title">Creator Connections</h2>
-                <a href={amazonUrl} target="_blank" rel="noopener noreferrer" className="link text-xs">
-                  Open Amazon
-                </a>
-              </div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                {ccTotal} {ccTotal === 1 ? "creator" : "creators"} from Amazon in open campaigns
-              </p>
-              <dl className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-muted-foreground">Need you today</dt>
-                  <dd className="stat-number text-[20px]">{ccDue}</dd>
-                </div>
-                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-muted-foreground">Not messaged yet</dt>
-                  <dd className="stat-number text-[20px]">{ccToContact}</dd>
-                </div>
-                <div className="rounded-lg bg-warning-soft/60 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-warning-text">Waiting inside Amazon</dt>
-                  <dd className="stat-number text-[20px]">{amazonWaiting}</dd>
-                </div>
-                <div className="rounded-lg bg-info-soft/70 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-info-text">Moved to DM or email</dt>
-                  <dd className="stat-number text-[20px]">{ccMoved}</dd>
-                </div>
-                <div className="rounded-lg bg-success-soft/70 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-success-text">Posted</dt>
-                  <dd className="stat-number text-[20px]">{ccPosted}</dd>
-                </div>
-                <div className="rounded-lg bg-surface-2/70 px-3 py-2">
-                  <dt className="text-[11px] font-semibold text-muted-foreground">Tasks</dt>
-                  <dd>
-                    <Link href="/today?source=amazon" className="link text-sm">
-                      See theirs
-                    </Link>
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-3 text-xs text-muted-foreground">Message them once inside Amazon with the Amazon template, ask for an email or handle, then carry on from here.</p>
-            </section>
-          ) : null}
-          <section className="card p-4" aria-labelledby="funnel-title">
-            <div className="mb-1 flex items-center justify-between">
-              <h2 id="funnel-title">Pipeline</h2>
-              <Link href={funnelCampaign ? `/campaigns/${funnelCampaign.id}` : "/campaigns"} className="link text-xs">
+
+          <section className="card grid gap-3.5 p-5" aria-labelledby="funnel-title">
+            <div className="flex items-center gap-2">
+              <h3 id="funnel-title">Pipeline</h3>
+              <span className="flex-1" />
+              <Link href={funnelCampaign ? `/campaigns/${funnelCampaign.id}` : "/campaigns"} className="inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:underline">
                 {funnelCampaign ? "Open board" : "Open boards"}
+                <ChevronRight className="size-4" strokeWidth={2.4} />
               </Link>
             </div>
-            <p className="mb-3 text-xs text-muted-foreground">{funnelCampaign ? funnelCampaign.name : `${openCampaigns.length} open ${openCampaigns.length === 1 ? "campaign" : "campaigns"}`}</p>
             {reached[0] === 0 ? (
               <p className="text-sm text-muted-foreground">No creators in an open campaign yet.</p>
             ) : (
-              <ol className="grid gap-2">
-                {STAGES.map((stage, index) => (
-                  <li key={stage.label} className="grid grid-cols-[88px_minmax(0,1fr)_32px] items-center gap-2.5 text-[13px]">
+              <ol className="grid gap-2.5">
+                {funnelSteps.map((stage, index) => (
+                  <li key={stage.label} className="grid grid-cols-[78px_minmax(0,1fr)_48px] items-center gap-2.5 text-[13px] font-semibold">
                     <span className="text-accent-text">{stage.label}</span>
-                    <span aria-hidden className="block h-4 overflow-hidden rounded bg-surface-2">
-                      <span className={cn("block h-full rounded", stage.color)} style={{ width: `${Math.max(reached[index] > 0 ? 3 : 0, Math.round((reached[index] / reached[0]) * 100))}%` }} />
+                    <span aria-hidden className="block h-2.5 overflow-hidden rounded-full bg-surface-2">
+                      <span className="block h-full rounded-full" style={{ width: `${reached[index + 2] > 0 ? Math.max(4, Math.round((reached[index + 2] / funnelTop) * 100)) : 0}%`, background: FUNNEL_COLORS[index] }} />
                     </span>
-                    <span className="text-right font-semibold tabular-nums">{reached[index]}</span>
+                    <span className="text-right font-extrabold text-foreground tabular-nums">{reached[index + 2].toLocaleString("en-US")}</span>
                   </li>
                 ))}
               </ol>
             )}
           </section>
 
-          <section className="card p-4" aria-labelledby="activity-title">
-            <h2 id="activity-title" className="mb-3">
-              Team activity
-            </h2>
+          {ccTotal > 0 ? (
+            <section className="card grid gap-3.5 p-5" aria-labelledby="cc-title">
+              <div className="flex items-center gap-2">
+                <h3 id="cc-title" className="whitespace-nowrap">
+                  Creator Connections
+                </h3>
+                <span className="flex-1" />
+                <a href={amazonUrl} target="_blank" rel="noopener noreferrer" title="Open Amazon" aria-label="Open Amazon Creator Connections" className="flex size-8 items-center justify-center rounded-[9px] border text-accent-text hover:bg-surface-2 hover:text-foreground">
+                  <ExternalLink className="size-[15px]" strokeWidth={2} />
+                </a>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Link href="/today?source=amazon" className="rounded-xl bg-surface-2/80 px-3 py-2.5 hover:bg-primary-faint">
+                  <b className="block text-[20px] leading-tight font-extrabold text-foreground tabular-nums">{ccDue}</b>
+                  <span className="text-[11.5px] font-bold text-muted-foreground">Need you</span>
+                </Link>
+                <div className="rounded-xl bg-surface-2/80 px-3 py-2.5">
+                  <b className="block text-[20px] leading-tight font-extrabold text-foreground tabular-nums">{amazonWaiting}</b>
+                  <span className="text-[11.5px] font-bold text-muted-foreground">Waiting</span>
+                </div>
+                <div className="rounded-xl bg-surface-2/80 px-3 py-2.5">
+                  <b className="block text-[20px] leading-tight font-extrabold text-foreground tabular-nums">{ccPosted}</b>
+                  <span className="text-[11.5px] font-bold text-muted-foreground">Posted</span>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          <section className="card grid gap-3.5 p-5" aria-labelledby="activity-title">
+            <h3 id="activity-title">Recent activity</h3>
             {activities.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing logged yet.</p>
             ) : (
-              <ol className="grid gap-3">
-                {activities.map((item) => (
-                  <li key={item.id} className="flex gap-2.5 text-[13px]">
-                    <Avatar name={item.automated ? "Automation" : item.user.name} className={cn("size-7 text-[10px]", item.automated && "bg-surface-2 text-accent-text")} />
+              <ol className="grid gap-3.5">
+                {activities.slice(0, 4).map((item) => (
+                  <li key={item.id} className="flex gap-2.5 text-[13px] leading-snug">
+                    <Avatar name={item.automated ? "Automation" : item.user.name} className={cn("size-7 text-[10.5px]", item.automated && "bg-surface-2 text-accent-text")} />
                     <div className="min-w-0">
                       <p className="break-words">
-                        <span className="font-semibold">{item.automated ? "Automation" : item.user.name}</span> · {item.body}
+                        <span className="font-bold text-foreground">{item.automated ? "Automation" : firstName(item.user.name)}</span> {lowerFirst(item.body)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {timeAgo(item.createdAt, now)}
-                        {item.campaignCreator ? ` · ${item.campaignCreator.campaign.name}` : ""}
-                      </p>
+                      <p className="text-xs font-semibold text-faint">{timeAgo(item.createdAt, now)}</p>
                     </div>
                   </li>
                 ))}
               </ol>
             )}
           </section>
-        </div>
+        </aside>
       </div>
     </MessageComposer>
   );
 }
 
-/** One figure with its label, a note under it and room for a chip or a bar. */
-function Tile({ label, value, note, children }: { label: string; value: number | string; note?: string; children?: React.ReactNode }) {
+const FUNNEL_COLORS = ["#c7d7fe", "#93b4fb", "#6d8ef5", "#f2b45a", "#4ade80"];
+
+/** "Status changed from A to B." reads after a name as "status changed from A to B." */
+function lowerFirst(text: string): string {
+  return text.length > 1 && /^[A-Z][a-z]/.test(text) ? text[0].toLowerCase() + text.slice(1) : text;
+}
+
+/** One figure: a tinted icon and a one-line label, the big number, one short line below. */
+function Kpi({ icon, tint, label, value, of, children }: { icon: React.ReactNode; tint: string; label: string; value: number | string; of?: number; children?: React.ReactNode }) {
   return (
-    <div className="card grid content-start gap-1.5 p-4">
-      <p className="label">{label}</p>
-      <p className="stat-number text-[28px]">{value}</p>
-      {children ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          {children}
-          {note ? <span>{note}</span> : null}
-        </div>
-      ) : note ? (
-        <p className="text-xs text-muted-foreground">{note}</p>
-      ) : null}
+    <div className="card grid content-start gap-2.5 px-5 py-[18px]">
+      <div className="flex items-center gap-3">
+        <span aria-hidden className={cn("flex size-[38px] shrink-0 items-center justify-center rounded-xl", tint)}>
+          {icon}
+        </span>
+        <span className="label truncate">{label}</span>
+      </div>
+      <p className="flex items-baseline gap-1">
+        <span className="stat-number text-[30px] md:text-[34px]">{typeof value === "number" ? value.toLocaleString("en-US") : value}</span>
+        {of !== undefined ? <span className="text-base font-bold text-faint">/ {of}</span> : null}
+      </p>
+      {children ? <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-muted-foreground">{children}</div> : null}
     </div>
   );
 }
@@ -453,21 +463,20 @@ function Tile({ label, value, note, children }: { label: string; value: number |
 function Bar({ value, target }: { value: number; target: number }) {
   const share = target > 0 ? Math.min(1, value / target) : 0;
   return (
-    <span aria-hidden className="block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-      <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.round(share * 100)}%` }} />
+    <span aria-hidden className="mb-0.5 block h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
+      <span className="block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(share * 100)}%` }} />
     </span>
   );
 }
 
 /** Up in green, down in red, the same in grey. */
-function Delta({ value, unit = "", suffix = "" }: { value: number; unit?: string; suffix?: string }) {
-  if (value === 0) return <span className="chip border-transparent bg-surface-2">same{suffix}</span>;
+function Delta({ value, unit = "" }: { value: number; unit?: string }) {
+  if (value === 0) return <span className="inline-flex h-6 items-center rounded-full bg-surface-2 px-2.5 text-xs font-extrabold text-accent-text">same</span>;
   const up = value > 0;
   return (
-    <span className={cn("chip border-transparent", up ? "bg-success-soft text-success-text" : "bg-danger-soft text-danger-text")}>
+    <span className={cn("inline-flex h-6 items-center rounded-full px-2.5 text-xs font-extrabold", up ? "bg-success-soft text-success-text" : "bg-danger-soft text-danger-text")}>
       {up ? "▲" : "▼"} {Math.abs(value)}
       {unit}
-      {suffix}
     </span>
   );
 }

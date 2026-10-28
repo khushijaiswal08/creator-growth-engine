@@ -71,7 +71,7 @@ export function parseCampaignStatus(raw: string): CampaignStatus | null {
  * per hue across the portal: info (blue) is moving, warning (amber) is waiting
  * on someone, success (green) is done, danger (red) is a problem or a dead end.
  */
-export type StatusTone = "neutral" | "primary" | "info" | "warning" | "success" | "danger";
+export type StatusTone = "neutral" | "primary" | "info" | "warning" | "success" | "danger" | "violet";
 
 export const CREATOR_STATUS_TONES: Record<CreatorStatus, StatusTone> = {
   discovered: "neutral",
@@ -86,11 +86,11 @@ export const CREATOR_STATUS_TONES: Record<CreatorStatus, StatusTone> = {
   follow_up_due: "warning",
   content_expected: "warning",
   replied: "info",
-  interested: "info",
+  interested: "violet",
   negotiating: "info",
-  agreed: "info",
-  address_collected: "info",
-  product_shipped: "info",
+  agreed: "violet",
+  address_collected: "warning",
+  product_shipped: "warning",
   content_posted: "success",
   completed: "success",
   rejected: "danger",
@@ -118,6 +118,7 @@ export const TONE_CLASSES: Record<StatusTone, string> = {
   warning: "bg-warning-soft text-warning-text",
   success: "bg-success-soft text-success-text",
   danger: "bg-danger-soft text-danger-text",
+  violet: "bg-violet-soft text-violet-text",
 };
 
 /** Text in the tone's dark hue, on the page itself. */
@@ -128,6 +129,7 @@ export const TONE_TEXT: Record<StatusTone, string> = {
   warning: "text-warning-text",
   success: "text-success-text",
   danger: "text-danger-text",
+  violet: "text-violet-text",
 };
 
 /** The small dot that stands for a tone. */
@@ -138,6 +140,7 @@ export const TONE_DOT: Record<StatusTone, string> = {
   warning: "bg-warning-text",
   success: "bg-success-text",
   danger: "bg-danger-text",
+  violet: "bg-violet-text",
 };
 
 /**

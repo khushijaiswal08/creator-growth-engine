@@ -100,24 +100,26 @@ export function AppShell({
     document.cookie = `${SIDEBAR_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
   }
 
-  const width = preference === "collapsed" ? "md:w-14" : preference === "expanded" ? "md:w-[232px]" : "md:w-14 lg:w-[232px]";
+  const width = preference === "collapsed" ? "md:w-[72px]" : preference === "expanded" ? "md:w-[248px]" : "md:w-[72px] lg:w-[248px]";
+  const collapsed = preference === "collapsed";
 
   return (
     <SidebarContext.Provider value={ui}>
       <RachnaProvider userId={user.id} tipsOn={user.rachnaTips} counts={stats.rachna} intro={rachnaIntro}>
-      <div className="flex min-h-screen flex-col">
-        <TopBar user={user} due={stats.due} preference={preference} onToggle={toggle} logout={logout} onEdit={() => setEditing(true)} />
+      <div className="flex min-h-screen">
+        {/* The sidebar runs the full height: the logo on top, the places, then Rachna and the week at the foot. */}
+        <aside className={cn("group/side sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r bg-surface px-3.5 pt-3.5 pb-4 md:flex", width)}>
+          <SidebarHead collapsed={collapsed} onToggle={toggle} />
+          <SidebarNav isAdmin={isAdmin} counts={{ "/today": stats.due, "/orders": stats.rachna.approvals }} />
+          <div className="mt-auto pt-5">
+            <RachnaSlot />
+            <WeekBox sent={stats.weekSent} target={stats.weekTarget} />
+          </div>
+        </aside>
 
-        <div className="flex flex-1">
-          <aside className={cn("sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 flex-col gap-4 overflow-y-auto border-r bg-surface px-2 py-4 md:flex lg:px-3", width)}>
-            <SidebarNav isAdmin={isAdmin} />
-            <div className="mt-auto">
-              <RachnaSlot />
-              <WeekBox sent={stats.weekSent} target={stats.weekTarget} />
-            </div>
-          </aside>
-
-          <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-6 md:py-7 lg:px-8">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar user={user} due={stats.due} logout={logout} onEdit={() => setEditing(true)} />
+          <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-8 md:pt-8 md:pb-16">
             <RachnaStrip />
             <div className="mx-auto max-w-[1320px]">{children}</div>
           </main>
@@ -131,32 +133,57 @@ export function AppShell({
   );
 }
 
+/** The top of the sidebar: the logo and its name, and the button that folds the sidebar to an icon rail. */
+function SidebarHead({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const ui = useSidebar();
+  const label = collapsed ? "Expand the sidebar" : "Collapse the sidebar";
+  // In the icon rail the mark and the button stack; in the full column they share a line.
+  const stack = ui.preference === "collapsed" ? "flex-col" : ui.preference === "expanded" ? "" : "flex-col lg:flex-row";
+  // In the full column the button floats at the right and shows on hover, so the name keeps its room.
+  const push =
+    ui.preference === "collapsed"
+      ? ""
+      : ui.preference === "expanded"
+        ? "absolute top-1/2 right-0 -translate-y-1/2 opacity-0 group-hover/side:opacity-100 focus-visible:opacity-100"
+        : "lg:absolute lg:top-1/2 lg:right-0 lg:-translate-y-1/2 lg:opacity-0 lg:group-hover/side:opacity-100 lg:focus-visible:opacity-100";
+  return (
+    <div className={cn("relative mb-3 flex items-center gap-2.5 px-1.5 pt-1 pb-2", stack)}>
+      <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-3 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
+        <Mark />
+        <span className={cn("min-w-0", ui.label)}>
+          <span className="block text-[15px] leading-tight font-extrabold tracking-[-0.01em] text-foreground">Creator Growth</span>
+          <span className="block truncate text-[11.5px] font-semibold text-muted-foreground">Ridhi · Cotton Print Club</span>
+        </span>
+      </Link>
+      <button type="button" onClick={onToggle} title={label} aria-label={label} className={cn(ICON_BUTTON, "size-8 rounded-lg bg-surface shadow-[0_1px_2px_rgba(15,23,42,0.08)]", push)}>
+        {collapsed ? <PanelLeftOpen className="size-[17px]" strokeWidth={1.9} /> : <PanelLeftClose className="size-[17px]" strokeWidth={1.9} />}
+      </button>
+    </div>
+  );
+}
+
 /** Logo mark: four blocks on rose, like a print stamp. */
 function Mark({ className }: { className?: string }) {
   return (
-    <span aria-hidden className={cn("grid size-8 shrink-0 grid-cols-2 gap-[3px] rounded-md bg-primary p-[6px]", className)}>
-      <span className="rounded-[1px] bg-surface" />
-      <span className="rounded-[1px] bg-surface/50" />
-      <span className="rounded-[1px] bg-surface/50" />
-      <span className="rounded-[1px] bg-surface" />
+    <span aria-hidden className={cn("grid size-9 shrink-0 grid-cols-2 gap-[3px] rounded-[11px] bg-gradient-to-br from-[#c95f84] to-primary-deep p-2 shadow-[0_6px_14px_rgba(178,74,107,0.32)]", className)}>
+      <span className="rounded-[2px] bg-surface" />
+      <span className="rounded-[2px] bg-[#f9d3e0]" />
+      <span className="rounded-[2px] bg-[#f9d3e0]" />
+      <span className="rounded-[2px] bg-surface" />
     </span>
   );
 }
 
-const ICON_BUTTON = "relative flex size-9 shrink-0 items-center justify-center rounded-md text-accent-text outline-none hover:bg-surface-2 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
+const ICON_BUTTON = "relative flex size-[42px] shrink-0 items-center justify-center rounded-xl border bg-surface text-accent-text outline-none transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35";
 
 function TopBar({
   user,
   due,
-  preference,
-  onToggle,
   logout,
   onEdit,
 }: {
   user: ShellUser;
   due: number;
-  preference: SidebarPreference;
-  onToggle: () => void;
   logout: () => Promise<void>;
   onEdit: () => void;
 }) {
@@ -175,40 +202,29 @@ function TopBar({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  const collapsed = preference === "collapsed";
-
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-surface px-3 md:gap-3 md:px-4">
-      <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-surface/90 px-4 backdrop-blur md:h-[68px] md:px-8">
+      {/* Phones have no sidebar, so the logo sits here. */}
+      <Link href="/today" title="Creator Growth Engine" className="flex items-center gap-2.5 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 md:hidden">
         <Mark />
-        <span className="hidden text-[15px] font-bold whitespace-nowrap sm:block">Creator Growth Engine</span>
       </Link>
-      <button
-        type="button"
-        onClick={onToggle}
-        title={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
-        aria-label={collapsed ? "Expand the sidebar" : "Collapse the sidebar"}
-        className={cn(ICON_BUTTON, "hidden md:flex")}
-      >
-        {collapsed ? <PanelLeftOpen className="size-[18px]" strokeWidth={1.9} /> : <PanelLeftClose className="size-[18px]" strokeWidth={1.9} />}
-      </button>
 
-      <form action="/search" method="get" role="search" className="relative hidden min-w-0 flex-1 md:block md:max-w-xl">
-        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+      <form action="/search" method="get" role="search" className="relative hidden min-w-0 flex-[0_1_440px] md:block">
+        <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
         <input
           ref={search}
           type="search"
           name="q"
           aria-label="Search"
-          placeholder="Search creators, campaigns, orders…   Ctrl K"
-          className="h-9 w-full rounded-md border bg-surface-2/70 pr-3 pl-9 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:bg-surface focus-visible:ring-2 focus-visible:ring-ring"
+          placeholder="Search creators, campaigns, orders"
+          className="h-[42px] w-full rounded-xl border border-transparent bg-surface-2 pr-16 pl-11 text-sm font-medium outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-[3px] focus-visible:ring-ring/20"
         />
+        <kbd aria-hidden className="pointer-events-none absolute top-1/2 right-3 hidden -translate-y-1/2 rounded-md border bg-surface px-1.5 font-sans text-[11px] font-extrabold text-muted-foreground lg:block">
+          Ctrl K
+        </kbd>
       </form>
 
-      <div className="ml-auto flex items-center gap-1.5 md:gap-2">
-        <Link href="/search" aria-label="Search" className={cn(ICON_BUTTON, "md:hidden")}>
-          <Search className="size-[18px]" strokeWidth={2} />
-        </Link>
+      <div className="flex items-center">
         {user.brandName ? (
           <span className="hidden sm:block">
             <BrandBadge name={user.brandName} />
@@ -218,11 +234,17 @@ function TopBar({
             <BrandSegments current={user.viewBrand} />
           </span>
         )}
+      </div>
+
+      <div className="ml-auto flex items-center gap-2 md:gap-2.5">
+        <Link href="/search" aria-label="Search" className={cn(ICON_BUTTON, "md:hidden")}>
+          <Search className="size-[18px]" strokeWidth={2} />
+        </Link>
         <RachnaCameo />
         <Link href="/today" title={due === 0 ? "Nothing is due right now" : `${due} ${due === 1 ? "thing needs" : "things need"} you today`} aria-label={due === 0 ? "Nothing is due" : `${due} due today`} className={ICON_BUTTON}>
           <Bell className="size-[18px]" strokeWidth={1.9} />
           {due > 0 ? (
-            <span aria-hidden className="absolute -top-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-2 border-surface bg-danger-text px-1 text-[10px] leading-none font-bold text-surface">
+            <span aria-hidden className="absolute -top-1.5 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-[#e11d48] px-1 text-[10.5px] leading-none font-extrabold text-white">
               {due > 99 ? "99+" : due}
             </span>
           ) : null}
@@ -238,15 +260,18 @@ function WeekBox({ sent, target }: { sent: number; target: number }) {
   const ui = useSidebar();
   const share = target > 0 ? Math.min(1, sent / target) : 0;
   return (
-    <div className={cn("rounded-lg border bg-surface-2/60 p-3", ui.wideOnly)}>
-      <p className="label">This week</p>
-      <p className="mt-1 flex items-baseline gap-1.5">
-        <span className="stat-number text-[22px]">{sent}</span>
-        <span className="text-xs text-muted-foreground">{target > 0 ? `of ${target} messages` : "messages"}</span>
+    <div className={cn("mt-3 rounded-2xl border bg-[#fbfbfc] px-3.5 py-3", ui.wideOnly)}>
+      <p className="flex items-center justify-between">
+        <span className="label">This week</span>
+        {target > 0 ? <span className="text-xs font-bold text-muted-foreground tabular-nums">{Math.round(share * 100)}%</span> : null}
+      </p>
+      <p className="mt-1 mb-2 flex items-baseline gap-1.5">
+        <span className="text-[20px] leading-none font-extrabold text-foreground tabular-nums">{sent}</span>
+        <span className="font-semibold text-muted-foreground">{target > 0 ? `of ${target} messages` : "messages"}</span>
       </p>
       {target > 0 ? (
-        <span aria-hidden className="mt-2 block h-1.5 overflow-hidden rounded-full bg-border">
-          <span className="block h-full rounded-full bg-primary" style={{ width: `${Math.round(share * 100)}%` }} />
+        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#eceff3]">
+          <span className="block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(share * 100)}%` }} />
         </span>
       ) : null}
     </div>
@@ -284,12 +309,12 @@ function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => 
         aria-haspopup="menu"
         aria-expanded={open}
         title={`${user.name} (${user.role})`}
-        className="flex h-9 items-center gap-2.5 rounded-md pr-1 pl-1 text-left outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring md:pr-2.5"
+        className="flex h-[42px] items-center gap-2.5 rounded-xl pr-1 pl-1 text-left outline-none transition-colors hover:bg-surface-2 focus-visible:ring-[3px] focus-visible:ring-ring/35 md:pr-2.5"
       >
-        <UserAvatar user={user} />
+        <UserAvatar user={user} className="size-[38px] text-[12.5px] font-extrabold" />
         <span className="hidden min-w-0 lg:block">
-          <span className="block max-w-[140px] truncate text-sm leading-tight font-semibold">{user.name}</span>
-          <span className="block truncate text-[11px] leading-tight text-muted-foreground">
+          <span className="block max-w-[150px] truncate text-[13.5px] leading-tight font-bold">{user.name}</span>
+          <span className="block truncate text-xs leading-tight text-muted-foreground">
             <span className="capitalize">{user.role}</span>
             {user.brandShort ? `, ${user.brandShort}` : ""}
           </span>

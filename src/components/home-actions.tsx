@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare, Search } from "lucide-react";
+import { MessageCircle, Search } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { findCreatorsToMessage, type CreatorToMessage } from "@/actions/find-creators";
@@ -17,6 +17,7 @@ export function CheckProfileButton() {
   return (
     <>
       <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+        <Search className="size-[17px]" strokeWidth={2.2} />
         Check a profile
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -85,7 +86,7 @@ export function NewMessageButton() {
   return (
     <>
       <Button type="button" variant="action" onClick={() => setOpen(true)}>
-        <MessageSquare className="size-4" strokeWidth={2} />
+        <MessageCircle className="size-[17px]" strokeWidth={2.2} />
         New message
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

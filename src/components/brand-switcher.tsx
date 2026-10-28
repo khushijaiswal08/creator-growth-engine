@@ -26,7 +26,7 @@ export function BrandSegments({ current }: { current: string | null }) {
   const { choose, pending } = useChooseBrand();
   const options = [{ id: "", label: "Both" }, ...BRANDS.map((brand) => ({ id: brand.id, label: brand.short }))];
   return (
-    <div role="group" aria-label="Brand shown" className={cn("inline-flex rounded-md bg-surface-2 p-0.5", pending && "opacity-60")}>
+    <div role="group" aria-label="Brand shown" className={cn("inline-flex gap-0.5 rounded-xl bg-surface-2 p-1", pending && "opacity-60")}>
       {options.map((option) => {
         const active = (current ?? "") === option.id;
         return (
@@ -37,8 +37,8 @@ export function BrandSegments({ current }: { current: string | null }) {
             disabled={pending}
             onClick={() => choose(option.id)}
             className={cn(
-              "h-7 rounded-[5px] px-3 text-xs font-semibold whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active ? "bg-surface text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-muted-foreground hover:text-foreground",
+              "h-[34px] rounded-[9px] px-3.5 text-[13px] font-bold whitespace-nowrap outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35",
+              active ? "bg-surface text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.1)]" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {option.label}

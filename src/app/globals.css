@@ -14,43 +14,49 @@
  * white on the rose button passes too. Mid-tones are never used as text.
  */
 :root {
-  --background: #f3f4f6;
+  --background: #f5f6f8;
   --surface: #ffffff;
-  --surface-2: #f3f4f6;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  --text: #111827;
-  --text-muted: #6b7280;
+  --surface-2: #f3f4f7;
+  --border: #e8ebf0;
+  --border-strong: #dde1e8;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
 
   --primary: #b24a6b;
   --primary-deep: #9c3f5d;
   --on-primary: #ffffff;
-  --primary-soft: #fbe9ef;
+  --primary-soft: #fbe4ec;
+  --primary-faint: #fdf2f6;
   --primary-text: #9a3558;
-  --accent-text: #4b5563;
+  --accent-text: #475569;
 
   /* The sidebar is white like the cards; the names stay for the few places that use them. */
   --sidebar: #ffffff;
   --sidebar-text: #111827;
   --sidebar-muted: #6b7280;
-  --sidebar-active: #fbe9ef;
+  --sidebar-active: #fdf2f6;
 
-  --input: #d1d5db;
+  --input: #dde1e8;
 }
 
 /* Status hues, radius and the one soft shadow. */
 :root {
-  --info-soft: #dbeafe;
-  --info-text: #1e40af;
-  --success-soft: #dcfce7;
-  --success-text: #166534;
-  --warning-soft: #fef3c7;
-  --warning-text: #92400e;
-  --danger-soft: #fee2e2;
-  --danger-text: #991b1b;
+  /* Light tints with strong text: each pair clears 4.5:1. Violet is the "they said yes" stage. */
+  --info-soft: #eef4ff;
+  --info-text: #1d4ed8;
+  --success-soft: #ecfdf3;
+  --success-text: #15803d;
+  --warning-soft: #fff7e6;
+  --warning-text: #b45309;
+  --danger-soft: #fff1f3;
+  --danger-text: #be123c;
+  --violet-soft: #f5f3ff;
+  --violet-text: #6d28d9;
 
-  --radius: 8px;
-  --shadow-card: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --radius: 12px;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.035);
+  --shadow-lift: 0 10px 24px rgba(15, 23, 42, 0.1);
 }
 
 @theme inline {
@@ -82,6 +88,10 @@
   --color-warning-text: var(--warning-text);
   --color-danger-soft: var(--danger-soft);
   --color-danger-text: var(--danger-text);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-text: var(--violet-text);
+  --color-primary-faint: var(--primary-faint);
+  --color-faint: var(--text-faint);
 
   --color-input: var(--input);
   --color-ring: var(--primary);
@@ -97,10 +107,11 @@
   --color-muted: var(--surface-2);
   --color-destructive: var(--danger-text);
 
-  --radius-sm: 6px;
-  --radius-md: var(--radius);
+  --radius-sm: 8px;
+  --radius-md: 10px;
   --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
 
   --shadow-card: var(--shadow-card);
 
@@ -127,21 +138,29 @@
     letter-spacing: -0.01em;
   }
 
+  /* One bold headline per screen. */
   h1 {
-    font-size: 24px;
-    font-weight: 700;
-    line-height: 1.2;
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1.15;
+    letter-spacing: -0.025em;
   }
 
   h2 {
-    font-size: 16px;
-    font-weight: 700;
+    font-size: 17px;
+    font-weight: 750;
     line-height: 1.3;
   }
 
   h3 {
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  @media (max-width: 767px) {
+    h1 {
+      font-size: 24px;
+    }
   }
 
   summary {
@@ -153,9 +172,10 @@
 @layer components {
   /* Figures: bold, tabular, tight. */
   .stat-number {
-    @apply inline-block font-bold text-foreground tabular-nums;
-    letter-spacing: -0.02em;
-    line-height: 1.1;
+    @apply inline-block text-foreground tabular-nums;
+    font-weight: 850;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
   }
 
   /* Small quiet line above a block or beside a figure. */
@@ -165,8 +185,9 @@
 
   /* The small capitals label on a tile or a drawer section. */
   .label {
-    @apply text-xs font-semibold text-muted-foreground uppercase;
-    letter-spacing: 0.04em;
+    @apply font-bold text-muted-foreground uppercase;
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
   }
 
   /* In-page links. */
@@ -176,13 +197,18 @@
 
   /* A white card on the grey page. */
   .card {
-    @apply rounded-lg border bg-surface;
+    @apply rounded-2xl border bg-surface;
     box-shadow: var(--shadow-card);
+  }
+
+  /* A count beside a heading or inside a tab. */
+  .count-pill {
+    @apply inline-grid h-6 min-w-7 place-items-center rounded-full bg-surface-2 px-2 text-[12.5px] font-extrabold text-accent-text tabular-nums;
   }
 
   /* Filter chips: white outlined pills, the active one in ink. */
   .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full border bg-surface px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap text-accent-text transition-colors;
+    @apply inline-flex h-7 items-center gap-1.5 rounded-full border bg-surface px-3 text-xs font-bold whitespace-nowrap text-accent-text transition-colors;
   }
   .chip:hover {
     @apply border-border-strong text-foreground;
@@ -193,18 +219,24 @@
 
   /* Underlined tabs across a page or a card. */
   .tabs {
-    @apply flex flex-wrap gap-x-6 border-b;
+    @apply flex flex-wrap gap-x-0.5 border-b;
   }
   .tab {
-    @apply -mb-px inline-flex h-10 items-center gap-1.5 border-b-2 border-transparent text-sm font-semibold whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground;
+    @apply -mb-px inline-flex h-[42px] items-center gap-1.5 border-b-[2.5px] border-transparent px-[11px] text-[13.5px] font-bold whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground;
   }
   .tab[aria-current] {
-    @apply border-primary text-primary-text;
+    @apply border-primary text-primary;
+  }
+  .tab .count-pill {
+    @apply h-5 min-w-6 text-[11.5px];
+  }
+  .tab[aria-current] .count-pill {
+    @apply bg-primary-faint text-primary;
   }
 
   /* Rachna, the guide: her slot, her glowing portrait, the cloud she speaks in, the ring and arrows on the page, her confetti. */
   .rachna-home {
-    @apply rounded-2xl border p-3;
+    @apply rounded-2xl border p-3.5;
     border-color: #f3cdd9;
     background: linear-gradient(160deg, #fff4f8 0%, #ffffff 70%);
     box-shadow: 0 6px 18px rgba(178, 74, 107, 0.08);

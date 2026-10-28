@@ -41,7 +41,7 @@ export type Grade = "star" | "good" | "mixed" | "waiting" | "risky" | "new";
 
 export const GRADES: Record<Grade, { label: string; tone: StatusTone }> = {
   star: { label: "Star", tone: "success" },
-  good: { label: "Good bet", tone: "primary" },
+  good: { label: "Good bet", tone: "success" },
   mixed: { label: "Hit and miss", tone: "warning" },
   waiting: { label: "Gift landed, waiting", tone: "info" },
   risky: { label: "Took the gift, no post", tone: "danger" },

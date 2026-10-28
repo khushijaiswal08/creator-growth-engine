@@ -99,6 +99,7 @@ export function MessageComposer({
 export function MessageButton({
   target,
   label = "Message",
+  icon,
   size = "xs",
   variant = "outline",
   className,
@@ -106,8 +107,10 @@ export function MessageButton({
   target: MessageTarget;
   /** The verb on the button, when "Message" is not the clearest word ("Reply", "Send link"). */
   label?: string;
+  /** An icon before the label. */
+  icon?: React.ReactNode;
   size?: "xs" | "sm" | "default";
-  variant?: "outline" | "action" | "link" | "ghost";
+  variant?: "outline" | "action" | "link" | "ghost" | "soft";
   className?: string;
 }) {
   const open = useContext(OpenComposer);
@@ -124,6 +127,7 @@ export function MessageButton({
   }
   return (
     <Button type="button" size={size} variant={variant} disabled={!open} onClick={() => open?.(target)} className={className}>
+      {icon}
       {label}
     </Button>
   );

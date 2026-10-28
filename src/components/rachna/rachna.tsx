@@ -550,27 +550,12 @@ function title(mood: Mood): string {
   return "Show me what needs doing now";
 }
 
-/** A small ring: the share of today's items done. */
-function Ring({ share }: { share: number }) {
-  const r = 15;
-  const length = 2 * Math.PI * r;
-  return (
-    <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden className="shrink-0">
-      <circle cx="20" cy="20" r={r} fill="none" stroke="#f3cdd9" strokeWidth="4" />
-      <circle cx="20" cy="20" r={r} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeDasharray={length} strokeDashoffset={length * (1 - share)} className="rachna-quest-ring origin-center" />
-      <text x="20" y="23.5" textAnchor="middle" fontSize="10" fontWeight="700" fill="var(--primary)">
-        {Math.round(share * 100)}%
-      </text>
-    </svg>
-  );
-}
-
 /**
- * Today's quests under her name: the day's queues measured against where they
- * stood at the first visit, and messages against the daily target. Every quest
- * done earns one cheer with confetti, once a day.
+ * Today's quests: the day's queues measured against where they stood at the
+ * first visit, and messages against the daily target. Every quest done earns
+ * one cheer with confetti, once a day. Used once, by her sidebar card.
  */
-function Quests() {
+function useQuests() {
   const rachna = useRachna();
   const [start, setStart] = useState<QuestCounts | null>(null);
   const day = dayKey();
@@ -600,30 +585,31 @@ function Quests() {
   useEffect(() => {
     if (cleared && milestone) milestone(`day:${day}`, MILESTONES.dayCleared());
   }, [cleared, day, milestone]);
-  if (quests.length === 0) return null;
   const done = quests.filter((quest) => quest.done >= quest.total).length;
+  return { quests, done, cleared };
+}
+
+/** The quests under her name: one progress bar, then a line each with a tick. */
+function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] }) {
+  if (quests.length === 0) return null;
   return (
-    <div className="mt-3 rounded-xl bg-surface/80 p-2.5">
-      <Link href="/today#tasks-card" title="Open today's list" className="flex items-center gap-2.5 rounded-lg outline-none hover:bg-primary-soft/60 focus-visible:ring-2 focus-visible:ring-ring">
-        <Ring share={questProgress(quests)} />
-        <span className="min-w-0">
-          <span className="block text-[12px] font-bold">{cleared ? "Day cleared!" : "Today's quests"}</span>
-          <span className="block text-[11px] text-muted-foreground">
-            {done} of {quests.length} done
-          </span>
+    <div className="mt-3 grid gap-3">
+      <Link href="/today#tasks-card" title="Open today's list" aria-label="Open today's list" className="block rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
+        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#f6dbe4]">
+          <span className="rachna-quest-bar block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(questProgress(quests) * 100)}%` }} />
         </span>
       </Link>
-      <ul className="mt-2 grid gap-1">
+      <ul className="grid gap-2">
         {quests.map((quest) => {
           const finished = quest.done >= quest.total;
           return (
             <li key={quest.key}>
-              <Link href={quest.href} className="flex items-center gap-2 rounded-md px-1 py-0.5 text-[12px] hover:bg-primary-soft/60">
-                <span aria-hidden className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border", finished ? "border-primary bg-primary text-on-primary" : "border-border-strong bg-surface")}>
-                  {finished ? <Check className="size-3" strokeWidth={3} /> : null}
+              <Link href={quest.href} className="flex items-center gap-2.5 rounded-lg text-[13px] font-semibold text-foreground outline-none hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/35">
+                <span aria-hidden className={cn("flex size-[18px] shrink-0 items-center justify-center rounded-full border-2", finished ? "border-primary bg-primary text-on-primary" : "border-[#e3c2cd] bg-surface")}>
+                  {finished ? <Check className="size-2.5" strokeWidth={3.5} /> : null}
                 </span>
                 <span className={cn("min-w-0 flex-1 truncate", finished && "text-muted-foreground line-through")}>{quest.label}</span>
-                <span className="text-[11px] text-muted-foreground tabular-nums">
+                <span className="text-xs font-bold text-muted-foreground tabular-nums">
                   {quest.done}/{quest.total}
                 </span>
               </Link>
@@ -656,6 +642,7 @@ export function RachnaSlot() {
   const pointingNow = rachna?.pointing ?? false;
   useEffect(() => setRailOpen(Boolean(bubble) || pointingNow), [bubble, pointingNow]);
   const tap = useCloudTap(bubble, pointingNow);
+  const { quests, done: questsDone, cleared } = useQuests();
   if (!rachna) return null;
   const quiet = !bubble && !rachna.pointing;
   if (!rachna.tipsOn && quiet) return null;
@@ -668,11 +655,16 @@ export function RachnaSlot() {
       {/* The full column */}
       <div className={cn("rachna-home relative mb-3", ui.wideOnly)} data-rachna role="status" aria-live="polite">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={rachna.togglePointing} aria-pressed={rachna.pointing} title={title(rachna.mood)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <RachnaPortrait pose={pose} size={72} lively={busy} />
-            <span className="flex min-w-0 flex-1 items-center gap-1 text-[15px] leading-tight font-bold text-primary-text">
-              Rachna
-              <Sparkles className="size-3.5 text-[#e3b23c]" strokeWidth={2} />
+          <button type="button" onClick={rachna.togglePointing} aria-pressed={rachna.pointing} title={title(rachna.mood)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
+            <RachnaPortrait pose={pose} size={48} lively={busy} />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1 text-[15px] leading-tight font-extrabold text-primary">
+                Rachna
+                <Sparkles className="size-3.5 text-[#e3b23c]" strokeWidth={2} />
+              </span>
+              {quiet && quests.length > 0 ? (
+                <span className="block truncate text-[12.5px] font-semibold text-muted-foreground">{cleared ? "Day cleared!" : `${questsDone} of ${quests.length} quests done`}</span>
+              ) : null}
             </span>
           </button>
           {busy ? (
@@ -690,7 +682,7 @@ export function RachnaSlot() {
             <PointingWords labels={rachna.pointers} />
           </Cloud>
         ) : (
-          <Quests />
+          <QuestList quests={quests} />
         )}
         {cheering ? <Burst /> : null}
       </div>
@@ -787,10 +779,10 @@ export function RachnaCameo() {
       onClick={() => (wide() ? rachna.startTour() : rachna.togglePointing())}
       title="Rachna: show me around this page"
       aria-label="Rachna: show me around this page"
-      className="group relative flex size-10 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative flex size-[42px] shrink-0 items-center justify-center rounded-xl border bg-surface outline-none transition-colors hover:bg-primary-faint focus-visible:ring-[3px] focus-visible:ring-ring/35"
     >
-      <RachnaPortrait pose={rachna.mood} size={34} className="transition-transform group-hover:scale-110" />
-      <span aria-hidden className="absolute -right-0.5 -bottom-0.5 flex size-4 items-center justify-center rounded-full border-2 border-surface bg-primary text-on-primary">
+      <RachnaPortrait pose={rachna.mood} size={30} className="transition-transform group-hover:scale-110" />
+      <span aria-hidden className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full border-2 border-surface bg-primary text-on-primary">
         <Sparkles className="size-2.5" strokeWidth={2.5} />
       </span>
     </button>

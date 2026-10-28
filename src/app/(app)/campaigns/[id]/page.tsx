@@ -1,6 +1,6 @@
 import type { CreatorStatus, Platform, Prisma } from "@prisma/client";
 import { cn } from "cn";
-import { Search } from "lucide-react";
+import { Check, ChevronRight, GripVertical, Plus, Search } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -104,27 +104,49 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 
   return (
     <>
-      <p className="eyebrow mb-2">
+      <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground">
         <Link href="/campaigns" className="hover:text-foreground">
-          Campaigns
-        </Link>{" "}
-        › {brandName(campaign.brandId)}
+          Pipeline
+        </Link>
+        <ChevronRight aria-hidden className="size-3.5" strokeWidth={2.4} />
+        {brandName(campaign.brandId)}
       </p>
-      <header className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+      <header className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="text-[26px]">{campaign.name}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 title={campaign.brief}>{campaign.name}</h1>
             <CampaignStatusPill status={campaign.status} />
           </div>
-          <p className="mt-0.5 line-clamp-1 text-muted-foreground" title={campaign.brief}>
-            {campaign.brief}
-            {campaign.deadline ? ` · Deadline ${formatCalendarDay(campaign.deadline)}` : ""}
-            {campaign.targetPosts !== null ? ` · Target ${campaign.targetPosts} posts` : ""}
-          </p>
+          {campaign.deadline || campaign.targetPosts !== null ? (
+            <p className="mt-1 text-[14px] font-medium text-muted-foreground">
+              {[campaign.deadline ? `Deadline ${formatCalendarDay(campaign.deadline)}` : null, campaign.targetPosts !== null ? `Target ${campaign.targetPosts} posts` : null].filter(Boolean).join(" · ")}
+            </p>
+          ) : null}
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+          {view === "board" || view === "list" ? (
+            <>
+              <BoardFilter owners={owners} values={filters} view={view} q={q} mine={mine} />
+              <form method="get">
+                {view === "list" ? <input type="hidden" name="view" value="list" /> : null}
+                {filter ? <input type="hidden" name="status" value={filter} /> : null}
+                {q ? <input type="hidden" name="q" value={q} /> : null}
+                {filters.owner ? <input type="hidden" name="owner" value={filters.owner} /> : null}
+                {filters.platform ? <input type="hidden" name="platform" value={filters.platform} /> : null}
+                {filters.followers ? <input type="hidden" name="followers" value={filters.followers} /> : null}
+                {mine ? null : <input type="hidden" name="mine" value="1" />}
+                <Button type="submit" variant="outline" aria-pressed={mine} className={cn(mine && "border-primary bg-primary-faint text-primary")}>
+                  {mine ? <Check className="size-4" strokeWidth={2.6} /> : null}
+                  Only mine
+                </Button>
+              </form>
+            </>
+          ) : null}
           <Button asChild variant="action">
-            <Link href={`/influencers/new?campaignId=${campaign.id}`}>+ Add creator</Link>
+            <Link href={`/influencers/new?campaignId=${campaign.id}`}>
+              <Plus className="size-[17px]" strokeWidth={2.2} />
+              Add creator
+            </Link>
           </Button>
           <ActionMenu>
             <a href={`/campaigns/${campaign.id}/export`} className={MENU_ITEM_CLASS}>
@@ -150,11 +172,11 @@ export default async function CampaignPage({ params, searchParams }: { params: P
           List
         </Link>
         <Link href={`/campaigns/${campaign.id}/review`} className="tab">
-          Review queue <span className={cn("chip border-transparent px-1.5 py-0 text-[11px]", toReview > 0 ? "bg-warning-soft text-warning-text" : "bg-surface-2")}>{toReview}</span>
+          Review queue <span className={cn("count-pill", toReview > 0 && "bg-warning-soft text-warning-text")}>{toReview}</span>
         </Link>
         {isAdmin ? (
           <Link href={tabHref("discovery")} className="tab" aria-current={view === "discovery" ? "true" : undefined}>
-            Discovery and scoring
+            Discovery
           </Link>
         ) : null}
         {isAdmin ? (
@@ -165,7 +187,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       </nav>
 
       {view === "board" || view === "list" ? (
-        <div id="board-toolbar" className="mb-4 flex flex-wrap items-center gap-2">
+        <div id="board-toolbar" className="mb-4 flex flex-wrap items-center gap-3">
           <form method="get" className="relative">
             {view === "list" ? <input type="hidden" name="view" value="list" /> : null}
             {filter ? <input type="hidden" name="status" value={filter} /> : null}
@@ -176,33 +198,25 @@ export default async function CampaignPage({ params, searchParams }: { params: P
             <label htmlFor="q" className="sr-only">
               Search creators in this campaign
             </label>
-            <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
-            <input id="q" name="q" type="search" defaultValue={q} placeholder="Search creators" className="h-9 w-72 rounded-md border border-border-strong bg-surface pr-3 pl-9 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring max-md:h-11" />
-          </form>
-          <BoardFilter owners={owners} values={filters} view={view} q={q} mine={mine} />
-          <form method="get">
-            {view === "list" ? <input type="hidden" name="view" value="list" /> : null}
-            {filter ? <input type="hidden" name="status" value={filter} /> : null}
-            {q ? <input type="hidden" name="q" value={q} /> : null}
-            {filters.owner ? <input type="hidden" name="owner" value={filters.owner} /> : null}
-            {filters.platform ? <input type="hidden" name="platform" value={filters.platform} /> : null}
-            {filters.followers ? <input type="hidden" name="followers" value={filters.followers} /> : null}
-            {mine ? null : <input type="hidden" name="mine" value="1" />}
-            <button type="submit" className={cn("inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm font-semibold max-md:h-11", mine ? "border-primary bg-primary-soft text-primary-text" : "border-border-strong bg-surface hover:bg-surface-2")}>
-              <span aria-hidden className={cn("flex size-4 items-center justify-center rounded border text-[10px]", mine ? "border-primary bg-primary text-on-primary" : "border-border-strong bg-surface")}>
-                {mine ? "✓" : ""}
-              </span>
-              Only mine
-            </button>
+            <Search aria-hidden className="pointer-events-none absolute top-1/2 left-3.5 size-[17px] -translate-y-1/2 text-muted-foreground" strokeWidth={2} />
+            <input id="q" name="q" type="search" defaultValue={q} placeholder={view === "board" ? "Search this board" : "Search creators"} className="h-[42px] w-[300px] max-w-full rounded-xl border bg-surface pr-3 pl-11 text-sm font-medium outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-ring/20 max-md:h-11" />
           </form>
           {q || mine || filters.owner || filters.platform || filters.followers ? (
             <Link href={tabHref(view)} className="link text-sm">
-              Clear
+              Clear filters
             </Link>
           ) : null}
-          <span className="ml-auto text-xs text-muted-foreground">
-            {total} {total === 1 ? "creator" : "creators"}
-            {view === "board" ? <DueCount campaignId={id} base={base} now={now} /> : null}
+          <span className="ml-auto flex items-center gap-3 text-[12.5px] font-semibold text-faint">
+            <span>
+              {total.toLocaleString("en-US")} {total === 1 ? "creator" : "creators"}
+              {view === "board" ? <DueCount campaignId={id} base={base} now={now} /> : null}
+            </span>
+            {view === "board" ? (
+              <span className="hidden items-center gap-1.5 md:inline-flex">
+                <GripVertical className="size-4" strokeWidth={2} />
+                Drag a card to move it
+              </span>
+            ) : null}
           </span>
         </div>
       ) : null}

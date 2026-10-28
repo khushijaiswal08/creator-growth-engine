@@ -25,35 +25,43 @@ export const ADMIN_LINK: NavLink = { href: "/admin", label: "Admin", icon: Setti
  * Settings and Admin. In the icon rail (narrow window, or collapsed by choice)
  * labels are hidden visually and shown as tooltips.
  */
-export function SidebarNav({ isAdmin }: { isAdmin: boolean }) {
+export function SidebarNav({ isAdmin, counts = {} }: { isAdmin: boolean; counts?: Record<string, number> }) {
   const pathname = usePathname();
   const ui = useSidebar();
   const lower = isAdmin ? [SETTINGS_LINK, ADMIN_LINK] : [SETTINGS_LINK];
 
   const item = ({ href, label, icon: Icon }: NavLink) => {
     const active = pathname === href || pathname.startsWith(`${href}/`);
+    const count = counts[href] ?? 0;
     return (
       <Link
         key={href}
         href={href}
-        title={label}
+        title={count > 0 ? `${label} · ${count}` : label}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex h-9 items-center gap-2.5 rounded-md text-sm whitespace-nowrap outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex h-[42px] items-center gap-3 rounded-xl text-[14px] whitespace-nowrap outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35",
           ui.align,
-          active ? "bg-primary-soft font-semibold text-primary-text" : "font-medium text-accent-text hover:bg-surface-2 hover:text-foreground",
+          active ? "bg-primary-faint font-bold text-primary" : "font-semibold text-accent-text hover:bg-[#f6f7f9] hover:text-foreground",
         )}
       >
-        <Icon aria-hidden className="size-[18px] shrink-0" strokeWidth={1.9} />
+        <Icon aria-hidden className="size-[19px] shrink-0" strokeWidth={1.9} />
         <span className={ui.label}>{label}</span>
+        {count > 0 ? (
+          <span className={cn("ml-auto rounded-full px-2 text-[11.5px] leading-5 font-extrabold tabular-nums", active ? "bg-surface text-primary" : "bg-surface-2 text-accent-text", ui.label)}>
+            {count > 999 ? "999+" : count}
+          </span>
+        ) : null}
       </Link>
     );
   };
 
   return (
     <nav aria-label="Main" className="grid gap-0.5">
+      <p className={cn("label px-3 pb-1.5", ui.wideOnly)}>Workspace</p>
       {NAV_LINKS.map(item)}
-      <div aria-hidden className="my-2 border-t" />
+      <p className={cn("label px-3 pt-4 pb-1.5", ui.wideOnly)}>Manage</p>
+      <div aria-hidden className={cn("my-2 border-t", ui.railOnly)} />
       {lower.map(item)}
     </nav>
   );

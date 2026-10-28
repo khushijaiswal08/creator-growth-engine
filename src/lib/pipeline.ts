@@ -9,10 +9,10 @@ import type { CreatorStatus } from "@prisma/client";
 export type Lane = { key: string; label: string; color: string; statuses: CreatorStatus[]; dropTo: CreatorStatus };
 
 export const LANES: Lane[] = [
-  { key: "to_contact", label: "To contact", color: "#9ca3af", statuses: ["discovered", "scored", "review_later", "approved", "outreach_scheduled", "on_hold"], dropTo: "approved" },
-  { key: "conversation", label: "In conversation", color: "#2563eb", statuses: ["contacted", "follow_up_due", "replied", "interested", "negotiating"], dropTo: "contacted" },
-  { key: "gifting", label: "Gifting", color: "#d97706", statuses: ["agreed", "address_collected", "product_shipped"], dropTo: "agreed" },
-  { key: "content", label: "Content due", color: "#b45309", statuses: ["content_expected"], dropTo: "content_expected" },
+  { key: "to_contact", label: "To contact", color: "#94a3b8", statuses: ["discovered", "scored", "review_later", "approved", "outreach_scheduled", "on_hold"], dropTo: "approved" },
+  { key: "conversation", label: "In conversation", color: "#3b82f6", statuses: ["contacted", "follow_up_due", "replied", "interested", "negotiating"], dropTo: "contacted" },
+  { key: "gifting", label: "Gifting", color: "#f59e0b", statuses: ["agreed", "address_collected", "product_shipped"], dropTo: "agreed" },
+  { key: "content", label: "Content due", color: "#22c55e", statuses: ["content_expected"], dropTo: "content_expected" },
   { key: "done", label: "Done", color: "#16a34a", statuses: ["content_posted", "completed"], dropTo: "completed" },
 ];
 

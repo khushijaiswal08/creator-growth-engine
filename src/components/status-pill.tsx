@@ -12,7 +12,7 @@ import {
 /** A small tinted chip in the tone's colour. The one place that decides what a tone looks like. */
 export function Pill({ tone, className, children }: { tone: StatusTone; className?: string; children: React.ReactNode }) {
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASSES[tone], className)}>
+    <span className={cn("inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-bold whitespace-nowrap", TONE_CLASSES[tone], className)}>
       {children}
     </span>
   );
