@@ -35,7 +35,7 @@ export function QueueTabs({ tabs, more }: { tabs: QueueTab[]; more: QueueTab[] }
   }, [open]);
 
   return (
-    <nav aria-label="Task queues" className="tabs mt-3 px-2.5 md:px-[11px]">
+    <nav aria-label="Task queues" className="tabs mt-3 px-2.5 max-md:flex-wrap max-md:overflow-visible md:px-[11px]">
       {tabs.map((tab) => (
         <Link key={tab.key} href={tab.href} className="tab" aria-current={tab.active ? "page" : undefined}>
           {tab.hot ? <Flame className="size-3.5 text-danger-text" strokeWidth={2.4} /> : null}

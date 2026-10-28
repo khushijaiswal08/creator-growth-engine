@@ -13,13 +13,13 @@ export function PageHeader({
   children?: React.ReactNode;
 }) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+    <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div className="min-w-0">
-        {eyebrow ? <p className="eyebrow mb-1">{eyebrow}</p> : null}
+        {eyebrow ? <p className="mb-1.5 text-[13px] font-semibold text-muted-foreground">{eyebrow}</p> : null}
         <h1>{title}</h1>
-        {meta ? <div className="mt-1 text-muted-foreground">{meta}</div> : null}
+        {meta ? <div className="mt-1.5 text-[15px] font-medium text-muted-foreground">{meta}</div> : null}
       </div>
-      {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
+      {children ? <div className="flex flex-wrap items-center gap-2.5">{children}</div> : null}
     </header>
   );
 }
@@ -45,7 +45,7 @@ export function Panel({
   return (
     <section className={cn(plain ? "" : "card overflow-hidden", className)}>
       {title ? (
-        <div className={cn("flex flex-wrap items-center justify-between gap-3", plain ? "border-b pb-2.5" : "border-b px-4 py-3")}>
+        <div className={cn("flex flex-wrap items-center justify-between gap-3", plain ? "border-b pb-3" : "border-b px-5 py-4")}>
           <h2>{title}</h2>
           {aside}
         </div>
@@ -58,7 +58,7 @@ export function Panel({
 export function EmptyRow({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
   return (
     <tr>
-      <td colSpan={colSpan} className="px-3 py-10 text-center text-muted-foreground">
+      <td colSpan={colSpan} className="px-4 py-12 text-center font-medium text-muted-foreground">
         {children}
       </td>
     </tr>

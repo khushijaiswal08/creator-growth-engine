@@ -14,7 +14,7 @@ import { ProductPhoto } from "@/components/product-photo";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { MILESTONES } from "@/lib/rachna";
-import { formatDay } from "@/lib/format";
+import { formatShortDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
 import { trackingUrl } from "@/lib/tracking";
 
@@ -126,10 +126,10 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
   return (
     <div className="flex items-start gap-5">
       <section id="gifts-table" className="card min-w-0 flex-1 overflow-hidden">
-        <div className={cn("flex min-h-12 flex-wrap items-center gap-2 border-b px-4 py-2", selected.size > 0 ? "bg-primary-soft/40" : "bg-surface")}>
+        <div className={cn("flex min-h-14 flex-wrap items-center gap-2 border-b px-5 py-2.5", selected.size > 0 ? "bg-primary-faint" : "bg-surface")}>
           {selected.size > 0 ? (
             <>
-              <span className="mr-1 text-sm font-semibold">{selected.size} selected</span>
+              <span className="mr-1 text-sm font-bold">{selected.size} selected</span>
               {approvable.length > 0 ? (
                 <Button size="sm" variant="action" disabled={pending} onClick={() => run(`${approvable.length} approved.`, async () => { for (const order of approvable) await decideGift(order.id, "approve"); })}>
                   Approve {approvable.length}
@@ -157,17 +157,19 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               </button>
             </>
           ) : (
-            <span className="text-xs text-muted-foreground">Tick orders to approve, copy or cancel several at once. Click a row for details.</span>
+            <span className="text-sm font-bold">
+              {orders.length} {orders.length === 1 ? "order" : "orders"}
+            </span>
           )}
           {notice ? (
             <span role="status" className="text-xs text-success-text">
               {notice}
             </span>
           ) : null}
-          <form method="get" className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          <form method="get" className="ml-auto flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             {sort.status ? <input type="hidden" name="status" value={sort.status} /> : null}
             <label htmlFor="gift-sort">Sort</label>
-            <select id="gift-sort" name="sort" defaultValue={sort.value} onChange={(event) => event.currentTarget.form?.requestSubmit()} className="h-8 rounded-md border border-border-strong bg-surface px-2 text-xs font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <select id="gift-sort" name="sort" defaultValue={sort.value} onChange={(event) => event.currentTarget.form?.requestSubmit()} className="h-9 rounded-xl border border-border-strong bg-surface px-3 text-[13px] font-bold text-foreground outline-none focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-ring/20">
               {Object.entries(sort.options).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
@@ -180,8 +182,8 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-surface-2/60 text-xs font-semibold text-muted-foreground">
-                <th className="w-9 px-3 py-2 text-left">
+              <tr className="bg-[#f8f9fb] text-[11.5px] font-bold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
+                <th className="w-9 py-3 pr-1 pl-5 text-left">
                   <input
                     type="checkbox"
                     aria-label="Select all orders"
@@ -189,19 +191,19 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                     onChange={(event) => setSelected(event.target.checked ? new Set(orders.map((order) => order.id)) : new Set())}
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Creator</th>
-                <th className="px-3 py-2 text-left">Product</th>
-                <th className="px-3 py-2 text-left">Status</th>
-                <th className="px-3 py-2 text-left">Chosen</th>
-                <th className="px-3 py-2 text-left">Carrier · tracking</th>
-                <th className="px-3 py-2 text-left">Rules</th>
-                <th className="px-3 py-2" />
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5">Creator</th>
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5 max-md:hidden">Product</th>
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5 max-md:hidden">Status</th>
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5 max-lg:hidden">Chosen</th>
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5 max-md:hidden">Tracking</th>
+                <th className="px-3 py-3 text-left first:pl-5 last:pr-5 max-lg:hidden">Rules</th>
+                <th className="py-3 pr-5 pl-3" />
               </tr>
             </thead>
             <tbody>
               {orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center font-medium text-muted-foreground">
                     No gift orders here. They appear when a creator uses their product selection link.
                   </td>
                 </tr>
@@ -213,36 +215,40 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                       key={order.id}
                       onClick={() => setOpenId(order.id)}
                       data-rachna-point={order.status === "needs_approval" ? `Approve: ${order.creator.name}` : order.status === "shipped" ? `Check the parcel: ${order.creator.name}` : undefined}
-                      className={cn("cursor-pointer border-t hover:bg-surface-2/50", openId === order.id && "bg-primary-soft/30", selected.has(order.id) && "bg-primary-soft/20")}
+                      className={cn("cursor-pointer border-t border-[#f1f3f6] transition-colors hover:bg-[#fbfbfc]", (openId === order.id || selected.has(order.id)) && "bg-primary-faint hover:bg-primary-faint")}
                     >
-                      <td className="px-3 py-2.5" onClick={(event) => event.stopPropagation()}>
+                      <td className="py-3.5 pr-1 pl-5" onClick={(event) => event.stopPropagation()}>
                         <input type="checkbox" aria-label={`Select the order for ${order.creator.name}`} checked={selected.has(order.id)} onChange={() => toggle(order.id)} />
                       </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <Avatar name={order.creator.name} className="size-7 text-[11px]" />
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <Avatar name={order.creator.name} className="size-9 text-xs max-md:hidden" />
                           <div className="min-w-0">
-                            <CreatorName id={order.creator.id} name={order.creator.name} className="font-semibold hover:text-primary-text" />
-                            <div className="truncate text-xs text-muted-foreground">{order.campaign}</div>
+                            <CreatorName id={order.creator.id} name={order.creator.name} className="font-bold hover:text-primary-text" />
+                            <div className="truncate text-xs font-medium text-muted-foreground max-md:hidden">{order.campaign}</div>
+                            <div className="truncate text-xs font-medium text-muted-foreground md:hidden">{order.product.title}</div>
+                            <div className="mt-1.5 md:hidden">
+                              <Pill tone={GIFT_STATUS_TONES[order.status]}>{GIFT_STATUS_LABELS[order.status]}</Pill>
+                            </div>
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-3.5 max-md:hidden">
                         <div className="font-semibold">
                           {[order.product.title, order.product.color].filter(Boolean).join(", ")}
                           {order.quantity > 1 ? ` × ${order.quantity}` : ""}
                         </div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs font-medium whitespace-nowrap text-muted-foreground">
                           {order.product.sku}
                           {order.product.price !== null ? ` · $${order.product.price.toFixed(2)}` : ""}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-3.5 max-md:hidden">
                         <Pill tone={GIFT_STATUS_TONES[order.status]}>{GIFT_STATUS_LABELS[order.status]}</Pill>
-                        {order.deliveredAt ? <div className="mt-0.5 text-xs text-muted-foreground">{formatDay(order.deliveredAt)}</div> : order.shippedAt ? <div className="mt-0.5 text-xs text-muted-foreground">{formatDay(order.shippedAt)}</div> : null}
+                        {order.deliveredAt ? <div className="mt-1 text-xs font-medium text-muted-foreground">{formatShortDay(order.deliveredAt)}</div> : order.shippedAt ? <div className="mt-1 text-xs font-medium text-muted-foreground">{formatShortDay(order.shippedAt)}</div> : null}
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">{formatDay(order.createdAt)}</td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-3.5 whitespace-nowrap text-muted-foreground max-lg:hidden">{formatShortDay(order.createdAt)}</td>
+                      <td className="px-3 py-3.5 max-md:hidden">
                         {order.trackingNumber ? (
                           <>
                             <a href={trackingUrl(order.carrier, order.trackingNumber)} target="_blank" rel="noopener noreferrer" className="link" onClick={(event) => event.stopPropagation()}>
@@ -259,7 +265,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                           <span className="text-xs text-muted-foreground">{order.orderNumber ? `Amazon ${order.orderNumber}` : "–"}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-3.5 max-lg:hidden">
                         {order.checks.length === 0 ? (
                           <span className="text-xs text-muted-foreground">–</span>
                         ) : failed.length === 0 ? (
@@ -268,7 +274,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                           <Pill tone="warning">{failed.length} to check</Pill>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="py-3.5 pr-5 pl-3 text-right">
                         {order.status === "needs_approval" ? (
                           <Button size="sm" variant="action" disabled={pending} onClick={(event) => { event.stopPropagation(); run("Approved.", () => decideGift(order.id, "approve")); }}>
                             Approve
@@ -290,29 +296,29 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
             </tbody>
           </table>
         </div>
-        {footer ? <div className="border-t px-4 py-2.5 text-xs text-muted-foreground">{footer}</div> : null}
+        {footer ? <div className="border-t px-5 py-3 text-xs font-medium text-muted-foreground">{footer}</div> : null}
       </section>
 
       {open ? (
         <aside
           aria-label="Order details"
-          className="card fixed inset-x-0 bottom-0 z-40 max-h-[90vh] overflow-y-auto rounded-b-none shadow-lg lg:sticky lg:top-[4.5rem] lg:inset-auto lg:z-auto lg:max-h-[calc(100vh-5.5rem)] lg:w-[380px] lg:shrink-0 lg:rounded-lg lg:shadow-none"
+          className="card fixed inset-x-0 bottom-0 z-40 max-h-[90vh] overflow-y-auto rounded-b-none shadow-lg lg:sticky lg:top-[4.5rem] lg:inset-auto lg:z-auto lg:max-h-[calc(100vh-5.5rem)] lg:w-[380px] lg:shrink-0 lg:rounded-2xl lg:shadow-[var(--shadow-card)]"
         >
-          <div className="flex items-center gap-3 border-b px-4 py-3">
+          <div className="flex items-center gap-3 border-b px-5 py-4">
             <Avatar name={open.creator.name} />
             <div className="min-w-0 flex-1">
-              <CreatorName id={open.creator.id} name={open.creator.name} className="font-semibold hover:text-primary-text" />
+              <CreatorName id={open.creator.id} name={open.creator.name} className="font-bold hover:text-primary-text" />
               <div className="truncate text-xs text-muted-foreground">
                 {open.campaign} · {open.reference}
               </div>
             </div>
             <Pill tone={GIFT_STATUS_TONES[open.status]}>{GIFT_STATUS_LABELS[open.status]}</Pill>
-            <button type="button" aria-label="Close details" onClick={() => setOpenId(null)} className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-2 hover:text-foreground">
+            <button type="button" aria-label="Close details" onClick={() => setOpenId(null)} className="flex size-8 items-center justify-center rounded-[10px] border text-muted-foreground hover:bg-surface-2 hover:text-foreground">
               <X className="size-4" />
             </button>
           </div>
 
-          <div className="grid gap-5 p-4">
+          <div className="grid gap-5 p-5">
             <div className="flex items-start gap-3">
               <ProductPhoto url={open.product.imageUrl} size={56} className="size-14 shrink-0 rounded-md" />
               <div className="min-w-0 text-sm">

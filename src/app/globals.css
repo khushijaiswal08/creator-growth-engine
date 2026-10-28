@@ -219,7 +219,8 @@
 
   /* Underlined tabs across a page or a card. */
   .tabs {
-    @apply flex flex-wrap gap-x-0.5 border-b;
+    @apply flex flex-wrap gap-x-0.5 border-b max-md:flex-nowrap max-md:overflow-x-auto;
+    scrollbar-width: none;
   }
   .tab {
     @apply -mb-px inline-flex h-[42px] items-center gap-1.5 border-b-[2.5px] border-transparent px-[11px] text-[13.5px] font-bold whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground;

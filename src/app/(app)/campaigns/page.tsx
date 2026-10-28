@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyRow, PageHeader, Panel } from "@/components/panel";
@@ -31,7 +32,7 @@ export default async function CampaignsPage({
 
   return (
     <>
-      <PageHeader title={showArchived ? "Archived campaigns" : "Pipeline"} meta={showArchived ? undefined : "One board per campaign. Open a campaign to see its lanes."}>
+      <PageHeader title={showArchived ? "Archived campaigns" : "Pipeline"} meta={showArchived ? undefined : "One board per campaign"}>
         {showArchived ? (
           <Button asChild variant="outline">
             <Link href="/campaigns">Back to campaigns</Link>
@@ -42,7 +43,10 @@ export default async function CampaignsPage({
           </Button>
         ) : null}
         <Button asChild variant="action">
-          <Link href="/campaigns/new">New campaign</Link>
+          <Link href="/campaigns/new">
+            <Plus strokeWidth={2.6} />
+            New campaign
+          </Link>
         </Button>
       </PageHeader>
 

@@ -816,8 +816,8 @@ export function RachnaTipsToggle({ on }: { on: boolean }) {
           <span className={cn("absolute top-0.5 size-5 rounded-full bg-surface shadow transition-all", checked ? "left-[22px]" : "left-0.5")} />
         </button>
         <span>
-          <span className="block font-semibold">Show Rachna tips</span>
-          <span className="block text-xs text-muted-foreground">Her morning note, nudges after a status change and milestones. Off leaves only her tour (tap her face in the top bar) and her pointers. Saved for you alone.</span>
+          <span className="block font-bold">Show Rachna tips</span>
+          <span className="mt-0.5 block text-[13px] font-medium text-muted-foreground">Morning note, nudges and milestones. Off keeps only her tour and pointers. Just for you.</span>
         </span>
       </label>
     </div>

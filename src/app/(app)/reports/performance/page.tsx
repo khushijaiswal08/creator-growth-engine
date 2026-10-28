@@ -1,4 +1,5 @@
 import { cn } from "cn";
+import { Download, Mail } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { AutoSubmitSelect } from "@/components/auto-submit-select";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { viewed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { dayValueInZone, formatCount, formatDay, startOfWeekInZone } from "@/lib/format";
+import { dayValueInZone, formatCount, formatDay, formatMonth, formatShortDay, startOfWeekInZone } from "@/lib/format";
 import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, readingFiguresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { displayHandle } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
@@ -146,13 +147,19 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     <>
       <PageHeader
         title="Reports"
-        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"}${chosen ? ` · ${chosen.name}` : ""} · ${period.label}, ${formatDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}, compared with the period before`}
+        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"}${chosen ? ` · ${chosen.name}` : ""} · ${period.label} · ${formatShortDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`}
       >
         <Button asChild variant="outline">
-          <a href={href({}).replace("/reports/performance?", "/reports/performance/export?")}>Export CSV</a>
+          <a href={href({}).replace("/reports/performance?", "/reports/performance/export?")}>
+            <Download strokeWidth={2.4} />
+            Export CSV
+          </a>
         </Button>
         <Button asChild variant="outline">
-          <a href={mailto}>Email to my manager</a>
+          <a href={mailto}>
+            <Mail strokeWidth={2.4} />
+            Email my manager
+          </a>
         </Button>
       </PageHeader>
       <ReportTabs current="performance" />
@@ -376,7 +383,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
             <TableRow>
               <TableHead>Period</TableHead>
               {TABLE_KEYS.map((key) => (
-                <TableHead key={key} className="text-right">
+                <TableHead key={key} className="text-right leading-snug whitespace-normal">
                   {FIGURE_LABELS[key]}
                 </TableHead>
               ))}
@@ -385,7 +392,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           <TableBody>
             {buckets.map((bucket) => (
               <TableRow key={bucket.label}>
-                <TableCell className="text-muted-foreground">{bucket.label}</TableCell>
+                <TableCell className="font-semibold">{bucket.label.startsWith("Week") ? `Week of ${formatShortDay(bucket.from)}` : formatMonth(bucket.from)}</TableCell>
                 {TABLE_KEYS.map((key) => (
                   <TableCell key={key} className="text-right tabular-nums">
                     {show(key, bucket.figures[key])}

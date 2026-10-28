@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { Plus, Search, Trophy, Upload } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
@@ -73,34 +74,39 @@ export default async function InfluencersPage({
     <>
       <PageHeader title="Creators" meta={`${total} ${showArchived ? "archived" : "active"}`}>
         <Button asChild variant="outline">
-          <Link href="/import">Import CSV</Link>
+          <Link href="/import">
+            <Upload strokeWidth={2.4} />
+            Import CSV
+          </Link>
         </Button>
         <Button asChild variant="outline">
-          <Link id="creators-ranking" href="/influencers/ranking">Ranking</Link>
+          <Link id="creators-ranking" href="/influencers/ranking">
+            <Trophy strokeWidth={2.4} />
+            Ranking
+          </Link>
         </Button>
         <Button asChild variant="action">
-          <Link href="/influencers/new">+ Add creator</Link>
+          <Link href="/influencers/new">
+            <Plus strokeWidth={2.6} />
+            Add creator
+          </Link>
         </Button>
       </PageHeader>
 
       <Panel>
-        <form id="creators-search" method="get" className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+        <form id="creators-search" method="get" className="flex flex-wrap items-center gap-3 border-b px-5 py-3">
           <label htmlFor="q" className="sr-only">
             Search creators
           </label>
-          <Input
-            id="q"
-            name="q"
-            type="search"
-            defaultValue={q}
-            placeholder="Search name, handle, email or location"
-            className="h-8 max-w-sm"
-          />
-          <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" name="archived" value="1" defaultChecked={showArchived} />
+          <div className="relative w-full max-w-sm">
+            <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-faint" strokeWidth={2.4} />
+            <Input id="q" name="q" type="search" defaultValue={q} placeholder="Search name, handle, email or location" className="h-10 pl-10" />
+          </div>
+          <label className="flex items-center gap-2 text-sm font-semibold text-accent-text">
+            <input type="checkbox" name="archived" value="1" defaultChecked={showArchived} className="size-4 accent-primary" />
             Archived
           </label>
-          <Button type="submit" size="sm" variant="outline">
+          <Button type="submit" variant="outline" className="h-10">
             Search
           </Button>
         </form>
@@ -127,14 +133,14 @@ export default async function InfluencersPage({
                   <TableCell>
                     <div className="flex items-center gap-2.5">
                       <Avatar name={influencer.name} />
-                      <CreatorName id={influencer.id} name={influencer.name} className="link" />
+                      <CreatorName id={influencer.id} name={influencer.name} className="font-bold text-foreground hover:text-primary-text" />
                     </div>
                   </TableCell>
                   <TableCell>
                     <ProfileLinks profiles={influencer.profiles} />
                   </TableCell>
-                  <TableCell>{influencer.email}</TableCell>
-                  <TableCell>{influencer.location}</TableCell>
+                  <TableCell className="text-muted-foreground">{influencer.email}</TableCell>
+                  <TableCell className="text-muted-foreground">{influencer.location}</TableCell>
                   <TableCell className="text-right tabular-nums">{influencer.usSignal}</TableCell>
                   <TableCell className="text-right tabular-nums">{influencer._count.campaigns}</TableCell>
                 </TableRow>
@@ -144,8 +150,8 @@ export default async function InfluencersPage({
         </Table>
 
         {lastPage > 1 ? (
-          <div className="flex items-center justify-between border-t px-4 py-2.5">
-            <span className="text-muted-foreground">
+          <div className="flex items-center justify-between border-t px-5 py-3">
+            <span className="text-sm font-medium text-muted-foreground">
               Page {page} of {lastPage}
             </span>
             <div className="flex gap-2">

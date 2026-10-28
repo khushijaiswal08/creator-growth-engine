@@ -1,4 +1,5 @@
 import type { GiftOrderStatus } from "@prisma/client";
+import { ClipboardPaste, Download } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { GiftsTable, type GiftRow } from "@/components/gifts-table";
@@ -117,15 +118,19 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     <>
       <PageHeader
         title="Gifts"
-        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${openCount} open ${openCount === 1 ? "order" : "orders"} · ${countOf.get("needs_approval") ?? 0} waiting for approval`}
+        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${openCount} open · ${countOf.get("needs_approval") ?? 0} to approve`}
       >
         <Button asChild variant="outline">
-          <a href="#tracking">Paste tracking</a>
+          <a href="#tracking">
+            <ClipboardPaste strokeWidth={2.4} />
+            Paste tracking
+          </a>
         </Button>
         {toOrder.map(({ brand, count }) => (
           <Button asChild variant="action" key={brand.id}>
             <a href={`/orders/export?brand=${brand.id}`}>
-              Amazon order file, {brand.short} ({count})
+              <Download strokeWidth={2.4} />
+              Amazon file, {brand.short} ({count})
             </a>
           </Button>
         ))}
@@ -133,12 +138,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
 
       <nav id="gifts-tabs" aria-label="Filter by status" className="tabs mb-5">
         <Link href={sort === "newest" ? "/orders" : `/orders?sort=${sort}`} className="tab" aria-current={filter === null ? "true" : undefined}>
-          All open <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{openCount}</span>
+          All open <span className="count-pill">{openCount}</span>
         </Link>
         {GIFT_STATUSES.map((status) => (
           <Link key={status} href={`/orders?status=${status}${sort === "newest" ? "" : `&sort=${sort}`}`} className="tab" aria-current={filter === status ? "true" : undefined} title={GIFT_STATUS_LABELS[status]}>
             {TAB_LABELS[status]}
-            {status !== "cancelled" ? <span className="chip border-transparent bg-surface-2 px-1.5 py-0 text-[11px]">{countOf.get(status) ?? 0}</span> : null}
+            {status !== "cancelled" ? <span className="count-pill">{countOf.get(status) ?? 0}</span> : null}
           </Link>
         ))}
       </nav>
@@ -149,20 +154,18 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         footer={orders.length === 0 ? "" : `1 to ${orders.length} of ${orders.length}${orders.length === PAGE_SIZE ? " shown" : ""} · Rows per page ${PAGE_SIZE}`}
       />
 
-      <div className="mt-10 grid gap-5 lg:grid-cols-2">
-        <section className="card p-5">
-          <h2 className="mb-2">How orders reach Amazon</h2>
-          <ol className="grid list-decimal gap-1.5 pl-5 text-sm text-muted-foreground">
-            <li>Click &quot;Amazon order file&quot; at the top. It lists every approved order of one brand, because each brand ships from its own Amazon account.</li>
-            <li>Upload the file in that brand&apos;s Seller Central under Multi-Channel Fulfillment, bulk order upload.</li>
-            <li>When Amazon gives order numbers and tracking, paste them here. Delivery dates start each creator&apos;s content clock.</li>
+      <section id="tracking" className="card mt-8 p-5 md:p-6">
+        <h2>Update tracking in bulk</h2>
+        <TrackingImportForm />
+        <details className="disclosure mt-5 border-t pt-4">
+          <summary>How orders reach Amazon</summary>
+          <ol className="mt-3 grid list-decimal gap-1.5 pl-5 text-sm font-medium text-muted-foreground">
+            <li>Download the Amazon file at the top. Each brand has its own file, because each ships from its own Amazon account.</li>
+            <li>Upload it in that brand&apos;s Seller Central: Multi-Channel Fulfillment, bulk order upload.</li>
+            <li>Paste Amazon&apos;s order numbers and tracking here. The delivery date starts the creator&apos;s content clock.</li>
           </ol>
-        </section>
-        <section id="tracking" className="card p-5">
-          <h2>Update tracking in bulk</h2>
-          <TrackingImportForm />
-        </section>
-      </div>
+        </details>
+      </section>
     </>
   );
 }

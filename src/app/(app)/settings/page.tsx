@@ -64,30 +64,38 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" meta="Targets, timers and the scoring prompt, per brand. Change a value, save, and it applies from the next check." />
+      <PageHeader title="Settings" meta="Targets, timers and scoring, per brand. Changes apply from the next check." />
 
-      <section className="card mb-10 p-5">
-        <h2 className="mb-3">Rachna, your guide</h2>
+      <section className="card mb-6 p-5 md:p-6">
+        <h2 className="mb-4">Rachna, your guide</h2>
         <RachnaTipsToggle on={user.showRachnaTips} />
-        <p className="mt-3 text-xs text-muted-foreground">Reply reading: {readerConfigured() ? "Claude reads the replies the team pastes in." : "built-in rules read the replies the team pastes in. Add ANTHROPIC_API_KEY on the server and Claude takes over on the same screens."}</p>
+        <p className="mt-4 border-t pt-4 text-[13px] font-medium text-muted-foreground">
+          Reply reading: {readerConfigured() ? "Claude reads pasted replies." : "built-in rules. Claude takes over once ANTHROPIC_API_KEY is set on the server."}
+        </p>
       </section>
 
-      <div className="grid gap-12">
+      <div className="grid gap-6">
         {brands.map(({ brand, campaigns, articles, prompt, versions }) => {
           const target = targets.get(brand.id)!;
           return (
-            <section key={brand.id} className="grid gap-6">
-              <h2>{brand.name}</h2>
+            <section key={brand.id} className="card grid gap-7 p-5 md:p-6">
+              <div className="flex items-center gap-3">
+                <span aria-hidden className="grid size-10 place-items-center rounded-xl bg-primary-faint text-[15px] font-extrabold text-primary">{brand.short.slice(0, 1)}</span>
+                <div>
+                  <h2 className="text-[19px]">{brand.name}</h2>
+                  <p className="text-[13px] font-medium text-muted-foreground">
+                    {campaigns.length} active {campaigns.length === 1 ? "campaign" : "campaigns"}
+                  </p>
+                </div>
+              </div>
 
               <Panel plain title="Message targets">
-                <p className="pt-3 text-muted-foreground">
-                  What each person aims for. Today shows everyone&apos;s progress against these, and the Monday email reports it.
-                </p>
+                <p className="pt-3 text-sm font-medium text-muted-foreground">What each person aims for. Home and the Monday email track it.</p>
                 <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} creatorConnectionsUrl={target.creatorConnectionsUrl} />
               </Panel>
 
               {campaigns.length === 0 ? (
-                <p className="text-muted-foreground">No active campaign yet.</p>
+                <p className="text-sm font-medium text-muted-foreground">No active campaign yet.</p>
               ) : (
                 campaigns.map((campaign) => (
                   <Panel
@@ -99,7 +107,7 @@ export default async function SettingsPage() {
                       </Link>
                     }
                   >
-                    <dl className="grid grid-cols-2 gap-x-6 gap-y-1 border-b px-4 py-3 text-sm sm:grid-cols-4">
+                    <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-b px-5 py-4 text-sm sm:grid-cols-4">
                       <dt className="text-muted-foreground">Follow-up after</dt>
                       <dd>{campaign.followUpAfterDays} days without a reply</dd>
                       <dt className="text-muted-foreground">Follow-ups before No reply</dt>
@@ -115,7 +123,7 @@ export default async function SettingsPage() {
                       <dt className="text-muted-foreground">No content delivered</dt>
                       <dd>{campaign.noContentAfterDays} days after it was due</dd>
                     </dl>
-                    <details className="disclosure px-4 py-3">
+                    <details className="disclosure px-5 py-3.5">
                       <summary>Change these timings</summary>
                       <AutomationSettingsForm
                         campaignId={campaign.id}
@@ -139,11 +147,10 @@ export default async function SettingsPage() {
               )}
 
               {isAdmin && prompt ? (
-                <Panel plain title="AI scoring prompt">
-                  <p className="pt-3 text-muted-foreground">
-                    What the model is told before it scores a creator for this brand, and how the 100 points are split. Saving makes a new
-                    version; every score records the version that produced it. Use Admin &gt; Scoring calibration to see how well a version
-                    agrees with the team.
+                <details className="disclosure border-t pt-5">
+                  <summary>AI scoring prompt · {prompt.version > 0 ? `version ${prompt.version}` : "built-in default"}</summary>
+                  <p className="mt-3 text-sm font-medium text-muted-foreground">
+                    What the model reads before scoring a creator, and how the 100 points split. Each save makes a new version. Admin › Scoring calibration shows how well it agrees with the team.
                   </p>
                   <ScoringPromptForm
                     brandId={brand.id}
@@ -154,18 +161,17 @@ export default async function SettingsPage() {
                       (row): PromptVersionRow => ({ version: row.version, active: row.active, note: row.note, createdAt: formatDay(row.createdAt), createdBy: row.createdBy.name }),
                     )}
                   />
-                </Panel>
+                </details>
               ) : null}
             </section>
           );
         })}
 
-        <Panel plain title="Gift order rules">
-          <p className="pt-3 text-muted-foreground">
-            An order is approved without a person only when it passes every rule below. These live in the file <code className="text-xs">config/gift-rules.json</code>;
-            changing them is a small edit and a redeploy, and the activity log of every order names the rules it passed or failed.
+        <Panel plain title="Gift order rules" className="card p-5 md:p-6">
+          <p className="pt-3 text-sm font-medium text-muted-foreground">
+            An order skips the approval queue only when it passes every rule. They live in <code className="text-xs">config/gift-rules.json</code>, and each order&apos;s log names the rules it passed.
           </p>
-          <dl className="mt-3 grid grid-cols-[minmax(0,14rem)_minmax(0,1fr)] gap-x-6 gap-y-1 text-sm">
+          <dl className="mt-4 grid grid-cols-[minmax(0,14rem)_minmax(0,1fr)] gap-x-6 gap-y-2 text-sm max-sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] max-sm:gap-x-4">
             <dt className="text-muted-foreground">Ships to</dt>
             <dd>{GIFT_RULES.allowedCountries.join(", ")}</dd>
             <dt className="text-muted-foreground">Most items per order</dt>

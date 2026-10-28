@@ -1,3 +1,4 @@
+import { Download } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyRow, PageHeader, Panel } from "@/components/panel";
@@ -31,9 +32,12 @@ export default async function OutreachReportPage({ searchParams }: { searchParam
 
   return (
     <>
-      <PageHeader title="Outreach report" meta={`By person and by week for the last ${WEEKS} weeks. Reply rate is replies divided by the creators each person messaged.`}>
+      <PageHeader title="Outreach report" meta={`Last ${WEEKS} weeks, by person`}>
         <Button asChild variant="outline">
-          <a href={`/reports/outreach/export${chosen ? `?campaign=${chosen.id}` : ""}`}>Export CSV</a>
+          <a href={`/reports/outreach/export${chosen ? `?campaign=${chosen.id}` : ""}`}>
+            <Download strokeWidth={2.4} />
+            Export CSV
+          </a>
         </Button>
       </PageHeader>
 
@@ -59,7 +63,9 @@ export default async function OutreachReportPage({ searchParams }: { searchParam
               <TableHead className="text-right">Messages</TableHead>
               <TableHead className="text-right">Creators</TableHead>
               <TableHead className="text-right">Replies</TableHead>
-              <TableHead className="text-right">Reply rate</TableHead>
+              <TableHead className="text-right" title="Replies divided by the creators each person messaged">
+                Reply rate
+              </TableHead>
               <TableHead className="text-right">Follow-ups</TableHead>
               <TableHead className="text-right">Agreed</TableHead>
               <TableHead className="text-right">Shipped</TableHead>

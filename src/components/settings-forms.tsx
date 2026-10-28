@@ -38,7 +38,7 @@ export function TargetsForm({ brandId, daily, weekly, creatorConnectionsUrl }: {
       <div className="grid gap-1.5">
         <Label htmlFor={`cc-${brandId}`}>Creator Connections page in the Amazon Ads console</Label>
         <Input id={`cc-${brandId}`} name="creatorConnectionsUrl" type="url" placeholder="https://advertising.amazon.com/..." defaultValue={creatorConnectionsUrl ?? ""} className="max-w-xl" />
-        <p className="text-xs text-muted-foreground">The Message button opens this page for Creator Connections creators. Paste the address of the Creator Connections messaging page while signed in to this brand&apos;s Ads account. Empty opens the console home.</p>
+        <p className="text-xs text-muted-foreground">Where Message goes for Creator Connections creators. Copy it from this brand&apos;s Ads console; empty opens the console home.</p>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pendingLabel="Saving...">Save</SubmitButton>

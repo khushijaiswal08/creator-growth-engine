@@ -1,3 +1,4 @@
+import { Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
@@ -166,9 +167,12 @@ export default async function RankingPage({
 
   return (
     <>
-      <PageHeader title="Creator ranking" meta={`${rows.length} creators. Sorted by ${SORTS[sort].toLowerCase()}${reversed ? ", in reverse order" : ""}. Attributed sales join once the Amazon reports are imported.`}>
+      <PageHeader title="Creator ranking" meta={`${rows.length} creators · ${SORTS[sort].toLowerCase()}${reversed ? ", reversed" : ""}`}>
         <Button asChild variant="outline">
-          <Link href="/influencers">All creators</Link>
+          <Link href="/influencers">
+            <Users strokeWidth={2.4} />
+            All creators
+          </Link>
         </Button>
       </PageHeader>
 
@@ -221,7 +225,7 @@ export default async function RankingPage({
         </form>
       </div>
 
-      <Table>
+      <Table className="[&_th]:leading-snug [&_th]:whitespace-normal">
         <TableHeader>
           <TableRow>
             <TableHead>#</TableHead>
@@ -249,8 +253,8 @@ export default async function RankingPage({
                   <div className="flex items-center gap-2.5">
                     <Avatar name={row.name} />
                     <div className="min-w-0">
-                      <CreatorName id={row.id} name={row.name} className="font-medium text-foreground hover:text-primary-text" />
-                      {row.location ? <div className="text-xs text-muted-foreground">{row.location}</div> : null}
+                      <CreatorName id={row.id} name={row.name} className="font-bold text-foreground hover:text-primary-text" />
+                      {row.location ? <div className="text-xs font-medium text-muted-foreground">{row.location}</div> : null}
                     </div>
                   </div>
                 </TableCell>
@@ -264,11 +268,11 @@ export default async function RankingPage({
                   {row.content || ""}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{row.rate === null ? "" : `${row.rate}%`}</TableCell>
-                <TableCell className="whitespace-normal">
+                <TableCell>
                   {row.tier ? (
-                    <span className="capitalize">
+                    <span className="font-semibold capitalize">
                       {row.tier}
-                      {row.gmv !== null ? <span className="text-muted-foreground"> · ${row.gmv.toLocaleString("en-US", { maximumFractionDigits: 0 })} a month</span> : null}
+                      {row.gmv !== null ? <span className="font-medium text-muted-foreground normal-case"> · ${row.gmv.toLocaleString("en-US", { maximumFractionDigits: 0 })}/mo</span> : null}
                     </span>
                   ) : (
                     ""

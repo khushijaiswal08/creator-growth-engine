@@ -24,6 +24,12 @@ export const formatDay = (date: Date | null) => (date ? day.format(date) : "");
 export const formatCalendarDay = (date: Date | null) => (date ? calendarDay.format(date) : "");
 export const formatCount = (value: number | null) => (value === null ? "" : compact.format(value));
 
+// "Oct 26" and "October 2026", for week and month rows.
+const shortDay = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: TIME_ZONE });
+const monthYear = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: TIME_ZONE });
+export const formatShortDay = (date: Date) => shortDay.format(date);
+export const formatMonth = (date: Date) => monthYear.format(date);
+
 // For the greeting on Today: the hour where the team sits, not on the server.
 const hourOfDay = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: TIME_ZONE });
 const longDay = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: TIME_ZONE });

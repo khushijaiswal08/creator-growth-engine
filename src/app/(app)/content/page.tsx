@@ -121,7 +121,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
           </Table>
         )}
       </section>
-      <p className="mt-4 text-xs text-muted-foreground">The videos and pictures themselves, uploaded by creators, come with the content library in the next phase. Until then each row links to the live post.</p>
+      <p className="mt-4 text-xs text-muted-foreground">Creators&apos; own uploads arrive with the content library. For now each row links to the live post.</p>
     </>
   );
 }

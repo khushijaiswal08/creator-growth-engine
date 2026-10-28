@@ -5,9 +5,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   await requireAdmin();
 
   return (
-    <>
+    <div className="flex flex-col [&>header]:order-first">
       <AdminTabs />
       {children}
-    </>
+    </div>
   );
 }

@@ -75,12 +75,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           ) : (
             <>
               {BRANDS.map((brand) => (
-                <span key={brand.id} className="block">
-                  {brand.name}: {number(countOf(liveByBrand, brand.id))} live on Amazon, {number(countOf(offeredByBrand, brand.id))} offered to
-                  creators.
+                <span key={brand.id} className="mr-4 inline-block">
+                  <span className="font-bold text-foreground">{brand.short}</span> {number(countOf(liveByBrand, brand.id))} live · {number(countOf(offeredByBrand, brand.id))} offered
                 </span>
               ))}
-              <span className="block">{stockKnown === 0 ? "Stock is not known yet: upload an Amazon inventory file." : `Stock known for ${number(stockKnown)}.`}</span>
+              <span className="inline-block">{stockKnown === 0 ? "Stock not known yet" : `Stock known for ${number(stockKnown)}`}</span>
             </>
           )
         }
@@ -208,8 +207,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
         <Panel title="Upload products or stock" className="self-start">
           <ProductUploadForm />
-          <div className="grid gap-2 border-t p-4 text-muted-foreground">
-            <p>Three kinds of file work here. Products are always matched on SKU.</p>
+          <details className="disclosure border-t px-5 py-4 text-sm font-medium text-muted-foreground">
+            <summary>Which files work here</summary>
+            <div className="mt-3 grid gap-2">
+            <p>Three kinds, always matched on SKU.</p>
             <ul className="grid list-disc gap-1.5 pl-5">
               <li>
                 <strong>Amazon&apos;s Category Listing Report</strong> (the .xlsx file, unchanged). Adds new listings, refreshes names, photos,
@@ -227,7 +228,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
               Creators are shown the best-stocked products first. They are never shown a product that is sold out, switched off here, not live on
               Amazon, or without a link or photo to look at.
             </p>
-          </div>
+            </div>
+          </details>
         </Panel>
       </div>
     </>

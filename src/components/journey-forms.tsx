@@ -446,8 +446,8 @@ export function ProductUploadForm() {
   const error = readError ?? report?.error;
 
   return (
-    <form onSubmit={onSubmit} className="grid gap-3 p-4">
-      <div className="grid gap-3 sm:grid-cols-[14rem_minmax(0,1fr)]">
+    <form onSubmit={onSubmit} className="grid gap-4 p-5">
+      <div className="grid gap-4">
         <div className="grid gap-1.5">
           <Label htmlFor="product-brand">Brand</Label>
           <NativeSelect id="product-brand" name="brandId" required defaultValue="">
