@@ -557,7 +557,9 @@ workspace"). Nothing in the data model changed; every page keeps its data and ac
   is done, red is late or a dead end (`src/lib/status.ts`, `TONE_CLASSES`). Shared classes
   live in `src/app/globals.css` (`.card`, `.chip`, `.tabs`/`.tab`, `.label`).
 - **Frame** (`src/components/app-shell.tsx`). A top bar with the search box (Ctrl+K),
-  the brand switch, a bell with the number of things due today and the profile menu; a
+  the brand switch, a bell with the number of things due today (it opens a panel with
+  each of Home's queues, hot creators and gift approvals; `src/components/notifications-menu.tsx`)
+  and the profile menu; a
   light sidebar that collapses to a rail, with this person's week against the target at
   the foot. The phone keeps the bottom bar and drawer. The due count and the week figure
   are computed in `src/app/(app)/layout.tsx`; the task queues they count live in

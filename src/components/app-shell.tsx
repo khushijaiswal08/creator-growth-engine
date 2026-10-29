@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { BarChart3, Bell, Clapperboard, Gift, Kanban, KeyRound, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
+import { BarChart3, Clapperboard, Gift, Kanban, KeyRound, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-swi
 import { RachnaCameo, RachnaProvider, RachnaSlot, RachnaStrip } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
 import { SidebarNav } from "@/components/nav";
+import { NotificationsMenu, type NoticeQueue } from "@/components/notifications-menu";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,8 @@ export type ShellStats = {
   weekTarget: number;
   /** The live counts behind Rachna's quests and her mood. */
   rachna: RachnaCounts;
+  /** What is due in each of Home's queues, for the bell. */
+  queues: NoticeQueue[];
 };
 
 function initials(name: string): string {
@@ -118,7 +121,7 @@ export function AppShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar user={user} due={stats.due} logout={logout} onEdit={() => setEditing(true)} />
+          <TopBar user={user} stats={stats} logout={logout} onEdit={() => setEditing(true)} />
           <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-8 md:pt-8 md:pb-16">
             <RachnaStrip />
             <div className="mx-auto max-w-[1320px]">{children}</div>
@@ -178,12 +181,12 @@ const ICON_BUTTON = "relative flex size-[42px] shrink-0 items-center justify-cen
 
 function TopBar({
   user,
-  due,
+  stats,
   logout,
   onEdit,
 }: {
   user: ShellUser;
-  due: number;
+  stats: ShellStats;
   logout: () => Promise<void>;
   onEdit: () => void;
 }) {
@@ -241,14 +244,7 @@ function TopBar({
           <Search className="size-[18px]" strokeWidth={2} />
         </Link>
         <RachnaCameo />
-        <Link href="/today" title={due === 0 ? "Nothing is due right now" : `${due} ${due === 1 ? "thing needs" : "things need"} you today`} aria-label={due === 0 ? "Nothing is due" : `${due} due today`} className={ICON_BUTTON}>
-          <Bell className="size-[18px]" strokeWidth={1.9} />
-          {due > 0 ? (
-            <span aria-hidden className="absolute -top-1.5 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-surface bg-[#e11d48] px-1 text-[10.5px] leading-none font-extrabold text-white">
-              {due > 99 ? "99+" : due}
-            </span>
-          ) : null}
-        </Link>
+        <NotificationsMenu queues={stats.queues} approvals={stats.rachna.approvals} hot={stats.rachna.hot} lateMax={stats.rachna.lateMax} buttonClassName={ICON_BUTTON} />
         <ProfileMenu user={user} logout={logout} onEdit={onEdit} />
       </div>
     </header>

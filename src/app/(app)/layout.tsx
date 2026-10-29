@@ -6,7 +6,7 @@ import type { SidebarPreference } from "@/components/sidebar-context";
 import { viewed } from "@/lib/brand-scope";
 import { BRANDS, brandName, brandShortName } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { DUE_STATUSES, dueWhere } from "@/lib/due";
+import { DUE_STATUSES, QUEUES, dueWhere } from "@/lib/due";
 import { startOfDayInZone, startOfWeekInZone } from "@/lib/format";
 import { brandTargets } from "@/lib/outreach-stats";
 import { RACHNA_INTRO_COOKIE, type RachnaCounts } from "@/lib/rachna";
@@ -26,7 +26,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The sign-in action leaves this; Rachna's provider reads it once and clears it.
   const rachnaIntro = jar.get(RACHNA_INTRO_COOKIE)?.value === "1";
 
-  // The figures the frame shows everywhere: what is due today (the bell), this person's week (the sidebar),
+  // The figures the frame shows everywhere: what is due today, queue by queue (the bell), this person's week (the sidebar),
   // and the counts behind Rachna's quests and mood.
   const dueNow = dueWhere(view, DUE_STATUSES, now);
   const [dueByStatus, weekSent, todaySent, targets, approvals, oldest, hotReplies] = await Promise.all([
@@ -68,7 +68,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
       isAdmin={user.role === "admin"}
       initialPreference={initialPreference}
-      stats={{ due, weekSent, weekTarget, rachna }}
+      stats={{ due, weekSent, weekTarget, rachna, queues: QUEUES.map((queue) => ({ key: queue.key, title: queue.title, count: countOf(queue.statuses) })) }}
       rachnaIntro={rachnaIntro}
       logout={logout}
     >
