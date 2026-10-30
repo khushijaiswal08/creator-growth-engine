@@ -2342,3 +2342,112 @@ test("one-click Amazon orders: a send cut off half-way is settled, cancel follow
   assert.equal((await syncAmazonOrders(new Date(), { budgetMs: -1 })).checked, 0);
   assert.equal((await syncAmazonOrders(new Date(), { brandIds: ["cotton-print-club"] })).checked, 0);
 });
+
+test("the Invite back list offers only proven creators, and inviting one adds them as Approved with a welcome-back message, never sending anything", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { inviteBackList, inviteBack } = await import("@/lib/invite-back");
+  const { suggestedTemplate } = await import("@/lib/next-action");
+  const { pickTemplate } = await import("@/lib/channels");
+  const { user, campaign: past } = await makeUserAndCampaign("invite-past", ["home decor"]);
+  await db.campaign.update({ where: { id: past.id }, data: { brandId: "ridhi", status: "completed" } });
+  const next = await db.campaign.create({ data: { name: "invite-next", brandId: "ridhi", brief: "Spring linens.", nicheKeywords: [], negativeKeywords: [], status: "active" } });
+  const other = await db.campaign.create({ data: { name: "invite-other-live", brandId: "ridhi", brief: "Other.", nicheKeywords: [], negativeKeywords: [], status: "active" } });
+  const closed = await db.campaign.create({ data: { name: "invite-closed", brandId: "ridhi", brief: "Done.", nicheKeywords: [], negativeKeywords: [], status: "completed" } });
+  const cpc = await db.campaign.create({ data: { name: "invite-cpc", brandId: "cotton-print-club", brief: "CPC.", nicheKeywords: [], negativeKeywords: [], status: "active" } });
+  const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-INV-01", title: "Runner", stock: 5 } });
+  const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
+  const DAY = 24 * 60 * 60 * 1000;
+
+  // A past collaboration: the outcome, and as many post links as given.
+  const worked = async (handle: string, status: "completed" | "no_content", posts = 1) => {
+    const link = await makeCreator(past.id, handle, { status });
+    const profile = await db.socialProfile.findFirstOrThrow({ where: { influencerId: link.influencerId } });
+    for (let index = 0; index < posts; index++) await db.post.create({ data: { campaignCreatorId: link.id, socialProfileId: profile.id, url: `https://www.instagram.com/p/${handle}${index}/` } });
+    return link;
+  };
+  const star = await worked("inv_star", "completed", 2);
+  const good = await worked("inv_good", "completed", 1);
+  const risky = await worked("inv_risky", "no_content", 0);
+  const archived = await worked("inv_archived", "completed", 2);
+  await db.influencer.update({ where: { id: archived.influencerId }, data: { archived: true } });
+  const suppressed = await worked("inv_suppressed", "completed", 2);
+  await db.suppression.create({ data: { platform: "instagram", handle: "inv_suppressed", reason: "asked us to stop" } });
+  const blocked = await worked("inv_blocked", "completed", 2);
+  await db.campaignCreator.create({ data: { campaignId: cpc.id, influencerId: blocked.influencerId, status: "blacklisted" } });
+  const busy = await worked("inv_busy", "completed", 2);
+  await db.campaignCreator.create({ data: { campaignId: other.id, influencerId: busy.influencerId, status: "contacted" } });
+  // The star had a gift ten days ago: inviting is fine, a new gift waits for a person until the repeat window ends.
+  const giftedAt = new Date(Date.now() - 10 * DAY);
+  await db.giftOrder.create({ data: { campaignCreatorId: star.id, productId: product.id, status: "delivered", createdAt: giftedAt, ...sealAddress({ shipName: "Star", address1: "1 Main St", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null }) } });
+
+  // Proven only with the other brand: never offered for this brand's campaign, even to someone who sees both.
+  const pastCpc = await db.campaign.create({ data: { name: "invite-past-cpc", brandId: "cotton-print-club", brief: "CPC past.", nicheKeywords: [], negativeKeywords: [], status: "completed" } });
+  const cpcStar = await makeCreator(pastCpc.id, "inv_cpc_star", { status: "completed" });
+  const cpcProfile = await db.socialProfile.findFirstOrThrow({ where: { influencerId: cpcStar.influencerId } });
+  for (const index of [0, 1]) await db.post.create({ data: { campaignCreatorId: cpcStar.id, socialProfileId: cpcProfile.id, url: `https://www.instagram.com/p/inv_cpc_star${index}/` } });
+  // Proven with both brands: only this brand's work counts here (one Ridhi post; three with Cotton Print Club).
+  const both = await worked("inv_both", "completed", 1);
+  const bothCpc = await db.campaignCreator.create({ data: { campaignId: pastCpc.id, influencerId: both.influencerId, status: "completed" } });
+  for (const index of [0, 1, 2]) await db.post.create({ data: { campaignCreatorId: bothCpc.id, socialProfileId: (await db.socialProfile.findFirstOrThrow({ where: { influencerId: both.influencerId } })).id, url: `https://www.instagram.com/p/inv_both_cpc${index}/` } });
+
+  const list = await inviteBackList(scope, next);
+  const byId = new Map(list.map((row) => [row.id, row]));
+  const mine = list.filter((row) => [star, good, risky, archived, suppressed, blocked, busy].some((link) => link.influencerId === row.id));
+  // Only Stars and Good bets, never archived; those who can be invited come first, stars before good bets.
+  assert.deepEqual(new Set(mine.map((row) => row.id)), new Set([star, good, suppressed, blocked, busy].map((link) => link.influencerId)));
+  assert.equal(byId.has(cpcStar.influencerId), false, "a creator proven only for Cotton Print Club is not offered for a Ridhi campaign");
+  assert.deepEqual([byId.get(both.influencerId)!.content, byId.get(both.influencerId)!.grade], [1, "good"], "only the Ridhi work counts for a Ridhi campaign");
+  assert.equal(byId.get(star.influencerId)!.grade, "star");
+  assert.equal(byId.get(good.influencerId)!.grade, "good");
+  assert.deepEqual(mine.slice(0, 2).map((row) => row.id), [star.influencerId, good.influencerId]);
+  assert.match(byId.get(suppressed.influencerId)!.blocked ?? "", /do-not-contact list: asked us to stop/);
+  assert.equal(byId.get(blocked.influencerId)!.blocked, "Do not contact.", "a block in another brand stops the invite without naming it");
+  assert.match(byId.get(busy.influencerId)!.busyIn ?? "", /invite-other-live \(Contacted\)/);
+  assert.deepEqual(mine.filter((row) => row.invitable).map((row) => row.id), [star.influencerId, good.influencerId]);
+  const giftAgain = byId.get(star.influencerId)!.giftAgainFrom!;
+  assert.equal(Math.round((giftAgain.getTime() - giftedAt.getTime()) / DAY), 90);
+  assert.equal(byId.get(good.influencerId)!.giftAgainFrom, null);
+
+  // Inviting: the proven ones join as Approved, the rest are skipped with the reason. Nothing is sent.
+  const messagesBefore = await db.message.count();
+  const result = await inviteBack({ campaignId: next.id, influencerIds: [star, good, suppressed, risky, busy, cpcStar].map((link) => link.influencerId), userId: user.id, scope });
+  assert.ok(result.ok);
+  if (result.ok) {
+    assert.equal(result.invited, 2);
+    assert.deepEqual(result.skipped.map((entry) => entry.name), ["Person inv_suppressed", "A creator", "Person inv_busy", "A creator"], "the other brand's star is refused like anyone not on the list");
+    assert.equal(result.skipped[1].reason, "not on the Invite back list");
+  }
+  const joined = await db.campaignCreator.findUniqueOrThrow({ where: { campaignId_influencerId: { campaignId: next.id, influencerId: star.influencerId } } });
+  assert.deepEqual([joined.status, joined.ownerId, joined.invitedBackAt !== null, joined.nextAction], ["approved", user.id, true, "Send the welcome-back message"]);
+  assert.equal(suggestedTemplate(joined.status, joined.nextAction), "welcome_back");
+  assert.equal(await db.message.count(), messagesBefore, "an invite never sends or logs a message");
+  assert.equal(await db.campaignCreator.count({ where: { campaignId: next.id, influencerId: risky.influencerId } }), 0);
+  const logged = await db.activity.findFirstOrThrow({ where: { campaignCreatorId: joined.id, kind: "added_to_campaign" } });
+  assert.match(logged.body, /Invited back to "invite-next" and approved for outreach: 2 posts delivered, 100% content rate/);
+  // The log line on the Ridhi record counts Ridhi's work only.
+  assert.ok((await inviteBack({ campaignId: next.id, influencerIds: [both.influencerId], userId: user.id, scope })).ok);
+  const bothJoined = await db.campaignCreator.findUniqueOrThrow({ where: { campaignId_influencerId: { campaignId: next.id, influencerId: both.influencerId } } });
+  assert.match((await db.activity.findFirstOrThrow({ where: { campaignCreatorId: bothJoined.id, kind: "added_to_campaign" } })).body, /: 1 post delivered, 100% content rate\.$/);
+  // Once in, they show as such and cannot be invited twice.
+  assert.equal((await inviteBackList(scope, next)).find((row) => row.id === star.influencerId)!.inCampaign, "Approved");
+  // Someone who sees only Cotton Print Club cannot list a Ridhi campaign's creators at all.
+  assert.deepEqual(await inviteBackList(allowed({ id: user.id, brandId: "cotton-print-club", viewBrand: null }), next), []);
+  const again = await inviteBack({ campaignId: next.id, influencerIds: [star.influencerId], userId: user.id, scope });
+  assert.ok(again.ok && again.invited === 0 && /already in this campaign/.test(again.skipped[0].reason));
+
+  // Only open campaigns, only inside the person's brand; history from another brand does not count.
+  assert.match((await inviteBack({ campaignId: closed.id, influencerIds: [good.influencerId], userId: user.id, scope }) as { error: string }).error, /is finished/);
+  const cpcOnly = allowed({ id: user.id, brandId: "cotton-print-club", viewBrand: null });
+  assert.deepEqual(await inviteBack({ campaignId: next.id, influencerIds: [good.influencerId], userId: user.id, scope: cpcOnly }), { ok: false, error: "That campaign is not available." });
+  const crossBrand = await inviteBack({ campaignId: cpc.id, influencerIds: [good.influencerId], userId: user.id, scope: cpcOnly });
+  assert.ok(crossBrand.ok && crossBrand.invited === 0 && crossBrand.skipped[0].name === "A creator", "a Ridhi creator is not named to a Cotton Print Club user");
+
+  // The composer opens on the welcome-back template, or on the usual first message when there is none.
+  const templates = [
+    { id: "t1", name: "First touch", purpose: "first" },
+    { id: "t2", name: "Welcome back", purpose: "welcome_back" },
+  ];
+  assert.equal(pickTemplate(templates, "welcome_back", "dm")?.id, "t2");
+  assert.equal(pickTemplate(templates.slice(0, 1), "welcome_back", "dm")?.id, "t1");
+});

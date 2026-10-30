@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { Prisma, type Platform } from "@prisma/client";
+import { Prisma, TemplatePurpose, type Platform } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
@@ -24,7 +24,8 @@ const isUniqueViolation = (error: unknown) =>
 
 /* ------------------------------------------------------------------ templates */
 
-const PURPOSES = ["first", "followup", "agreed", "selection", "reminder", "other"] as const;
+/** Every purpose the template form offers, so a delivery note or the upload template can be edited too. */
+const PURPOSES: readonly TemplatePurpose[] = Object.values(TemplatePurpose);
 
 export async function saveTemplate(_prev: FormState, formData: FormData): Promise<FormState> {
   const admin = await adminOrNull();
@@ -32,7 +33,7 @@ export async function saveTemplate(_prev: FormState, formData: FormData): Promis
 
   const id = field(formData, "id");
   const name = field(formData, "name");
-  const purpose = field(formData, "purpose") as (typeof PURPOSES)[number];
+  const purpose = field(formData, "purpose") as TemplatePurpose;
   const body = field(formData, "body");
   if (name.length < 2 || name.length > 80) return { error: "Give the template a name of 2 to 80 characters." };
   if (!PURPOSES.includes(purpose)) return { error: "Choose a purpose." };

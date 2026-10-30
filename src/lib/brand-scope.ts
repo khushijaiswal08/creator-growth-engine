@@ -56,6 +56,15 @@ function scopeFor(brandId: string | null): BrandScope {
   };
 }
 
+/**
+ * One brand's records inside what the person may see, for work that belongs
+ * to a single brand (who counts as proven for one brand's campaign, say).
+ * Null when that brand is outside the scope.
+ */
+export function withinBrand(scope: BrandScope, brandId: string): BrandScope | null {
+  return scope.includes(brandId) ? scopeFor(brandId) : null;
+}
+
 /** What this person may open or change. */
 export function allowed(user: BrandViewer): BrandScope {
   return scopeFor(user.brandId);

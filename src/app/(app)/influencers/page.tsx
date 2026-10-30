@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { Plus, Search, Trophy, Upload } from "lucide-react";
+import { Plus, Search, Trophy, Upload, UserPlus } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
@@ -83,6 +83,12 @@ export default async function InfluencersPage({
           <Link id="creators-ranking" href="/influencers/ranking">
             <Trophy strokeWidth={2.4} />
             Ranking
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link id="creators-invite-back" href="/influencers/invite-back">
+            <UserPlus strokeWidth={2.4} />
+            Invite back
           </Link>
         </Button>
         <Button asChild variant="action">

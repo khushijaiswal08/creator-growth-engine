@@ -111,6 +111,16 @@ Thank you!
 {sender}, {brand}`,
   },
   {
+    // Also added to existing databases by the migration 20261030170100_welcome_back_template.
+    name: "Welcome back",
+    purpose: "welcome_back",
+    body: `Hi {name}!
+
+It's {sender} from {brand}. We loved the content you made with us last time, and we have new pieces we think you would enjoy. Would you like to choose another one as a gift? As before, there is no obligation to post.
+
+{sender}`,
+  },
+  {
     name: "Amazon: first message",
     purpose: "first",
     body: `Hi {name},

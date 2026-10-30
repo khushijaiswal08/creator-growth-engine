@@ -69,10 +69,12 @@ export function defaultDestination(destinations: Destination[], status: CreatorS
 /**
  * The template for a purpose on a channel. Templates whose name mentions
  * Amazon are written for the Creator Connections thread (short, asking for
- * an email or handle) and are used only there.
+ * an email or handle) and are used only there. With no welcome-back
+ * template left, a creator invited back gets the usual first message.
  */
 export function pickTemplate<T extends { id: string; name: string; purpose: string }>(templates: T[], purpose: string, channel: Channel): T | undefined {
   const forPurpose = templates.filter((template) => template.purpose === purpose);
+  if (forPurpose.length === 0 && purpose === "welcome_back") return pickTemplate(templates, "first", channel);
   const amazonOnes = forPurpose.filter((template) => /amazon/i.test(template.name));
   const plainOnes = forPurpose.filter((template) => !/amazon/i.test(template.name));
   if (channel === "amazon") return amazonOnes[0] ?? plainOnes[0] ?? templates[0];

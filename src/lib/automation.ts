@@ -32,6 +32,7 @@ const creatorSelect = {
   nextAction: true,
   nextActionDueAt: true,
   waitingOn: true,
+  invitedBackAt: true,
   campaign: {
     select: {
       followUpAfterDays: true,
@@ -67,6 +68,7 @@ const toInput = (creator: LoadedCreator, status: CreatorStatus = creator.status)
   gift: creator.giftOrders[0] ?? null,
   filesToReview: creator._count.contentAssets,
   changesAskedAt: creator.contentAssets[0]?.reviewedAt ?? null,
+  invitedBack: creator.invitedBackAt !== null,
 });
 
 /**

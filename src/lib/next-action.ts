@@ -43,6 +43,8 @@ export type NextActionInput = {
   filesToReview?: number;
   /** When someone last asked for changes to one of the creator's files, if any file is waiting on changes. */
   changesAskedAt?: Date | null;
+  /** A proven creator a person invited back: the first message is a welcome back, not a cold introduction. */
+  invitedBack?: boolean;
 };
 
 export type NextAction = {
@@ -71,7 +73,7 @@ export function nextActionFor(input: NextActionInput, timings: CampaignTimings, 
 
     case "approved":
     case "outreach_scheduled":
-      return { action: "Send the first message", dueAt: now, waitingOn: "team" };
+      return { action: input.invitedBack ? "Send the welcome-back message" : "Send the first message", dueAt: now, waitingOn: "team" };
 
     case "contacted":
       return input.lastContactedAt
@@ -177,6 +179,7 @@ const ACTION_TEMPLATES: Record<string, TemplatePurpose> = {
   "Content is overdue: chase the creator": "reminder",
   "Send the product selection link": "selection",
   "Send the first message": "first",
+  "Send the welcome-back message": "welcome_back",
   "Tell the creator what to change": "upload",
 };
 

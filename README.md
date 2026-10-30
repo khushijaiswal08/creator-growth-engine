@@ -900,6 +900,25 @@ stand-in; switched on per brand by the SP-API keys. Until then the Amazon file w
 4. Amazon makes you rotate the client secret every 180 days (Develop Apps > LWA credentials >
    Rotate secret); put the new one in Netlify and deploy within the 7 days the old one keeps working.
 
+## Phase 3J: Invite back (repeat collaborations)
+
+Creators who already delivered content, ready to be gifted again. Creators > Invite back (also from
+the Ranking page and a campaign's menu).
+
+- **Who is listed.** Creators rated Star or Good bet, on the same grade the Ranking shows, from their
+  history inside the person's brand. Archived creators never appear. A creator on the do-not-contact
+  list or blocked in any campaign is shown but cannot be ticked; so is one working with us right now
+  in another campaign, and one already in the chosen campaign.
+- **Inviting.** Pick an open campaign (active, draft or paused), tick the creators, press Invite. They
+  join the campaign as Approved (a person's decision, logged in the activity), and Home shows "Send the
+  welcome-back message" with the **Welcome back** template. Nothing is sent by the invite.
+- **Gifting again.** The repeat-gift rule still applies: a gift within 90 days of the last one waits
+  for a person's approval. The list shows the date until which that is so.
+- **Code:** `src/lib/invite-back.ts` (the same rules for the list and the button),
+  `src/actions/invite-back.ts`, `src/components/invite-back-table.tsx`,
+  `/influencers/invite-back`. Migrations `20261030170000_invite_back` and
+  `20261030170100_welcome_back_template`.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

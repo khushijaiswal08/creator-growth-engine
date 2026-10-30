@@ -1,4 +1,4 @@
-import { Users } from "lucide-react";
+import { UserPlus, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
@@ -174,6 +174,12 @@ export default async function RankingPage({
   return (
     <>
       <PageHeader title="Creator ranking" meta={`${rows.length} creators · ${SORTS[sort].toLowerCase()}${reversed ? ", reversed" : ""}`}>
+        <Button asChild variant="outline">
+          <Link href="/influencers/invite-back">
+            <UserPlus strokeWidth={2.4} />
+            Invite back
+          </Link>
+        </Button>
         <Button asChild variant="outline">
           <Link href="/influencers">
             <Users strokeWidth={2.4} />

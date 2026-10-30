@@ -155,6 +155,11 @@ export default async function CampaignPage({ params, searchParams }: { params: P
             <Link href={`/campaigns/${campaign.id}/review`} className={MENU_ITEM_CLASS}>
               Open the review queue
             </Link>
+            {campaign.status !== "completed" && campaign.status !== "archived" ? (
+              <Link href={`/influencers/invite-back?campaign=${campaign.id}`} className={MENU_ITEM_CLASS}>
+                Invite back proven creators
+              </Link>
+            ) : null}
             {isAdmin ? (
               <Link href={tabHref("discovery")} className={MENU_ITEM_CLASS}>
                 Run discovery or scoring

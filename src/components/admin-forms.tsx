@@ -34,6 +34,7 @@ function FormMessage({ state }: { state: FormState | UserFormState }) {
 
 const PURPOSE_LABELS: Record<TemplatePurpose, string> = {
   first: "First message",
+  welcome_back: "Welcome back (invited back)",
   followup: "Follow-up",
   agreed: "After they agree",
   selection: "Product selection link",

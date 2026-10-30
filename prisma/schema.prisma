@@ -80,6 +80,7 @@ enum TemplatePurpose {
   arrival // a few days later: did everything arrive as expected?
   deadline // the agreed posting date is here
   upload // asks the creator to send their original files through the upload link
+  welcome_back // the first message to a proven creator invited back to a new campaign
 }
 
 enum ContentKind {
@@ -306,6 +307,8 @@ model CampaignCreator {
   uploadToken        String?            @unique
   uploadSentAt       DateTime?
   uploadExpiresAt    DateTime?
+  // Set when a person invited a proven creator back from the Invite back list: the first message is a welcome back.
+  invitedBackAt      DateTime?
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
