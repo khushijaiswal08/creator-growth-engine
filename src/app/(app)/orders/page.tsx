@@ -11,6 +11,7 @@ import { viewed } from "@/lib/brand-scope";
 import { BRANDS, brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { approvalChecks, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference } from "@/lib/gifts";
+import { mcfConfigured } from "@/lib/mcf";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Gifts" };
@@ -47,7 +48,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       include: {
         product: { select: { title: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true, stock: true } },
         campaignCreator: {
-          select: { id: true, influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { id: true, name: true, arrivalCheckDays: true } }, influencer: { select: { id: true, name: true } } },
+          select: { id: true, influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { id: true, name: true, brandId: true, arrivalCheckDays: true } }, influencer: { select: { id: true, name: true } } },
         },
       },
     }),
@@ -91,6 +92,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       campaignCreatorId: order.campaignCreator.id,
       arrivalCheckDays: order.campaignCreator.campaign.arrivalCheckDays,
       firstDeliveryInCampaign: !campaignsWithDelivery.has(order.campaignCreator.campaign.id),
+      // One-click Amazon orders, when the brand's SP-API keys are set; otherwise the Amazon file.
+      amazon: { enabled: mcfConfigured(order.campaignCreator.campaign.brandId), sentAt: order.mcfSentAt, status: order.mcfStatus, error: order.mcfError, trackingLink: order.trackingLink },
       checks: CHECKED.has(order.status)
         ? await approvalChecks({
             influencerId: order.campaignCreator.influencerId,

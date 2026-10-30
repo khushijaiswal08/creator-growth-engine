@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { decideGift, markDelivered } from "@/actions/gifts";
+import { SendToAmazon } from "@/components/send-to-amazon";
 import { Avatar } from "@/components/avatar";
 import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
@@ -49,6 +50,7 @@ export type GiftRow = {
   arrivalCheckDays: number;
   /** True when no gift in this campaign has been delivered yet: delivering this one is a milestone. */
   firstDeliveryInCampaign: boolean;
+  amazon: { enabled: boolean; sentAt: Date | null; status: string | null; error: string | null; trackingLink: string | null };
   /** The gifting rules, each passed or not. Empty for closed orders. */
   checks: { rule: string; passed: boolean; reason: string | null }[];
 };
@@ -78,7 +80,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
   const rachna = useRachna();
   const open = orders.find((order) => order.id === openId) ?? null;
 
@@ -104,11 +106,12 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
     });
   }
 
-  function run(label: string, work: () => Promise<void>) {
+  /** Runs an action; a text it returns (Amazon refusing a cancel, say) replaces the usual notice. */
+  function run(label: string, work: () => Promise<unknown>) {
     startTransition(async () => {
-      await work();
+      const said = await work();
       setSelected(new Set());
-      setNotice(label);
+      setNotice(typeof said === "string" && said ? { text: said, refused: true } : { text: label, refused: false });
       router.refresh();
     });
   }
@@ -117,7 +120,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
     const text = rows.map((order) => `${order.reference}\t${addressOf(order)}${order.phone ? `\t${order.phone}` : ""}`).join("\n");
     try {
       await navigator.clipboard.writeText(text);
-      setNotice(`${rows.length === 1 ? "Address" : `${rows.length} addresses`} copied.`);
+      setNotice({ text: `${rows.length === 1 ? "Address" : `${rows.length} addresses`} copied.`, refused: false });
     } catch {
       window.prompt("Copy these addresses:", text);
     }
@@ -145,7 +148,14 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                   disabled={pending}
                   onClick={() => {
                     if (window.confirm(`Cancel ${cancellable.length === 1 ? "this order" : `${cancellable.length} orders`}? The creator will not receive the gift.`)) {
-                      run(`${cancellable.length} cancelled.`, async () => { for (const order of cancellable) await decideGift(order.id, "cancel"); });
+                      run(`${cancellable.length} cancelled.`, async () => {
+                        const refused: string[] = [];
+                        for (const order of cancellable) {
+                          const said = await decideGift(order.id, "cancel");
+                          if (said) refused.push(`${order.reference}: ${said}`);
+                        }
+                        return refused.join(" ");
+                      });
                     }
                   }}
                 >
@@ -162,8 +172,8 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
             </span>
           )}
           {notice ? (
-            <span role="status" className="text-xs text-success-text">
-              {notice}
+            <span role={notice.refused ? "alert" : "status"} className={cn("text-xs", notice.refused ? "font-semibold text-danger-text" : "text-success-text")}>
+              {notice.text}
             </span>
           ) : null}
           <form method="get" className="ml-auto flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
@@ -392,6 +402,8 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               </div>
             ) : null}
 
+            {open.amazon.enabled && (open.status === "approved" || open.amazon.sentAt) ? <SendToAmazon key={open.id} gift={{ id: open.id, reference: open.reference, giftStatus: open.status, sentAt: open.amazon.sentAt, amazonStatus: open.amazon.status, error: open.amazon.error }} /> : null}
+
             {open.status !== "needs_approval" && open.status !== "cancelled" ? (
               <div>
                 <p className="label mb-1.5">Tracking</p>
@@ -413,7 +425,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               ) : null}
               {open.trackingNumber ? (
                 <Button asChild variant="outline">
-                  <a href={trackingUrl(open.carrier, open.trackingNumber)} target="_blank" rel="noopener noreferrer">
+                  <a href={open.amazon.trackingLink ?? trackingUrl(open.carrier, open.trackingNumber)} target="_blank" rel="noopener noreferrer">
                     Track parcel
                   </a>
                 </Button>
@@ -430,7 +442,11 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                 </Button>
               ) : null}
             </div>
-            {open.status === "needs_approval" ? <p className="text-xs text-muted-foreground">Approving writes the rules into the activity log and adds this order to the next Amazon file.</p> : null}
+            {open.status === "needs_approval" ? (
+              <p className="text-xs text-muted-foreground">
+                {open.amazon.enabled ? "Approving writes the rules into the activity log; then send it to Amazon from here, or with the next Amazon file." : "Approving writes the rules into the activity log and adds this order to the next Amazon file."}
+              </p>
+            ) : null}
           </div>
         </aside>
       ) : null}

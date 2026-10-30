@@ -9,6 +9,7 @@ import { db } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
 import { applyTracking, loadGift } from "@/lib/gift-flow";
 import { giftReference } from "@/lib/gifts";
+import { cancelAtAmazon } from "@/lib/mcf-flow";
 import { requireUser } from "@/lib/session";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -25,23 +26,39 @@ async function giftInScope(giftId: string, scope: BrandScope): Promise<boolean> 
   return (await db.giftOrder.count({ where: { id: giftId, ...scope.gifts } })) > 0;
 }
 
-/** A person approves or cancels a gift order the rules could not approve on their own. */
-export async function decideGift(giftId: string, decision: "approve" | "cancel"): Promise<void> {
+/**
+ * A person approves or cancels a gift order the rules could not approve on
+ * their own. A gift that went to Amazon is cancelled there first; when Amazon
+ * refuses (it is already packing), the gift stays as it is and the reason is
+ * returned for the screen. Returns null when nothing needs saying.
+ */
+export async function decideGift(giftId: string, decision: "approve" | "cancel"): Promise<string | null> {
   const user = await requireUser();
-  if (!(await giftInScope(giftId, allowed(user)))) return;
+  if (!(await giftInScope(giftId, allowed(user)))) return null;
   const gift = await loadGift(giftId);
-  if (!gift) return;
-  if (decision === "approve" && gift.status !== "needs_approval") return;
-  if (decision === "cancel" && (gift.status === "delivered" || gift.status === "cancelled")) return;
+  if (!gift) return null;
+  if (decision === "approve" && gift.status !== "needs_approval") return null;
+  if (decision === "cancel" && (gift.status === "delivered" || gift.status === "cancelled")) return null;
+  let sentAt: Date | null = null;
+  if (decision === "cancel") {
+    const amazon = await cancelAtAmazon(giftId);
+    if (!amazon.ok) return amazon.error;
+    sentAt = amazon.sentAt;
+  }
 
-  await db.$transaction(async (tx) => {
-    await tx.giftOrder.update({
-      where: { id: giftId },
+  const changed = await db.$transaction(async (tx) => {
+    // Written only if the gift is still as it was seen: nobody approved it, sent it to Amazon or closed it meanwhile.
+    const written = await tx.giftOrder.updateMany({
+      where:
+        decision === "approve"
+          ? { id: giftId, status: "needs_approval" }
+          : { id: giftId, mcfSentAt: sentAt, status: { notIn: ["delivered", "cancelled"] } },
       data:
         decision === "approve"
           ? { status: "approved", approvedById: user.id, approvedAt: new Date() }
           : { status: "cancelled" },
     });
+    if (written.count === 0) return false;
     await logActivity(tx, {
       userId: user.id,
       kind: "note",
@@ -52,9 +69,12 @@ export async function decideGift(giftId: string, decision: "approve" | "cancel")
           ? `Gift order approved (${gift.product.title}, SKU ${gift.product.sku}).`
           : `Gift order cancelled (${gift.product.title}, SKU ${gift.product.sku}).`,
     });
+    return true;
   });
+  if (!changed) return decision === "cancel" ? "This gift changed while it was being cancelled (it may have just gone to Amazon). Open it again and check before cancelling." : null;
   await refreshNextAction(gift.campaignCreator.id);
   revalidateGift(gift.campaignCreator);
+  return null;
 }
 
 /** One click on the Gift orders screen: the parcel arrived today. */

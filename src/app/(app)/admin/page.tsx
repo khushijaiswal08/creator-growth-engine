@@ -6,6 +6,9 @@ import { formatUsd } from "@/lib/model-prices";
 import { emailConfigured } from "@/lib/email";
 import { formatDateTime } from "@/lib/format";
 import { hashtagBudget, HASHTAG_LIMIT } from "@/lib/hashtag-quota";
+import { mcfConfigured } from "@/lib/mcf";
+import { BRANDS } from "@/lib/brands";
+import { storageMode } from "@/lib/content-storage";
 import { scoringConfigured, scoringModel } from "@/lib/scoring";
 import { requireAdmin } from "@/lib/session";
 
@@ -29,6 +32,8 @@ export default async function AdminPage() {
       setting: "META_ACCESS_TOKEN and IG_BUSINESS_ID",
     },
     { name: `AI fit scoring (${scoringModel()})`, ready: scoringConfigured(), setting: "ANTHROPIC_API_KEY" },
+    { name: "Content library storage (Cloudflare R2)", ready: storageMode() === "s3", setting: "CONTENT_S3_ENDPOINT, CONTENT_S3_BUCKET, CONTENT_S3_ACCESS_KEY_ID and CONTENT_S3_SECRET_ACCESS_KEY" },
+    ...BRANDS.map((brand) => ({ name: `One-click Amazon orders, ${brand.name}`, ready: mcfConfigured(brand.id), setting: `SPAPI_LWA_CLIENT_ID, SPAPI_LWA_CLIENT_SECRET and SPAPI_REFRESH_TOKEN_${brand.id.toUpperCase().replace(/-/g, "_")}` })),
   ];
 
   return (

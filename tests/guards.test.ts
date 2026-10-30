@@ -34,6 +34,22 @@ const graphCalls: string[] = [];
 /** Runs before the stand-in Anthropic API answers; lets a test change the database mid-flight. */
 let beforeAnthropicAnswers: (prompt: string) => Promise<void> = async () => {};
 let anthropicRequests = 0;
+/** The stand-in Amazon MCF: orders it has taken, and how it should behave next. */
+const spapi = {
+  orders: new Map<string, { status: string; tracking: string | null; packageStatus: string; body: Record<string, unknown>; pkg?: number }>(),
+  fulfillable: true,
+  /** after-store: Amazon took it but the answer is lost; after-store-down: and then Amazon cannot be reached at all. */
+  createFails: "" as "" | "after-store" | "after-store-down" | "reject",
+  /** Amazon cannot be reached for order lookups. */
+  getFails: false,
+  /** Answers an unknown order the way the 2020-07-01 version also does: 400 InvalidInput instead of 404. */
+  notFoundAs400: false,
+  /** Runs while Amazon is taking an order: something happening in the portal at that moment. */
+  onCreate: null as null | (() => Promise<void>),
+  nextPkg: 7,
+  tokenCalls: 0,
+  calls: [] as string[],
+};
 
 before(async () => {
   pglite = await PGlite.create();
@@ -55,6 +71,12 @@ before(async () => {
     AUTH_SECRET: randomBytes(32).toString("base64"),
     YOUTUBE_API_KEY: "test-key",
     YOUTUBE_API_BASE_URL: `http://127.0.0.1:${STUB_PORT}/youtube`,
+    // One-click Amazon MCF is switched on for Ridhi only, against the stand-in.
+    SPAPI_BASE_URL: `http://127.0.0.1:${STUB_PORT}/spapi`,
+    SPAPI_LWA_URL: `http://127.0.0.1:${STUB_PORT}/lwa`,
+    SPAPI_LWA_CLIENT_ID: "test-client",
+    SPAPI_LWA_CLIENT_SECRET: "test-secret",
+    SPAPI_REFRESH_TOKEN_RIDHI: "test-refresh",
     // 350 units a day: two 100-unit searches fit under 80% (280), a third does not.
     YOUTUBE_DAILY_QUOTA: "350",
   });
@@ -147,6 +169,67 @@ before(async () => {
           stop_sequence: null,
           usage: { input_tokens: 100, output_tokens: 20 },
         });
+      }
+
+      if (url.pathname === "/lwa") {
+        spapi.tokenCalls += 1;
+        return new URLSearchParams(body).get("refresh_token") === "test-refresh" ? send(200, { access_token: "test-access", token_type: "bearer", expires_in: 3600 }) : send(400, { error_description: "bad refresh token" });
+      }
+      if (url.pathname.startsWith("/spapi/fba/outbound/2020-07-01/")) {
+        if (req.headers["x-amz-access-token"] !== "test-access") return send(403, { errors: [{ code: "Unauthorized", message: "Access to requested resource is denied." }] });
+        const path = url.pathname.slice("/spapi/fba/outbound/2020-07-01".length);
+        spapi.calls.push(`${req.method} ${path}`);
+        if (req.method === "POST" && path === "/fulfillmentOrders/preview") {
+          return send(200, {
+            payload: {
+              fulfillmentPreviews: [
+                {
+                  shippingSpeedCategory: "Standard",
+                  isFulfillable: spapi.fulfillable,
+                  estimatedFees: [{ name: "FBAPerUnitFulfillmentFee", amount: { currencyCode: "USD", value: "5.10" } }, { name: "FBATransportationFee", amount: { currencyCode: "USD", value: "0.40" } }],
+                  fulfillmentPreviewShipments: [{ earliestArrivalDate: "2026-11-04T00:00:00Z", latestArrivalDate: "2026-11-06T00:00:00Z" }],
+                  unfulfillablePreviewItems: spapi.fulfillable ? [] : [{ itemUnfulfillableReasons: ["InventoryUnavailable"] }],
+                },
+              ],
+            },
+          });
+        }
+        if (req.method === "POST" && path === "/fulfillmentOrders") {
+          const order = JSON.parse(body) as Record<string, unknown>;
+          if (spapi.createFails === "reject") return send(400, { errors: [{ code: "InvalidInput", message: "Invalid postal code." }] });
+          // Amazon refuses a second order with the same reference.
+          if (spapi.orders.has(String(order.sellerFulfillmentOrderId))) return send(400, { errors: [{ code: "InvalidInput", message: "Duplicate sellerFulfillmentOrderId." }] });
+          spapi.orders.set(String(order.sellerFulfillmentOrderId), { status: "Received", tracking: null, packageStatus: "IN_TRANSIT", body: order, pkg: spapi.nextPkg++ });
+          if (spapi.onCreate) await spapi.onCreate();
+          // Amazon took it, but the answer is lost on the way back (and, with "down", Amazon then stops answering).
+          if (spapi.createFails === "after-store-down") spapi.getFails = true;
+          if (spapi.createFails === "after-store" || spapi.createFails === "after-store-down") return send(503, { errors: [{ code: "ServiceUnavailable", message: "Try again later." }] });
+          return send(200, {});
+        }
+        const one = /^\/fulfillmentOrders\/([^/]+)(\/cancel)?$/.exec(path);
+        if (one) {
+          if (spapi.getFails) return send(503, { errors: [{ code: "ServiceUnavailable", message: "Try again later." }] });
+          const order = spapi.orders.get(decodeURIComponent(one[1]));
+          if (!order) return spapi.notFoundAs400 ? send(400, { errors: [{ code: "InvalidInput", message: "Unable to get order. Order not found." }] }) : send(404, { errors: [{ code: "NotFound", message: "Requested order not found." }] });
+          if (req.method === "PUT" && one[2]) {
+            if (order.status !== "Received" && order.status !== "Planning") return send(400, { errors: [{ code: "InvalidInput", message: "Order cannot be cancelled in its current state." }] });
+            order.status = "Cancelled";
+            return send(200, {});
+          }
+          return send(200, {
+            payload: {
+              fulfillmentOrder: { sellerFulfillmentOrderId: one[1], fulfillmentOrderStatus: order.status },
+              fulfillmentShipments: order.tracking
+                ? [{ amazonShipmentId: "S1", fulfillmentCenterId: "PHX7", fulfillmentShipmentStatus: "SHIPPED", shippingDate: "2026-11-02T10:00:00Z", fulfillmentShipmentItem: [], fulfillmentShipmentPackage: [{ packageNumber: order.pkg ?? 0, carrierCode: "UPS", trackingNumber: order.tracking }] }]
+                : [],
+            },
+          });
+        }
+        if (req.method === "GET" && path === "/tracking") {
+          const order = [...spapi.orders.values()].find((entry) => entry.pkg === Number(url.searchParams.get("packageNumber")));
+          return send(200, { payload: { packageNumber: Number(url.searchParams.get("packageNumber")), currentStatus: order?.packageStatus ?? "IN_TRANSIT", customerTrackingLink: "https://www.swiship.com/track?id=TBA1", trackingEvents: order?.packageStatus === "DELIVERED" ? [{ eventCode: "EVENT_301", eventDate: "2026-11-05T15:00:00Z" }] : [] } });
+        }
+        return send(404, { errors: [{ code: "NotFound", message: "unknown path" }] });
       }
 
       send(404, { error: { message: "unknown path" } });
@@ -2034,4 +2117,228 @@ test("Business Reports give monthly units per product, replace a month when uplo
   const wrong = await importBusinessReport({ brandId: "ridhi", userId: user.id, fileName: "cpc.csv", month: october, grid: [header, ["B0CPCOTHR1", "Quilt", "", "3", "$90"], ["B0CPCOTHR2", "Quilt", "", "3", "$90"], ["B0CPCOTHR3", "Quilt", "", "3", "$90"], ["B0CPCOTHR4", "Quilt", "", "3", "$90"]] });
   assert.deepEqual(wrong, { ok: false, error: "Most products in this file belong to Cotton Print Club, not Ridhi Block Print. Check the brand and upload it again." });
   assert.equal(await db.productMonthlySales.count({ where: { brandId: "ridhi", month: october } }), 1, "the refused file changed nothing");
+});
+
+test("one-click Amazon orders: a preview first, one order however often the button is pressed, and Amazon's answers move the creator on", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { previewGiftForAmazon, sendGiftToAmazon, syncAmazonOrders, cancelAtAmazon } = await import("@/lib/mcf-flow");
+  const { giftReference } = await import("@/lib/gifts");
+  const { mcfConfigured, addressProblems, countryCode } = await import("@/lib/mcf");
+  const { user, campaign } = await makeUserAndCampaign("mcf", ["home decor"]);
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+  const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-MCF-01", title: "Tablecloth", stock: 9 } });
+  const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
+  const gift = async (handle: string, overrides: Record<string, string> = {}) => {
+    const creator = await makeCreator(campaign.id, handle, { status: "address_collected" });
+    return db.giftOrder.create({ data: { campaignCreatorId: creator.id, productId: product.id, status: "approved", ...sealAddress({ shipName: "Emma Walsh", address1: "12 Pine St", address2: null, city: "Portland", state: "or", postalCode: "97205", country: "United States", phone: null, ...overrides }) } });
+  };
+
+  // Switched on per brand: Ridhi has keys in this test, Cotton Print Club does not.
+  assert.equal(mcfConfigured("ridhi"), true);
+  assert.equal(mcfConfigured("cotton-print-club"), false);
+  assert.equal(countryCode("United States"), "US");
+  assert.deepEqual(addressProblems({ name: "x", addressLine1: "x", city: "x", postalCode: "x", countryCode: "US", stateOrRegion: "Oregon" }), ["the two-letter state"]);
+
+  // A preview asks Amazon and changes nothing.
+  const first = await gift("mcf_emma");
+  const preview = await previewGiftForAmazon(first.id, scope);
+  assert.ok(preview.ok);
+  if (preview.ok) assert.deepEqual([preview.preview.fulfillable, preview.preview.feesUsd, preview.preview.earliestArrival], [true, 5.5, "2026-11-04T00:00:00Z"]);
+  assert.equal((await db.giftOrder.findUniqueOrThrow({ where: { id: first.id } })).mcfSentAt, null);
+  assert.equal(spapi.orders.size, 0, "nothing ordered by a preview");
+
+  // Placing it: one order at Amazon under the portal's own reference, with the address Amazon needs.
+  const sent = await sendGiftToAmazon(first.id, scope, user.id);
+  assert.deepEqual(sent, { ok: true, reference: giftReference(first.id) });
+  const placed = spapi.orders.get(giftReference(first.id))!;
+  const address = placed.body.destinationAddress as Record<string, string>;
+  assert.deepEqual([address.name, address.stateOrRegion, address.countryCode, placed.body.shippingSpeedCategory, placed.body.fulfillmentAction], ["Emma Walsh", "OR", "US", "Standard", "Ship"]);
+  assert.deepEqual(placed.body.items, [{ sellerSku: "BR-MCF-01", sellerFulfillmentOrderItemId: `${giftReference(first.id)}-1`, quantity: 1 }]);
+  let row = await db.giftOrder.findUniqueOrThrow({ where: { id: first.id } });
+  assert.deepEqual([row.status, row.orderNumber], ["ordered", giftReference(first.id)]);
+  // Pressing again never orders twice.
+  assert.match((await sendGiftToAmazon(first.id, scope, user.id) as { error: string }).error, /already gone to Amazon/);
+  assert.equal([...spapi.calls].filter((call) => call === "POST /fulfillmentOrders").length, 1);
+
+  // A lost answer: Amazon has the order, so the portal counts it as sent rather than trying again.
+  const lost = await gift("mcf_lost");
+  spapi.createFails = "after-store";
+  assert.ok((await sendGiftToAmazon(lost.id, scope, user.id)).ok);
+  // A refusal gives the gift back, with Amazon's reason, so it can be fixed and sent again.
+  const refused = await gift("mcf_refused");
+  spapi.createFails = "reject";
+  assert.match((await sendGiftToAmazon(refused.id, scope, user.id) as { error: string }).error, /Invalid postal code/);
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: refused.id } });
+  assert.deepEqual([row.mcfSentAt, row.status, row.mcfError], [null, "approved", "Invalid postal code."]);
+  spapi.createFails = "";
+  // An address Amazon would reject is caught before anything is sent.
+  const noState = await gift("mcf_nostate", { state: "Oregon" });
+  assert.match((await previewGiftForAmazon(noState.id, scope) as { error: string }).error, /two-letter state/);
+  // A gift that already went to Amazon with the Amazon file is linked, never ordered again.
+  const viaFile = await gift("mcf_file");
+  spapi.orders.set(giftReference(viaFile.id), { status: "Planning", tracking: null, packageStatus: "IN_TRANSIT", body: {} });
+  const filePreview = await previewGiftForAmazon(viaFile.id, scope);
+  assert.ok(filePreview.ok && filePreview.alreadyAtAmazon);
+  const postsBefore = spapi.calls.filter((call) => call === "POST /fulfillmentOrders").length;
+  assert.ok((await sendGiftToAmazon(viaFile.id, scope, user.id)).ok);
+  assert.equal(spapi.calls.filter((call) => call === "POST /fulfillmentOrders").length, postsBefore, "no second order placed");
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: viaFile.id } });
+  assert.deepEqual([row.status, row.mcfStatus], ["ordered", "Planning"], "linked with the status Amazon has, not a guess");
+  // A brand without keys keeps using the Amazon file.
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "cotton-print-club" } });
+  assert.match((await previewGiftForAmazon(noState.id, scope) as { error: string }).error, /not switched on for Cotton Print Club/);
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+
+  // Amazon ships it: the hourly sync records the tracking and the creator moves to "Product shipped".
+  placed.tracking = "1Z999AA10123456784";
+  placed.status = "Processing";
+  let summary = await syncAmazonOrders();
+  assert.ok(summary.shipped >= 1);
+  const shippedRow = await db.giftOrder.findUniqueOrThrow({ where: { id: first.id }, include: { campaignCreator: true } });
+  assert.deepEqual([shippedRow.status, shippedRow.carrier, shippedRow.trackingNumber, shippedRow.mcfStatus, shippedRow.mcfPackageNumber, shippedRow.trackingLink, shippedRow.campaignCreator.status], ["shipped", "UPS", "1Z999AA10123456784", "Processing", 7, "https://www.swiship.com/track?id=TBA1", "product_shipped"]);
+  // It arrives: delivered on Amazon's date, and the content clock starts.
+  placed.packageStatus = "DELIVERED";
+  placed.status = "Complete";
+  summary = await syncAmazonOrders();
+  assert.ok(summary.delivered >= 1);
+  const deliveredRow = await db.giftOrder.findUniqueOrThrow({ where: { id: first.id }, include: { campaignCreator: true } });
+  assert.deepEqual([deliveredRow.status, deliveredRow.deliveredAt?.toISOString(), deliveredRow.campaignCreator.status], ["delivered", "2026-11-05T15:00:00.000Z", "content_expected"]);
+
+  // An order Amazon gives up on becomes a problem for a person.
+  spapi.orders.get(giftReference(lost.id))!.status = "Unfulfillable";
+  await syncAmazonOrders();
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: lost.id } });
+  assert.equal(row.status, "exception");
+  assert.match(row.trackingStatus ?? "", /Amazon stopped the order \(Unfulfillable\)/);
+
+  // Cancelling asks Amazon first: allowed while it waits, refused once it is being packed.
+  const waiting = await gift("mcf_cancel");
+  assert.ok((await sendGiftToAmazon(waiting.id, scope, user.id)).ok);
+  const cancelled = await cancelAtAmazon(waiting.id);
+  assert.ok(cancelled.ok && cancelled.sentAt instanceof Date);
+  assert.equal(spapi.orders.get(giftReference(waiting.id))!.status, "Cancelled");
+  const packing = await gift("mcf_packing");
+  assert.ok((await sendGiftToAmazon(packing.id, scope, user.id)).ok);
+  spapi.orders.get(giftReference(packing.id))!.status = "Processing";
+  assert.match((await cancelAtAmazon(packing.id) as { error: string }).error, /already packing/);
+  // One sign-in served every call in this test.
+  assert.equal(spapi.tokenCalls, 1);
+});
+
+test("one-click Amazon orders: a send cut off half-way is settled, cancel follows what Amazon has, and a person's fix is not undone", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { previewGiftForAmazon, sendGiftToAmazon, syncAmazonOrders, cancelAtAmazon } = await import("@/lib/mcf-flow");
+  const { giftReference } = await import("@/lib/gifts");
+  const { user, campaign } = await makeUserAndCampaign("mcf2", ["home decor"]);
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+  const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-MCF-02", title: "Napkins", stock: 9 } });
+  const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
+  const gift = async (handle: string, data: Record<string, unknown> = {}) => {
+    const creator = await makeCreator(campaign.id, handle, { status: "address_collected" });
+    return db.giftOrder.create({ data: { campaignCreatorId: creator.id, productId: product.id, status: "approved", ...sealAddress({ shipName: "Ada Moss", address1: "4 Elm Rd", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null }), ...data } });
+  };
+  const later = (minutes: number) => new Date(Date.now() + minutes * 60_000);
+  const posts = () => spapi.calls.filter((call) => call === "POST /fulfillmentOrders").length;
+  const errorOf = (result: unknown) => (result as { error?: string }).error ?? "";
+
+  // Amazon's other way of saying "no such order" (400 InvalidInput) is read as "none", so sending still works.
+  spapi.notFoundAs400 = true;
+  const modern = await gift("mcf2_modern");
+  const modernPreview = await previewGiftForAmazon(modern.id, scope);
+  assert.ok(modernPreview.ok && !modernPreview.alreadyAtAmazon);
+  assert.ok((await sendGiftToAmazon(modern.id, scope, user.id)).ok);
+  spapi.notFoundAs400 = false;
+
+  // Amazon takes the order but then stops answering: the gift stays claimed, the person is told not to send it again.
+  const cut = await gift("mcf2_cut");
+  spapi.createFails = "after-store-down";
+  assert.match(errorOf(await sendGiftToAmazon(cut.id, scope, user.id)), /do not send it again/);
+  spapi.createFails = "";
+  spapi.getFails = false;
+  let row = await db.giftOrder.findUniqueOrThrow({ where: { id: cut.id } });
+  assert.ok(row.mcfSentAt, "the claim is kept while Amazon cannot say");
+  assert.equal(row.status, "approved");
+  assert.match(errorOf(await sendGiftToAmazon(cut.id, scope, user.id)), /already gone to Amazon/);
+  // The check leaves it alone while a send could still be under way, then links it.
+  await syncAmazonOrders(new Date());
+  assert.equal((await db.giftOrder.findUniqueOrThrow({ where: { id: cut.id } })).status, "approved");
+  const settled = await syncAmazonOrders(later(3));
+  assert.ok(settled.linked >= 1);
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: cut.id } });
+  assert.deepEqual([row.status, row.orderNumber, row.mcfStatus, row.mcfError], ["ordered", giftReference(cut.id), "Received", null]);
+
+  // Amazon unreachable from the start: nothing was ordered, so the check frees the gift to be sent again.
+  const down = await gift("mcf2_down");
+  spapi.getFails = true;
+  const postsBefore = posts();
+  assert.match(errorOf(await sendGiftToAmazon(down.id, scope, user.id)), /do not send it again/);
+  assert.equal(posts(), postsBefore, "no order placed while Amazon could not be asked first");
+  spapi.getFails = false;
+  await syncAmazonOrders(later(3));
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: down.id } });
+  assert.deepEqual([row.mcfSentAt, row.status], [null, "approved"]);
+  assert.match(row.mcfError ?? "", /never received/);
+  assert.ok((await sendGiftToAmazon(down.id, scope, user.id)).ok, "it can be sent again");
+
+  // An order Amazon already stopped under this reference is for a person to look at, never "Link it".
+  const stopped = await gift("mcf2_stopped");
+  spapi.orders.set(giftReference(stopped.id), { status: "Invalid", tracking: null, packageStatus: "IN_TRANSIT", body: {} });
+  assert.match(errorOf(await previewGiftForAmazon(stopped.id, scope)), /it is invalid/);
+
+  // Cancelled in the portal while Amazon was taking it: Amazon is asked to cancel straight away.
+  const racing = await gift("mcf2_race");
+  spapi.onCreate = async () => {
+    await db.giftOrder.update({ where: { id: racing.id }, data: { status: "cancelled" } });
+  };
+  assert.match(errorOf(await sendGiftToAmazon(racing.id, scope, user.id)), /cancelled/);
+  spapi.onCreate = null;
+  assert.equal(spapi.orders.get(giftReference(racing.id))!.status, "Cancelled");
+
+  // Cancel asks Amazon what it has, also for a gift sent with the Amazon file (never through the button).
+  const fileWaiting = await gift("mcf2_file_wait", { status: "ordered" });
+  spapi.orders.set(giftReference(fileWaiting.id), { status: "Received", tracking: null, packageStatus: "IN_TRANSIT", body: {} });
+  assert.deepEqual(await cancelAtAmazon(fileWaiting.id), { ok: true, sentAt: null });
+  assert.equal(spapi.orders.get(giftReference(fileWaiting.id))!.status, "Cancelled");
+  const filePacking = await gift("mcf2_file_pack", { status: "ordered" });
+  spapi.orders.set(giftReference(filePacking.id), { status: "Processing", tracking: null, packageStatus: "IN_TRANSIT", body: {} });
+  assert.match(errorOf(await cancelAtAmazon(filePacking.id)), /already packing/);
+  // Nothing at Amazon, or an order Amazon itself stopped: the portal may cancel, and Amazon is not asked to.
+  const nothing = await gift("mcf2_nothing");
+  assert.deepEqual(await cancelAtAmazon(nothing.id), { ok: true, sentAt: null });
+  const gaveUp = await gift("mcf2_gaveup", { status: "exception" });
+  spapi.orders.set(giftReference(gaveUp.id), { status: "Unfulfillable", tracking: null, packageStatus: "IN_TRANSIT", body: {} });
+  assert.ok((await cancelAtAmazon(gaveUp.id)).ok);
+  assert.ok(!spapi.calls.includes(`PUT /fulfillmentOrders/${giftReference(gaveUp.id)}/cancel`));
+  // A returned parcel (shipped, then marked a problem) can be closed.
+  const returned = await gift("mcf2_returned", { status: "exception" });
+  spapi.orders.set(giftReference(returned.id), { status: "Complete", tracking: null, packageStatus: "RETURNED", body: {} });
+  assert.ok((await cancelAtAmazon(returned.id)).ok);
+  // Amazon cannot be reached: refused, rather than guessing.
+  spapi.getFails = true;
+  assert.match(errorOf(await cancelAtAmazon(nothing.id)), /could not be reached/);
+  spapi.getFails = false;
+
+  // A delivery attempt is a note, not a problem; a parcel coming back is a problem; a person's fix stays.
+  const parcel = await gift("mcf2_parcel");
+  assert.ok((await sendGiftToAmazon(parcel.id, scope, user.id)).ok);
+  const order = spapi.orders.get(giftReference(parcel.id))!;
+  Object.assign(order, { status: "Complete", tracking: "1ZPARCEL0001", packageStatus: "DELIVERY_ATTEMPTED" });
+  await syncAmazonOrders(new Date(), { firstGiftId: parcel.id });
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: parcel.id } });
+  assert.deepEqual([row.status, row.trackingStatus, row.mcfPackageStatus, row.mcfPackageNumber], ["shipped", "In transit: delivery attempted", "DELIVERY_ATTEMPTED", order.pkg]);
+  order.packageStatus = "RETURNING";
+  await syncAmazonOrders(new Date(), { firstGiftId: parcel.id });
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: parcel.id } });
+  assert.equal(row.status, "exception");
+  assert.match(row.trackingStatus ?? "", /carrier reports returning/);
+  await db.giftOrder.update({ where: { id: parcel.id }, data: { status: "shipped", trackingStatus: "Carrier re-routing it" } });
+  await syncAmazonOrders(new Date(), { firstGiftId: parcel.id });
+  row = await db.giftOrder.findUniqueOrThrow({ where: { id: parcel.id } });
+  assert.deepEqual([row.status, row.trackingStatus], ["shipped", "Carrier re-routing it"], "the same Amazon status does not raise the problem again");
+
+  // The check keeps to its time and to brands with keys.
+  assert.equal((await syncAmazonOrders(new Date(), { budgetMs: -1 })).checked, 0);
+  assert.equal((await syncAmazonOrders(new Date(), { brandIds: ["cotton-print-club"] })).checked, 0);
 });

@@ -72,6 +72,10 @@ existing users keep their password.
 | `CONTENT_S3_ACCESS_KEY_ID` | for the content library | Access key of an R2 API token with Object Read & Write on that bucket only. |
 | `CONTENT_S3_SECRET_ACCESS_KEY` | for the content library | Its secret. |
 | `CONTENT_S3_REGION` | no | Default `auto`, which R2 expects. |
+| `SPAPI_LWA_CLIENT_ID` | for one-click Amazon orders | The private SP-API app's LWA client id. |
+| `SPAPI_LWA_CLIENT_SECRET` | for one-click Amazon orders | Its client secret (Amazon makes you rotate it every 180 days). |
+| `SPAPI_REFRESH_TOKEN_RIDHI`, `SPAPI_REFRESH_TOKEN_COTTON_PRINT_CLUB` | per brand | The refresh token from self-authorising the app on that brand's seller account. A brand without one keeps using the Amazon file. |
+| `SPAPI_BASE_URL` | no | Default `https://sellingpartnerapi-na.amazon.com`; `https://sandbox.sellingpartnerapi-na.amazon.com` for Amazon's sandbox. |
 
 A missing key never crashes anything: the feature reports "not configured". The Admin page
 shows which services are configured.
@@ -852,6 +856,49 @@ month. No Amazon API is needed: the team uploads the two files Amazon already gi
   `amazon-stats.ts`.
 - **Later, with an Amazon Ads API approval:** the same tables can be filled by the Attribution
   API instead of uploads.
+
+## Phase 3I: one-click Amazon orders (MCF)
+
+The manager's point 5, "MCF orders API like Shopify" (2026-10-30). Built and tested against a
+stand-in; switched on per brand by the SP-API keys. Until then the Amazon file works as before.
+
+- **Send to Amazon** (the gift drawer, approved gifts). The button first asks Amazon what it would
+  cost and when it would arrive (getFulfillmentPreview); nothing is ordered until the person presses
+  "Place the order". The portal's own reference (`CGE-...`, the same as in the Amazon file) is the
+  order id, so Amazon's own rule (one order per reference) and a claim on the gift together make a
+  second order impossible: two clicks, two people, a lost answer, or a gift already uploaded with the
+  Amazon file all end in one order (an order Amazon already has is only linked).
+- **What comes back.** About once an hour (the first job tick of each hour), and on "Check Amazon now",
+  the portal reads each sent gift's order, its packages and their tracking. Shipped, tracking and
+  delivered go through the same `applyTracking` as a pasted tracking file, so the creator moves to
+  "Product shipped" and then "Content expected" with the content clock from Amazon's delivery date. An
+  order Amazon stops (Unfulfillable, Invalid) or a parcel coming back (undeliverable, returning) becomes
+  a problem for a person, raised only when Amazon's status changes, so a person's fix is not undone
+  an hour later. "Delivery attempted" and "customer action" are notes; the gift stays shipped. The
+  check stops in time (about 4 seconds in the job tick, 6 on the button) and carries on next hour.
+- **A send cut off half-way.** When Amazon cannot say whether it took the order, the gift stays
+  claimed and the person is told not to send it again. The next check (after two minutes) links the
+  order if Amazon has it, or frees the gift with a note if Amazon never got it.
+- **Cancel** asks Amazon what it has under the reference, also for gifts sent with the Amazon file.
+  Nothing there, or an order Amazon already stopped: cancelled in the portal. Still waiting: Amazon
+  cancels it first. Packing or shipped: refused, so the portal never shows "cancelled" for a parcel on
+  its way (a gift already marked as a problem can be closed). A gift cancelled while Amazon was taking
+  it is cancelled at Amazon straight away.
+- **Code:** `src/lib/mcf.ts` (the API, version 2020-07-01; Amazon calls it legacy but has set no end
+  date, and version 2026-07-04 can replace it behind the same functions), `src/lib/mcf-flow.ts`,
+  `src/actions/mcf.ts`, `src/components/send-to-amazon.tsx`.
+
+**Switching it on (once per seller account, by the account's primary user).**
+
+1. Seller Central > Apps and Services > Develop Apps. Create a developer profile: Data access
+   "Private Developer: I build application(s) that integrate my own company with Amazon Services
+   APIs", role **Amazon Fulfillment**. Amazon reviews it and may ask questions (answer within 5 days).
+2. Develop Apps > Add new app client (SP-API). Then "Authorize app" for the brand's account: this
+   gives a **refresh token**. View the LWA credentials for the **client id** and **client secret**.
+3. Add `SPAPI_LWA_CLIENT_ID`, `SPAPI_LWA_CLIENT_SECRET` and `SPAPI_REFRESH_TOKEN_<BRAND>` to
+   Netlify and deploy. Admin > Connected services shows the brand as configured.
+4. Amazon makes you rotate the client secret every 180 days (Develop Apps > LWA credentials >
+   Rotate secret); put the new one in Netlify and deploy within the 7 days the old one keeps working.
 
 ## Phase 1 discovery and scoring
 

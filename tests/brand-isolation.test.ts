@@ -264,7 +264,7 @@ for (const [mine, theirs] of [
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
@@ -279,6 +279,8 @@ for (const [mine, theirs] of [
     await callAction(cookie, ids.get("updateCreatorStatus")!, [other.creatorId, "completed"]);
     await callAction(cookie, ids.get("saveAttributionLink")!, [other.creatorId, "https://www.amazon.com/dp/B0FORGED01?maas=m_forged&ref_=aa_maas", "forged"]);
     await callAction(cookie, ids.get("archiveAttributionLink")!, [other.linkId]);
+    await callAction(cookie, ids.get("previewForAmazon")!, [other.giftId]);
+    await callAction(cookie, ids.get("sendToAmazon")!, [other.giftId]);
     // A marketer naming the other brand still imports into their own: the account's brand wins.
     // (In the action wire format a leading "$" is escaped as "$$", as React's encodeReply does.)
     await callAction(cookie, ids.get("uploadBusinessReport")!, [{ brandId: theirs, rows: [["(Child) ASIN", "Units Ordered", "Ordered Product Sales"], ["B0FORGED01", "5", "$$50"]], fileName: "forged.csv", month: "2026-09" }]);
@@ -305,6 +307,7 @@ for (const [mine, theirs] of [
     assert.equal(afterwards.asset.archived, false, "file not removed by a forged call");
     assert.equal(afterwards.creator.status, before.creator.status, "status unchanged by a forged call");
     assert.equal(afterwards.gift.status, before.gift.status, "gift unchanged by a forged call");
+    assert.equal(afterwards.gift.mcfSentAt, null, "the other brand's gift not sent to Amazon by a forged call");
     assert.equal(afterwards.influencer.archived, false, "creator not archived by a forged call");
     // The one write that is allowed (the own-brand import) logs one line; nothing else did.
     assert.equal(afterwards.activity, before.activity + 1, "no activity written by forged calls");

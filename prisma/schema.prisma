@@ -719,6 +719,16 @@ model GiftOrder {
   trackingStatus    String?
   shippedAt         DateTime?
   deliveredAt       DateTime?
+  // One-click Amazon MCF (src/lib/mcf.ts): when the order was placed through the API (null for the
+  // bulk file), what Amazon last said, and the package Amazon is tracking.
+  mcfSentAt         DateTime?
+  mcfStatus         String?
+  mcfError          String?         @db.Text
+  mcfCheckedAt      DateTime?
+  mcfPackageNumber  Int?
+  // The parcel status Amazon last reported, so a problem is raised only when it changes.
+  mcfPackageStatus  String?
+  trackingLink      String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
@@ -726,6 +736,7 @@ model GiftOrder {
   product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   approvedBy      User?           @relation(fields: [approvedById], references: [id])
 
+  @@index([mcfSentAt, status])
   @@index([status])
   @@index([campaignCreatorId])
   @@index([orderNumber])
