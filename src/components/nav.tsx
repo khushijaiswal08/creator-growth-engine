@@ -73,6 +73,7 @@ const ADMIN_TABS = [
   { href: "/admin/products", label: "Products" },
   { href: "/admin/suppression", label: "Do-not-contact list" },
   { href: "/admin/calibration", label: "Scoring calibration" },
+  { href: "/admin/tidy-up", label: "Tidy up" },
   { href: "/admin/users", label: "Users" },
   { href: "/import", label: "Import" },
 ];

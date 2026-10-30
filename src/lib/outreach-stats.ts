@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { startOfDayInZone, startOfWeekInZone } from "@/lib/format";
+import { TIDY_NOTE } from "@/lib/tidy-up-rules";
 
 /**
  * One definition of every outreach figure, used by Today, the outreach
@@ -63,7 +64,7 @@ export async function personStats(period: Period, campaign: Prisma.CampaignWhere
     db.message.groupBy({ by: ["userId", "campaignCreatorId"], where: { direction: "outbound", sentAt: at, ...inCampaign } }),
     db.message.groupBy({ by: ["userId"], where: { direction: "inbound", sentAt: at, ...inCampaign }, _count: { _all: true } }),
     db.message.groupBy({ by: ["userId"], where: { direction: "outbound", sentAt: at, template: { purpose: "followup" }, ...inCampaign }, _count: { _all: true } }),
-    db.activity.groupBy({ by: ["userId"], where: { kind: "status_change", createdAt: at, body: { contains: " to Agreed" }, automated: false, ...inCampaign }, _count: { _all: true } }),
+    db.activity.groupBy({ by: ["userId"], where: { kind: "status_change", createdAt: at, body: { contains: " to Agreed" }, NOT: { body: { startsWith: TIDY_NOTE } }, automated: false, ...inCampaign }, _count: { _all: true } }),
     db.giftOrder.findMany({ where: { shippedAt: at, campaignCreator: { campaign, ownerId: { not: null } } }, select: { campaignCreator: { select: { ownerId: true } } } }),
     db.post.findMany({ where: { createdAt: at, campaignCreator: { campaign, ownerId: { not: null } } }, select: { campaignCreator: { select: { ownerId: true } } } }),
   ]);

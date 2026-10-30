@@ -228,6 +228,7 @@ for (const [mine, theirs] of [
       "/admin/templates",
       "/admin/suppression",
       "/admin/calibration",
+      "/admin/tidy-up",
       `/reports/outreach/export?campaign=${other.campaignId}`,
       `/reports/performance/export?campaign=${other.campaignId}`,
     ];
@@ -264,7 +265,7 @@ for (const [mine, theirs] of [
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign", "applyTidyUp", "undoTidy"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
@@ -281,6 +282,9 @@ for (const [mine, theirs] of [
     // Invite back: into the other brand's campaign, and the other brand's creator into an own campaign.
     await callAction(cookie, ids.get("inviteBackToCampaign")!, [other.campaignId, [me.influencerId, other.influencerId]]);
     await callAction(cookie, ids.get("inviteBackToCampaign")!, [me.campaignId, [other.influencerId]]);
+    // The tidy-up is for admins only: a marketer's forged call parks nobody, in either brand, and opens no tidy-up.
+    await callAction(cookie, ids.get("applyTidyUp")!, [{ days: 30, group: "selection", action: "park", ids: [other.creatorId, me.creatorId], tidyUpId: null }]);
+    await callAction(cookie, ids.get("undoTidy")!, ["forged"]);
     await callAction(cookie, ids.get("saveAttributionLink")!, [other.creatorId, "https://www.amazon.com/dp/B0FORGED01?maas=m_forged&ref_=aa_maas", "forged"]);
     await callAction(cookie, ids.get("archiveAttributionLink")!, [other.linkId]);
     await callAction(cookie, ids.get("previewForAmazon")!, [other.giftId]);
@@ -304,6 +308,7 @@ for (const [mine, theirs] of [
       links: await db.campaignCreator.count(),
     };
     assert.equal(afterwards.links, before.links, "nobody invited into or out of the other brand by a forged call");
+    assert.equal(await db.tidyUp.count(), 0, "no tidy-up opened by a marketer's forged call");
     assert.equal(await db.attributionLink.count({ where: { maas: "m_forged" } }), 0, "no link saved on the other brand's creator");
     assert.equal(afterwards.link.archived, false, "the other brand's link not removed by a forged call");
     assert.equal(afterwards.otherSales, before.otherSales, "nothing imported into the other brand");

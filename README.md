@@ -919,6 +919,33 @@ the Ranking page and a campaign's menu).
   `/influencers/invite-back`. Migrations `20261030170000_invite_back` and
   `20261030170100_welcome_back_template`.
 
+## Phase 3K: Tidy up old work
+
+Admin > Tidy up. The imported sheets left hundreds of old conversations that Home showed as due every
+day (2026-10-29: 535 replies from the old sheet and 38 pre-portal parcels with no tracking).
+
+- **What is offered.** Only what Home counts as due (open campaign, creator not archived, next step's
+  day come), in the campaign for at least 14 days, and not touched since the cut-off (14, 21, 30, 60
+  or 90 days). A touch is a message, a reply, anything a person did on the record (status, note, gift
+  approval, file review) or files the creator sent. The import (its date and its lines), the
+  automation and the tidy-up itself are not touches. Parcels only when shipped before the cut-off
+  with no tracking; "said yes" only when the selection link was never sent; posts only when "check
+  the post" is all that is left (never files to review).
+- **Choices per group.** Replies, said-yes and never-messaged: park (On hold) or leave. Follow-ups:
+  close as No reply, park or leave. Parcels: mark every untracked gift order of the shipment
+  delivered 7 days after shipping; the creator moves to Content to chase, and the content is due
+  today at the earliest, so the no-content wait starts afresh. Posts: mark completed or leave.
+- **The page is the preview.** Apply sends the listed ids in chunks of 100; each is checked again and
+  skipped if someone worked on it since. Each call stops starting new work after about 5 seconds and
+  hands back what it did not reach; status, next step and the undo record are written together.
+  Every change is logged ("Tidy-up: ...") and recorded in `TidyUp`/`TidyChange` with the status, next
+  step, due date and parcels before, so **Undo** puts it back exactly as late as it was, except for
+  creators someone worked on since (the same touch test). The reports leave tidy-up lines out, and
+  Rachna's quests start the day again after a tidy-up. Nothing is deleted or sent. Admins only,
+  inside the brand view the page shows (a changed view asks for a reload).
+- **Code:** `src/lib/tidy-up-rules.ts`, `src/lib/tidy-up.ts`, `src/actions/tidy-up.ts`,
+  `src/components/tidy-up-form.tsx`, `/admin/tidy-up`. Migration `20261030180000_tidy_up`.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

@@ -69,6 +69,10 @@ type Api = {
   tourNext(direction: 1 | -1): void;
   togglePointing(): void;
   close(): void;
+  /** Bumped when today's quests start again (after a tidy-up), so they count from the new figures. */
+  questEpoch: number;
+  /** A bulk change is under way: once the new counts arrive, today's quests start again from them, so the change is not counted as work done. */
+  restartQuests(): void;
 };
 
 const RachnaContext = createContext<Api | null>(null);
@@ -90,6 +94,13 @@ const store = {
       window.localStorage.setItem(key, value);
     } catch {
       // Private window or blocked storage: she may repeat herself, nothing worse.
+    }
+  },
+  remove(key: string) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // see above
     }
   },
   session(key: string): Set<string> {
@@ -128,6 +139,18 @@ export function RachnaProvider({ userId, tipsOn, counts, intro, children }: { us
   const [pointing, setPointing] = useState(false);
   const [pointers, setPointers] = useState<Pointer[]>([]);
   const tourStep = useRef<{ key: keyof typeof tours; step: number } | null>(null);
+  const questRestart = useRef(false);
+  const [questEpoch, setQuestEpoch] = useState(0);
+  // The counts arrive again after the page refreshes; a pending restart takes them as the day's new start.
+  useEffect(() => {
+    if (!questRestart.current) return;
+    questRestart.current = false;
+    store.remove(storageKey(userId, `quests:${dayKey()}`));
+    setQuestEpoch((epoch) => epoch + 1);
+  }, [counts, userId]);
+  const restartQuests = useCallback(() => {
+    questRestart.current = true;
+  }, []);
 
   const show = useCallback((bubble: Bubble) => {
     setAsleep(false);
@@ -303,7 +326,7 @@ export function RachnaProvider({ userId, tipsOn, counts, intro, children }: { us
   }, []);
 
   return (
-    <RachnaContext.Provider value={{ userId, tipsOn, current, asleep, pointing, pointers: pointers.map((pointer) => pointer.label), counts, mood: moodFor(counts), intro, say, nudge, milestone, startTour, tourNext, togglePointing, close }}>
+    <RachnaContext.Provider value={{ userId, tipsOn, current, asleep, pointing, pointers: pointers.map((pointer) => pointer.label), counts, mood: moodFor(counts), intro, say, nudge, milestone, startTour, tourNext, togglePointing, close, questEpoch, restartQuests }}>
       {children}
       {pointing ? <PointerLayer pointers={pointers} /> : null}
     </RachnaContext.Provider>
@@ -562,6 +585,7 @@ function useQuests() {
   const day = dayKey();
   const userId = rachna?.userId;
   const counts = rachna?.counts;
+  const epoch = rachna?.questEpoch ?? 0;
   useEffect(() => {
     if (!userId || !counts) return;
     const key = storageKey(userId, `quests:${day}`);
@@ -577,9 +601,9 @@ function useQuests() {
     const snapshot: QuestCounts = { replies: counts.replies, parcels: counts.parcels, approvals: counts.approvals, todaySent: counts.todaySent, dailyTarget: counts.dailyTarget, hot: counts.hot };
     store.set(key, JSON.stringify(snapshot));
     setStart(snapshot);
-    // The snapshot is taken once per day, not on every count change.
+    // The snapshot is taken once per day (and again after a tidy-up), not on every count change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, day]);
+  }, [userId, day, epoch]);
   const quests = start && counts ? questsFor(counts, start) : [];
   const cleared = dayCleared(quests);
   const milestone = rachna?.milestone;

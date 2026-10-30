@@ -178,6 +178,7 @@ model User {
   calibrationReviews FitAssessment[]   @relation("CalibrationReviews")
   brandSettings      BrandSettings[]
   approvedGifts      GiftOrder[]
+  tidyUps            TidyUp[]
   reviewedContent    ContentAsset[]    @relation("ContentReviewer")
   attributionLinks   AttributionLink[] @relation("AttributionLinksAdded")
   reportImports      ReportImport[]
@@ -317,6 +318,7 @@ model CampaignCreator {
   owner            User?             @relation(fields: [ownerId], references: [id])
   discoveryRun     DiscoveryRun?     @relation(fields: [discoveryRunId], references: [id])
   assessments      FitAssessment[]
+  tidyChanges      TidyChange[]
   giftOrders       GiftOrder[]
   contentAssets    ContentAsset[]
   attributionLinks AttributionLink[]
@@ -863,4 +865,43 @@ model ProductMonthlySales {
 
   @@unique([brandId, month, childAsin])
   @@index([brandId, month])
+}
+
+/// One press of Apply on Admin > Tidy up old work, kept so it can be undone in one click.
+model TidyUp {
+  id         String       @id @default(cuid())
+  userId     String
+  /// "Older than" in days, as chosen on the page.
+  days       Int
+  createdAt  DateTime     @default(now())
+  undoneAt   DateTime?
+  undoneById String?
+  user       User         @relation(fields: [userId], references: [id])
+  changes    TidyChange[]
+
+  @@index([createdAt])
+}
+
+/// One creator a tidy-up changed, with everything Undo needs to put back.
+model TidyChange {
+  id                  String          @id @default(cuid())
+  tidyUpId            String
+  campaignCreatorId   String
+  group               String
+  fromStatus          CreatorStatus
+  toStatus            CreatorStatus
+  /// The next step as it was, so Undo brings the creator back exactly as late as before.
+  prevNextAction      String?
+  prevNextActionDueAt DateTime?
+  prevWaitingOn       String?
+  prevContentDueAt    DateTime?
+  /// Parcels taken as delivered: [{ id, deliveredAt, trackingStatus }] per gift order, as written and as before.
+  gifts               Json?
+  createdAt           DateTime        @default(now())
+  undoneAt            DateTime?
+  tidyUp              TidyUp          @relation(fields: [tidyUpId], references: [id], onDelete: Restrict)
+  campaignCreator     CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+
+  @@index([tidyUpId, undoneAt])
+  @@index([campaignCreatorId])
 }

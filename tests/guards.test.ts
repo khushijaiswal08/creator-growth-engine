@@ -2451,3 +2451,157 @@ test("the Invite back list offers only proven creators, and inviting one adds th
   assert.equal(pickTemplate(templates, "welcome_back", "dm")?.id, "t2");
   assert.equal(pickTemplate(templates.slice(0, 1), "welcome_back", "dm")?.id, "t1");
 });
+
+test("the tidy-up offers only old work nobody touched, changes exactly what the preview showed, and its undo never undoes anyone's work", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { automationUserId } = await import("@/lib/automation");
+  const { tidyCandidates, applyTidyChunk, undoTidyUp, tidyHistory } = await import("@/lib/tidy-up");
+  const { figuresFor } = await import("@/lib/performance-stats");
+  const { user, campaign } = await makeUserAndCampaign("tidy-camp", ["home decor"]);
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi", status: "active" } });
+  const other = await db.user.create({ data: { name: "Other admin", email: "tidy-other@example.com", passwordHash: "x", role: "admin" } });
+  const cpc = await db.campaign.create({ data: { name: "tidy-cpc", brandId: "cotton-print-club", brief: "CPC.", nicheKeywords: [], negativeKeywords: [], status: "active" } });
+  const shelved = await db.campaign.create({ data: { name: "tidy-archived", brandId: "ridhi", brief: "Old.", nicheKeywords: [], negativeKeywords: [], status: "archived" } });
+  const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-TIDY-01", title: "Quilt", stock: 3 } });
+  const automation = await automationUserId();
+  const DAY = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const ago = (days: number) => new Date(now.getTime() - days * DAY);
+  const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
+  const status = async (id: string) => (await db.campaignCreator.findUniqueOrThrow({ where: { id } })).status;
+  // On Home: an open link whose next step is due, in the campaign for 60 days.
+  const due = (campaignId: string, handle: string, state: string, data: Record<string, unknown> = {}) =>
+    makeCreator(campaignId, handle, { status: state, createdAt: ago(60), nextActionDueAt: ago(1), nextAction: "Answer the creator", waitingOn: "team", ...data });
+  const line = (campaignCreatorId: string, kind: string, body: string, days: number, extra: Record<string, unknown> = {}) =>
+    db.activity.create({ data: { userId: user.id, kind, campaignCreatorId, body, createdAt: ago(days), ...extra } });
+
+  // Untouched, as the import left them: the import's own lines and the daily run are not work on the creator.
+  const oldReply = await due(campaign.id, "tidy_reply", "replied");
+  await line(oldReply.id, "influencer_created", "Created from the import.", 5);
+  await line(oldReply.id, "note", "Imported note: loves linen", 5);
+  const automationOnly = await due(campaign.id, "tidy_auto", "negotiating");
+  await line(automationOnly.id, "status_change", "Moved by the daily run.", 2, { userId: automation, automated: true });
+  const importedRecently = await due(campaign.id, "tidy_imported", "replied", { createdAt: ago(20) });
+  // Imported through the Import screen: the lines carry the importing person's name, and still are not work on the creator.
+  await line(importedRecently.id, "added_to_campaign", 'Added to campaign "tidy-camp" as Replied by CSV import.', 20);
+  await line(importedRecently.id, "influencer_created", "Created by CSV import (row 4).", 20);
+  const touchedLongAgo = await due(campaign.id, "tidy_long_ago", "replied");
+  await db.message.create({ data: { campaignCreatorId: touchedLongAgo.id, userId: user.id, channel: "dm", direction: "outbound", body: "Hi", sentAt: ago(45) } });
+  // Touched: a message, a person's status change, a person's note, a person adding them, a file review.
+  const messaged = await due(campaign.id, "tidy_messaged", "replied");
+  await db.message.create({ data: { campaignCreatorId: messaged.id, userId: user.id, channel: "dm", direction: "outbound", body: "Hello again", sentAt: ago(5) } });
+  const moved = await due(campaign.id, "tidy_moved", "replied");
+  await line(moved.id, "status_change", "Status changed by a person.", 3);
+  const noted = await due(campaign.id, "tidy_noted", "replied");
+  await line(noted.id, "note", "Gift order approved.", 4);
+  const addedByPerson = await due(campaign.id, "tidy_added", "replied", { createdAt: ago(20) });
+  await line(addedByPerson.id, "added_to_campaign", "Added to campaign.", 20);
+  const brandNew = await due(campaign.id, "tidy_new", "replied", { createdAt: ago(5) });
+  const notDue = await due(campaign.id, "tidy_notdue", "replied", { nextActionDueAt: new Date(now.getTime() + DAY) });
+  const archivedCampaign = await due(shelved.id, "tidy_shelved", "replied");
+  const otherBrand = await due(cpc.id, "tidy_cpc", "replied");
+  const oldFollow = await due(campaign.id, "tidy_follow", "follow_up_due", { nextAction: "Send follow-up 1" });
+  const linkWaiting = await due(campaign.id, "tidy_link_wait", "interested", { nextAction: "Send the product selection link" });
+  const linkSent = await due(campaign.id, "tidy_link_sent", "interested", { nextAction: "Waiting for the creator to choose a product", lastContactedAt: ago(40) });
+  const oldPosted = await due(campaign.id, "tidy_posted", "content_posted", { nextAction: "Check the post and mark completed" });
+  const filesWaiting = await due(campaign.id, "tidy_files", "content_posted", { nextAction: "Review the creator's files" });
+  const filesReviewed = await due(campaign.id, "tidy_reviewed", "content_posted", { nextAction: "Check the post and mark completed" });
+  await line(filesReviewed.id, "content_reviewed", "Approved the reel.", 1);
+  // One shipment sent as two gift orders, neither tracked; and a parcel that has tracking.
+  const address = sealAddress({ shipName: "Someone", address1: "1 Elm St", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null });
+  const oldParcel = await due(campaign.id, "tidy_parcel", "product_shipped", { nextAction: "Waiting for delivery", waitingOn: "creator", nextActionDueAt: ago(30) });
+  const parcelA = await db.giftOrder.create({ data: { campaignCreatorId: oldParcel.id, productId: product.id, status: "shipped", shippedAt: ago(40), createdAt: ago(41), ...address } });
+  const parcelB = await db.giftOrder.create({ data: { campaignCreatorId: oldParcel.id, productId: product.id, status: "shipped", shippedAt: ago(40), createdAt: ago(40), ...address } });
+  const tracked = await due(campaign.id, "tidy_tracked", "product_shipped", { nextAction: "Waiting for delivery" });
+  await db.giftOrder.create({ data: { campaignCreatorId: tracked.id, productId: product.id, status: "shipped", shippedAt: ago(40), trackingNumber: "1Z999", ...address } });
+
+  const preview = await tidyCandidates(scope, 30, now);
+  const idsOf = (map: typeof preview, key: Parameters<typeof preview.get>[0]) => new Set((map.get(key) ?? []).map((row) => row.id));
+  const replies = idsOf(preview, "replies");
+  for (const link of [oldReply, automationOnly, importedRecently, touchedLongAgo, otherBrand]) assert.ok(replies.has(link.id), "old and untouched, whatever the import date");
+  for (const link of [messaged, moved, noted, addedByPerson, brandNew, notDue, archivedCampaign]) assert.equal(replies.has(link.id), false);
+  assert.ok(idsOf(preview, "followups").has(oldFollow.id));
+  assert.deepEqual([...idsOf(preview, "selection")].filter((id) => [linkWaiting.id, linkSent.id].includes(id)), [linkWaiting.id], "a link sent and not used is not 'never got the link'");
+  assert.ok(idsOf(preview, "posted").has(oldPosted.id) && !idsOf(preview, "posted").has(filesWaiting.id) && !idsOf(preview, "posted").has(filesReviewed.id), "files received or reviewed are real work");
+  const parcelRow = preview.get("parcels")!.find((row) => row.id === oldParcel.id)!;
+  assert.deepEqual(new Set(parcelRow.giftIds), new Set([parcelA.id, parcelB.id]), "every untracked parcel of the shipment");
+  assert.equal(idsOf(preview, "parcels").has(tracked.id), false, "a parcel with tracking is real work");
+  assert.equal(idsOf(await tidyCandidates(allowed({ id: user.id, brandId: "ridhi", viewBrand: null }), 30, now), "replies").has(otherBrand.id), false, "inside one brand, only that brand");
+  const longer = await tidyCandidates(scope, 60, now);
+  assert.ok(idsOf(longer, "replies").has(oldReply.id) && !idsOf(longer, "replies").has(touchedLongAgo.id), "a longer cut-off still offers never-touched work");
+
+  // Only the choices a group offers, the listed cut-offs and small chunks; a refused call opens nothing.
+  const base = { scope, userId: user.id, days: 30, tidyUpId: null };
+  assert.match((await applyTidyChunk({ ...base, group: "replies", action: "close", ids: [oldReply.id] }, now) as { error: string }).error, /does not fit/);
+  assert.match((await applyTidyChunk({ ...base, group: "replies", action: "leave", ids: [oldReply.id] }, now) as { error: string }).error, /does not fit/);
+  assert.match((await applyTidyChunk({ ...base, days: 45, group: "replies", action: "park", ids: [oldReply.id] }, now) as { error: string }).error, /how old/);
+  assert.match((await applyTidyChunk({ ...base, group: "replies", action: "park", ids: Array.from({ length: 101 }, (_, index) => `id${index}`) }, now) as { error: string }).error, /1 to 100/);
+  const nothing = await applyTidyChunk({ ...base, group: "replies", action: "park", ids: [messaged.id] }, now);
+  assert.ok(nothing.ok && nothing.tidyUpId === null && nothing.changed === 0, "nothing to change opens no tidy-up");
+  assert.equal(await db.tidyUp.count(), 0);
+
+  // A status chunk out of time also hands back what it did not reach, and changes nothing.
+  const late = await applyTidyChunk({ ...base, group: "replies", action: "park", ids: [oldReply.id, automationOnly.id] }, now, -1);
+  assert.ok(late.ok && late.changed === 0 && late.tidyUpId === null && late.pending.length === 2);
+  assert.equal(await status(oldReply.id), "replied");
+
+  // Apply: what the preview showed is parked with its next step, a forged id is skipped, all of it logged.
+  const parked = await applyTidyChunk({ ...base, group: "replies", action: "park", ids: [oldReply.id, automationOnly.id, otherBrand.id, messaged.id] }, now);
+  assert.ok(parked.ok && parked.tidyUpId);
+  if (!parked.ok || !parked.tidyUpId) return;
+  assert.deepEqual([parked.changed, parked.skipped, parked.pending], [3, 1, []]);
+  let row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldReply.id } });
+  assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt], ["on_hold", "On hold: decide when to re-engage", null]);
+  assert.equal(await status(messaged.id), "replied", "the messaged creator is untouched");
+  assert.match((await db.activity.findFirstOrThrow({ where: { campaignCreatorId: oldReply.id, body: { startsWith: "Tidy-up" } } })).body, /^Tidy-up: status changed from Replied to On hold \(not touched since it was imported\)\.$/);
+  const batch = { ...base, tidyUpId: parked.tidyUpId };
+  assert.match((await applyTidyChunk({ ...batch, userId: other.id, group: "followups", action: "close", ids: [oldFollow.id] }, now) as { error: string }).error, /closed/);
+  assert.ok((await applyTidyChunk({ ...batch, group: "followups", action: "close", ids: [oldFollow.id] }, now)).ok);
+  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldFollow.id } });
+  assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt], ["no_reply", null, null]);
+  assert.ok((await applyTidyChunk({ ...batch, group: "selection", action: "park", ids: [linkWaiting.id] }, now)).ok);
+  // A call out of time hands back what it did not reach.
+  const outOfTime = await applyTidyChunk({ ...batch, group: "parcels", action: "delivered", ids: [oldParcel.id] }, now, -1);
+  assert.ok(outOfTime.ok && outOfTime.changed === 0 && outOfTime.pending[0] === oldParcel.id);
+  assert.equal(await status(oldParcel.id), "product_shipped", "nothing half-done");
+  assert.ok((await applyTidyChunk({ ...batch, group: "parcels", action: "delivered", ids: [oldParcel.id] }, now)).ok);
+  // Both parcels of the shipment are delivered a week after shipping, but the content is due today at the earliest.
+  for (const gift of [parcelA, parcelB]) {
+    const after = await db.giftOrder.findUniqueOrThrow({ where: { id: gift.id } });
+    assert.deepEqual([after.status, after.deliveredAt?.getTime()], ["delivered", ago(40).getTime() + 7 * DAY]);
+  }
+  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldParcel.id } });
+  assert.deepEqual([row.status, row.contentDueAt?.getTime()], ["content_expected", now.getTime()], "an assumed delivery never starts a clock that has run out");
+  assert.notEqual(row.nextAction, "Waiting for delivery");
+  assert.ok((await applyTidyChunk({ ...batch, group: "posted", action: "complete", ids: [oldPosted.id] }, now)).ok);
+  assert.equal(await status(oldPosted.id), "completed");
+  assert.match((await tidyHistory())[0].summary, /^3 replies parked · 1 follow-ups closed · 1 said-yes parked · 1 parcels marked delivered · 1 posts marked completed$/);
+  // Housekeeping is not an event in the reports.
+  assert.equal((await figuresFor({ from: ago(1), to: new Date(now.getTime() + DAY) }, { id: campaign.id })).completed, 0);
+
+  // Since then: someone moves one creator on, someone writes to a closed one, the daily run closes the parcel as No content.
+  await db.campaignCreator.update({ where: { id: automationOnly.id }, data: { status: "contacted" } });
+  await db.message.create({ data: { campaignCreatorId: oldFollow.id, userId: user.id, channel: "dm", direction: "outbound", body: "One more try", sentAt: new Date(Date.now() + 1000) } });
+  await db.campaignCreator.update({ where: { id: oldParcel.id }, data: { status: "no_content" } });
+  await db.activity.create({ data: { userId: automation, kind: "status_change", campaignCreatorId: oldParcel.id, body: "Status changed from Content expected to No content delivered.", automated: true, createdAt: new Date(Date.now() + 1000) } });
+
+  // Undo keeps to its time budget, puts back only what nobody worked on, and brings back the original due dates.
+  assert.deepEqual(await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now, -1), { ok: true, restored: 0, kept: 0, left: 7 });
+  assert.deepEqual(await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now), { ok: true, restored: 5, kept: 2, left: 0 });
+  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldReply.id } });
+  assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt?.getTime()], ["replied", "Answer the creator", ago(1).getTime()], "exactly as late as before");
+  assert.equal(await status(automationOnly.id), "contacted");
+  assert.equal(await status(oldFollow.id), "no_reply", "someone wrote to them since: left as it is");
+  assert.equal(await status(linkWaiting.id), "interested");
+  assert.equal(await status(oldPosted.id), "content_posted");
+  for (const gift of [parcelA, parcelB]) assert.deepEqual(Object.values(await db.giftOrder.findUniqueOrThrow({ where: { id: gift.id }, select: { status: true, deliveredAt: true } })), ["shipped", null]);
+  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldParcel.id } });
+  assert.deepEqual([row.status, row.contentDueAt, row.nextAction, row.nextActionDueAt?.getTime()], ["product_shipped", null, "Waiting for delivery", ago(30).getTime()], "the automation's No content is undone with it");
+  assert.match((await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now) as { error: string }).error, /already undone/);
+  assert.equal((await tidyHistory())[0].undone, true);
+  // The tidy-up and its undo are not work on a creator: the same choice can be made again.
+  const again = await tidyCandidates(scope, 30, now);
+  assert.ok(idsOf(again, "replies").has(oldReply.id) && idsOf(again, "parcels").has(oldParcel.id) && !idsOf(again, "replies").has(automationOnly.id));
+  assert.equal(await db.campaignCreator.count({ where: { id: { in: [oldReply.id, oldFollow.id, oldParcel.id] } } }), 3, "nothing is ever deleted");
+});

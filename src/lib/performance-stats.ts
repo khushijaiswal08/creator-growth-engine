@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { dayValueInZone, parseDayInZone, startOfDayInZone, startOfMonthInZone, startOfQuarterInZone, startOfWeekInZone } from "@/lib/format";
+import { TIDY_NOTE } from "@/lib/tidy-up-rules";
 
 /**
  * The performance figures for any period: how many creators moved through
@@ -98,7 +99,8 @@ export const FIGURE_LABELS: Record<keyof Figures, string> = {
 export async function figuresFor(range: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<Figures> {
   const at = { gte: range.from, lt: range.to };
   const inCampaign = { campaignCreator: { campaign } };
-  const moved = (to: string) => db.activity.count({ where: { kind: "status_change", createdAt: at, body: { contains: ` to ${to}` }, ...inCampaign } });
+  // A tidy-up and its undo move statuses too, but they are housekeeping, not events.
+  const moved = (to: string) => db.activity.count({ where: { kind: "status_change", createdAt: at, body: { contains: ` to ${to}` }, NOT: { body: { startsWith: TIDY_NOTE } }, ...inCampaign } });
   const [creatorsAdded, messages, replies, contacted, agreed, giftsOrdered, giftsShipped, giftsDelivered, posted, completed, noContent] = await Promise.all([
     db.campaignCreator.count({ where: { createdAt: at, campaign } }),
     db.message.count({ where: { direction: "outbound", sentAt: at, ...inCampaign } }),

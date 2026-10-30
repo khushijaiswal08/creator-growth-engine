@@ -80,6 +80,8 @@ const linkKey = (campaignId: string, influencerId: string) => `${campaignId}:${i
 
 /** How a note from a file starts when it is kept in the activity instead of on the person. */
 export const IMPORTED_NOTE = "Imported note: ";
+/** In every line the import writes, so other features can tell the import apart from a person's work. */
+export const CSV_IMPORT_MARK = "by CSV import";
 
 /**
  * Imports creators from CSV text. Dedupes on (platform, handle); for profiles
@@ -238,7 +240,7 @@ export async function importCreators(text: string, options: ImportOptions): Prom
       if (sameEmail) {
         // Same person on another platform: add the profile to the influencer we already have.
         influencer = sameEmail;
-        log("profile_added", `Added profile ${label} by CSV import (matched on email).`, {
+        log("profile_added", `Added profile ${label} ${CSV_IMPORT_MARK} (matched on email).`, {
           influencerId: influencer.id,
         });
         notes.push(`Added as a new profile of ${influencer.name} (same email).`);
@@ -257,7 +259,7 @@ export async function importCreators(text: string, options: ImportOptions): Prom
         if (influencer.email && !influencerByEmail.has(influencer.email)) {
           influencerByEmail.set(influencer.email, influencer);
         }
-        log("influencer_created", `Created by CSV import (${label}).`, { influencerId: influencer.id });
+        log("influencer_created", `Created ${CSV_IMPORT_MARK} (${label}).`, { influencerId: influencer.id });
       }
       const profile: KnownProfile = {
         id: createId(),
@@ -329,7 +331,7 @@ export async function importCreators(text: string, options: ImportOptions): Prom
         linkMap.set(lKey, created);
         log(
           "added_to_campaign",
-          `Added to campaign "${campaign.name}" as ${CREATOR_STATUS_LABELS[status]} by CSV import.`,
+          `Added to campaign "${campaign.name}" as ${CREATOR_STATUS_LABELS[status]} ${CSV_IMPORT_MARK}.`,
           { influencerId: influencer.id, campaignCreatorId: created.id },
         );
         if (outcome === "skipped") {
