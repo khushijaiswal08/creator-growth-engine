@@ -42,6 +42,8 @@ type BrandFixture = {
   creatorId: string;
   productId: string;
   giftId: string;
+  assetId: string;
+  uploadToken: string;
 };
 const fixtures: Record<string, BrandFixture> = {};
 
@@ -153,7 +155,23 @@ before(async () => {
         country: "United States",
       },
     });
-    fixtures[brand] = { id: brand, user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, productId: product.id, giftId: gift.id };
+    // A file the creator sent through their upload link, and the link itself.
+    const uploadToken = `${brand.replace(/-/g, "")}uploadtoken0123456789abcdef`;
+    await db.campaignCreator.update({ where: { id: creator.id }, data: { uploadToken, uploadExpiresAt: new Date(Date.now() + 86_400_000) } });
+    const asset = await db.contentAsset.create({
+      data: {
+        campaignCreatorId: creator.id,
+        kind: "video",
+        fileName: `${brand}-reel.mp4`,
+        contentType: "video/mp4",
+        sizeBytes: 1000,
+        storageKey: `content/${brand}/${creator.id}/asset/${brand}-reel.mp4`,
+        status: "received",
+        usageRights: "paid",
+        receivedAt: new Date(),
+      },
+    });
+    fixtures[brand] = { id: brand, user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, productId: product.id, giftId: gift.id, assetId: asset.id, uploadToken };
   }
 
   server = spawn("pnpm", ["exec", "next", "start", "-p", String(APP_PORT), "-H", "127.0.0.1"], { env, shell: true, stdio: "ignore" });
@@ -220,21 +238,35 @@ for (const [mine, theirs] of [
     // The scheduler endpoint needs its secret, cookie or not.
     assert.equal((await get(cookie, "/api/cron/automations")).status, 401);
     assert.equal((await get(cookie, "/api/cron/weekly-summary")).status, 401);
+    // The content library lists the own brand's files and never the other brand's.
+    const library = await (await get(cookie, "/content?files=all")).text();
+    assert.match(library, new RegExp(`${mine}-reel\\.mp4`), "the library lists the own brand's file");
+    assert.doesNotMatch(library, new RegExp(`${theirs}-reel\\.mp4`), "the library never lists the other brand's file");
+    // The test copy's local file store does not exist in a production build, signed address or not.
+    assert.equal((await fetch(`${BASE}/api/content-store/content/${theirs}/x/asset/${theirs}-reel.mp4?m=GET&exp=9999999999&size=0&type=video%2Fmp4&dl=&sig=forged`)).status, 404);
+    // Without bucket keys, a creator's upload link says uploads are not on yet instead of taking files.
+    const uploadPage = await fetch(`${BASE}/upload/${other.uploadToken}`);
+    assert.equal(uploadPage.status, 200);
+    assert.match(await uploadPage.text(), /Uploads are not switched on yet/);
+
     // The public health check reveals nothing but up or down.
     assert.deepEqual(Object.keys(await (await fetch(`${BASE}/health`)).json()).sort(), ["database", "status"]);
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
       creator: await db.campaignCreator.findUniqueOrThrow({ where: { id: other.creatorId } }),
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
       influencer: await db.influencer.findUniqueOrThrow({ where: { id: other.influencerId } }),
+      asset: await db.contentAsset.findUniqueOrThrow({ where: { id: other.assetId } }),
       activity: await db.activity.count(),
     };
     await callAction(cookie, ids.get("updateCreatorStatus")!, [other.creatorId, "completed"]);
+    await callAction(cookie, ids.get("reviewContent")!, [other.assetId, "approve", ""]);
+    await callAction(cookie, ids.get("archiveContent")!, [other.assetId]);
     await callAction(cookie, ids.get("decideGift")!, [other.giftId, "cancel"]);
     await callAction(cookie, ids.get("markDelivered")!, [other.giftId]);
     await callAction(cookie, ids.get("setInfluencerArchived")!, [other.influencerId, true]);
@@ -242,8 +274,11 @@ for (const [mine, theirs] of [
       creator: await db.campaignCreator.findUniqueOrThrow({ where: { id: other.creatorId } }),
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
       influencer: await db.influencer.findUniqueOrThrow({ where: { id: other.influencerId } }),
+      asset: await db.contentAsset.findUniqueOrThrow({ where: { id: other.assetId } }),
       activity: await db.activity.count(),
     };
+    assert.equal(afterwards.asset.status, before.asset.status, "file not approved by a forged call");
+    assert.equal(afterwards.asset.archived, false, "file not removed by a forged call");
     assert.equal(afterwards.creator.status, before.creator.status, "status unchanged by a forged call");
     assert.equal(afterwards.gift.status, before.gift.status, "gift unchanged by a forged call");
     assert.equal(afterwards.influencer.archived, false, "creator not archived by a forged call");

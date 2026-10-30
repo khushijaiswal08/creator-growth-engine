@@ -1,4 +1,4 @@
-import type { CreatorStatus, Platform, Prisma } from "@prisma/client";
+import type { CreatorStatus, Platform, Prisma, TemplatePurpose } from "@prisma/client";
 import { cn } from "cn";
 import { Check, ChevronRight, GripVertical, Plus, Search } from "lucide-react";
 import type { Metadata } from "next";
@@ -229,7 +229,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   );
 }
 
-type Templates = { id: string; name: string; purpose: "first" | "followup" | "agreed" | "other" | "selection" | "reminder" | "delivered" | "arrival" | "deadline"; body: string }[];
+type Templates = { id: string; name: string; purpose: TemplatePurpose; body: string }[];
 
 /** " · 3 need you today", for the right of the toolbar. */
 async function DueCount({ base, now }: { campaignId: string; base: Prisma.CampaignCreatorWhereInput; now: Date }) {

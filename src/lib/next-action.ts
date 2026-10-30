@@ -39,6 +39,10 @@ export type NextActionInput = {
   reengageAfter: Date | null;
   /** The creator's latest gift order that was not cancelled. */
   gift: { status: GiftOrderStatus; shippedAt: Date | null; deliveredAt: Date | null } | null;
+  /** Files the creator sent through their upload link that nobody has looked at yet. */
+  filesToReview?: number;
+  /** When someone last asked for changes to one of the creator's files, if any file is waiting on changes. */
+  changesAskedAt?: Date | null;
 };
 
 export type NextAction = {
@@ -131,6 +135,11 @@ export function nextActionFor(input: NextActionInput, timings: CampaignTimings, 
     }
 
     case "content_posted":
+      if (input.filesToReview) return { action: "Review the creator's files", dueAt: now, waitingOn: "team" };
+      // Changes were asked for in the library, and nobody has written to the creator since.
+      if (input.changesAskedAt && (!input.lastContactedAt || input.lastContactedAt < input.changesAskedAt)) {
+        return { action: "Tell the creator what to change", dueAt: input.changesAskedAt, waitingOn: "team" };
+      }
       return { action: "Check the post and mark completed", dueAt: now, waitingOn: "team" };
 
     case "review_later":
@@ -168,6 +177,7 @@ const ACTION_TEMPLATES: Record<string, TemplatePurpose> = {
   "Content is overdue: chase the creator": "reminder",
   "Send the product selection link": "selection",
   "Send the first message": "first",
+  "Tell the creator what to change": "upload",
 };
 
 /** The message template that fits the next action, so the composer opens on the right one. */

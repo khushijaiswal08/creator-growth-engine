@@ -19,6 +19,8 @@ export const ACTIVITY_KINDS = [
   "template_saved",
   "user_admin",
   "sample_archived",
+  "content_received",
+  "content_reviewed",
   "note",
 ] as const;
 
@@ -43,6 +45,8 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   template_saved: "Template",
   user_admin: "Users",
   sample_archived: "Archived",
+  content_received: "Files",
+  content_reviewed: "Files",
   note: "Note",
 };
 

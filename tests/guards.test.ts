@@ -51,6 +51,8 @@ before(async () => {
     // Shipping details are encrypted with this key; selection links are built on this address.
     ADDRESS_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
     APP_URL: "http://portal.test",
+    // Signs the local test storage addresses for creators' files.
+    AUTH_SECRET: randomBytes(32).toString("base64"),
     YOUTUBE_API_KEY: "test-key",
     YOUTUBE_API_BASE_URL: `http://127.0.0.1:${STUB_PORT}/youtube`,
     // 350 units a day: two 100-unit searches fit under 80% (280), a third does not.
@@ -1647,4 +1649,194 @@ test("the creator card grades a creator from their history and Rachna's verdict 
   assert.equal(months.length, 6);
   assert.deepEqual([months[5].posts, months[5].reach, months[5].salesUsd, months[4].gifts], [1, 1200, 30, 1]);
   assert.equal(months.reduce((sum, point) => sum + point.gifts, 0), 1);
+});
+
+test("content storage only signs what it means to: exact file types, safe names, no stepping outside the folder, tamper-proof addresses", async () => {
+  const { classifyFile, safeFileName, localPathFor, presignUpload, presignView, verifyLocalGrant, storageMode, isAllowedType, MAX_FILE_BYTES } = await import("@/lib/content-storage");
+
+  // Tests run outside production, so files go to the local folder; production without bucket keys has no storage at all.
+  assert.equal(storageMode(), "local");
+
+  assert.deepEqual(classifyFile("Reel.MOV", ""), { kind: "video", contentType: "video/quicktime" });
+  assert.deepEqual(classifyFile("IMG_0042.HEIC", "application/octet-stream"), { kind: "photo", contentType: "image/heic" });
+  assert.deepEqual(classifyFile("clip.mp4", "video/mp4"), { kind: "video", contentType: "video/mp4" });
+  // Only exact types from the fixed list are ever stored; a dressed-up type falls back to the extension or is refused.
+  assert.equal(classifyFile("logo.svg", "image/svg+xml"), null, "SVG can carry script; not accepted");
+  assert.equal(classifyFile("logo.svg", "image/svg+xml;charset=utf-8"), null);
+  assert.equal(classifyFile("page.html", "image/png, text/html"), null);
+  assert.deepEqual(classifyFile("photo.png", "image/png, text/html"), { kind: "photo", contentType: "image/png" }, "the browser text is never stored");
+  assert.deepEqual(classifyFile("clip.mp4", "video/mp4,text/html"), { kind: "video", contentType: "video/mp4" });
+  assert.equal(classifyFile("contract.pdf", "application/pdf"), null);
+  assert.equal(isAllowedType("text/html"), false);
+  assert.equal(safeFileName("../../etc/passwd"), "etc-passwd");
+  assert.ok(MAX_FILE_BYTES <= 2 ** 31 - 1, "sizes fit the database column");
+
+  assert.ok(localPathFor("content/test/cc1/a1/clip.mp4"));
+  for (const bad of ["../secret", "content/../../x", "content//x", "/etc/passwd", "content/./x", "c:\\windows"]) assert.equal(localPathFor(bad), null, bad);
+
+  // A signed upload address only works for its own method, key, size and type, and not after it expires (15 minutes).
+  const upload = await presignUpload("content/test/cc1/a1/clip.mp4", "video/mp4", 1234);
+  const url = new URL(upload.url, "http://portal.test");
+  const key = decodeURIComponent(url.pathname.replace("/api/content-store/", ""));
+  assert.equal(upload.headers["Content-Type"], "video/mp4");
+  assert.ok(verifyLocalGrant(key, url.searchParams, "PUT"));
+  assert.equal(verifyLocalGrant(key, url.searchParams, "GET"), null, "an upload address cannot be used to read");
+  assert.equal(verifyLocalGrant("content/test/cc1/a1/other.mp4", url.searchParams, "PUT"), null, "the key is signed");
+  const bigger = new URLSearchParams(url.searchParams);
+  bigger.set("size", "999999999");
+  assert.equal(verifyLocalGrant(key, bigger, "PUT"), null, "the size is signed");
+  assert.equal(verifyLocalGrant(key, url.searchParams, "PUT", Date.now() + 20 * 60 * 1000), null, "it expires");
+  const view = new URL(await presignView(key, "video/mp4", "Clip.mp4"), "http://portal.test");
+  assert.equal(view.searchParams.get("dl"), "clip.mp4");
+  assert.ok(verifyLocalGrant(key, view.searchParams, "GET"));
+  // A stored type outside the list (only old rows could have one) is only ever offered as a download.
+  const odd = new URL(await presignView(key, "text/html"), "http://portal.test");
+  assert.equal(odd.searchParams.get("type"), "application/octet-stream");
+  assert.ok(odd.searchParams.get("dl"));
+
+  // The local store serves files as files: no sniffing, a sandbox, and an arrived file is never replaced.
+  const { rm } = await import("node:fs/promises");
+  const route = await import("@/app/api/content-store/[...key]/route");
+  const key2 = `content/test/route-${Date.now()}/a1/clip.mp4`;
+  const put = await presignUpload(key2, "video/mp4", 4);
+  const target = (address: string) => new URL(address, "http://portal.test").toString();
+  const params = { params: Promise.resolve({ key: key2.split("/") }) };
+  try {
+    assert.equal((await route.PUT(new Request(target(put.url), { method: "PUT", headers: { "content-type": "text/html" }, body: "abcd" }), params)).status, 400, "the signed type must be sent");
+    assert.equal((await route.PUT(new Request(target(put.url), { method: "PUT", headers: { "content-type": "video/mp4" }, body: "abcdefgh" }), params)).status, 400, "no more bytes than declared");
+    assert.equal((await route.PUT(new Request(target(put.url), { method: "PUT", headers: { "content-type": "video/mp4" }, body: "abcd" }), params)).status, 200);
+    assert.equal((await route.PUT(new Request(target(put.url), { method: "PUT", headers: { "content-type": "video/mp4" }, body: "wxyz" }), params)).status, 409, "a reused address cannot swap the bytes");
+    const shown = await route.GET(new Request(target(await presignView(key2, "video/mp4"))), params);
+    assert.equal(shown.status, 200);
+    assert.equal(await shown.text(), "abcd");
+    assert.equal(shown.headers.get("x-content-type-options"), "nosniff");
+    assert.match(shown.headers.get("content-security-policy") ?? "", /sandbox/);
+    const part = await route.GET(new Request(target(await presignView(key2, "video/mp4")), { headers: { range: "bytes=1-2" } }), params);
+    assert.equal(part.status, 206);
+    assert.equal(await part.text(), "bc");
+  } finally {
+    await rm(localPathFor(key2)!.replace(/[\\/]a1[\\/]clip\.mp4$/, ""), { recursive: true, force: true });
+  }
+});
+
+test("a creator's upload link takes their files, checks what arrived, and hands the review to a person", async () => {
+  const { mkdir, writeFile, rm } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { ensureUploadUrl, startUpload, signUpload, finishUpload, loadUploadTarget, settleStaleUploads, samePostKey, UPLOAD_LINK_DAYS, UPLOAD_LINK_INACTIVE, CREATOR_LIMITS } = await import("@/lib/content-upload");
+  const { localPathFor } = await import("@/lib/content-storage");
+  const { refreshNextAction } = await import("@/lib/automation");
+  const { campaign } = await makeUserAndCampaign("uploads", ["home decor"]);
+  const creator = await makeCreator(campaign.id, "uploads_creator", { status: "content_expected" });
+
+  // The link is made once and reused while valid; it lasts 60 days.
+  const url = await ensureUploadUrl(creator.id);
+  assert.match(url, /^http:\/\/portal\.test\/upload\/[A-Za-z0-9_-]{32}$/);
+  assert.equal(await ensureUploadUrl(creator.id), url);
+  const token = url.split("/upload/")[1];
+  const link = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+  assert.ok(Math.abs(link.uploadExpiresAt!.getTime() - Date.now() - UPLOAD_LINK_DAYS * DAY_MS) < 60_000);
+  assert.equal(await loadUploadTarget("x".repeat(32)), null, "an unknown token finds nobody");
+
+  const base = { usage: "paid", postUrl: "https://www.instagram.com/reel/abc123/?igsh=xyz", postedOn: "2026-10-28", note: "Shot in natural light" };
+  const video = { name: "Tablescape Reel.MOV", type: "", size: 2048 };
+  const photo = { name: "flatlay.jpg", type: "image/jpeg", size: 512 };
+
+  // Nothing from the browser is taken on trust.
+  assert.deepEqual(await startUpload(token, { ...base, usage: "", files: [video] }), { ok: false, error: "Please choose how we may use your content." });
+  assert.equal((await startUpload(token, { ...base, files: [] })).ok, false);
+  assert.equal((await startUpload(token, { ...base, files: Array.from({ length: 21 }, () => photo) })).ok, false, "at most 20 files at a time");
+  assert.match((await startUpload(token, { ...base, files: [{ name: "notes.pdf", type: "application/pdf", size: 10 }] }) as { error: string }).error, /not a video or photo/);
+  assert.match((await startUpload(token, { ...base, files: [{ name: "x.svg", type: "image/svg+xml;charset=utf-8", size: 10 }] }) as { error: string }).error, /not a video or photo/);
+  assert.match((await startUpload(token, { ...base, files: [{ ...video, size: 3_000_000_000 }] }) as { error: string }).error, /larger than 2 GB/);
+  assert.match((await startUpload(token, { ...base, postUrl: "javascript:alert(1)", files: [video] }) as { error: string }).error, /post link/);
+  assert.equal(await db.contentAsset.count({ where: { campaignCreatorId: creator.id } }), 0, "refused requests create nothing");
+
+  // The team recorded the post already, copied without the tracking bits: the creator's link must not add it again.
+  await db.post.create({ data: { campaignCreatorId: creator.id, socialProfileId: (await db.socialProfile.findFirstOrThrow({ where: { influencerId: creator.influencerId } })).id, url: "https://instagram.com/reel/abc123" } });
+  assert.equal(samePostKey(base.postUrl), samePostKey("https://instagram.com/reel/abc123"));
+  assert.notEqual(samePostKey("https://www.youtube.com/watch?v=one"), samePostKey("https://www.youtube.com/watch?v=two"));
+
+  const started = await startUpload(token, { ...base, files: [video, photo] });
+  assert.ok(started.ok);
+  const assets = await db.contentAsset.findMany({ where: { campaignCreatorId: creator.id }, orderBy: { fileName: "asc" } });
+  assert.deepEqual(assets.map((asset) => [asset.fileName, asset.kind, asset.status, asset.usageRights, asset.contentType]), [
+    ["Tablescape Reel.MOV", "video", "uploading", "paid", "video/quicktime"],
+    ["flatlay.jpg", "photo", "uploading", "paid", "image/jpeg"],
+  ]);
+  assert.ok(assets.every((asset) => asset.storageKey.startsWith(`content/test/${creator.id}/`)), "stored under the brand and the creator");
+  // Each file's address comes on its own, just before it goes up, and only for this creator's waiting files.
+  const signed = await signUpload(token, started.assetIds[0]);
+  assert.ok(signed.ok && signed.headers["Content-Type"] === "video/quicktime");
+  assert.equal((await signUpload(token, "someone-elses-file")).ok, false);
+
+  // Until the bytes are really there, nothing counts as received.
+  assert.deepEqual(await finishUpload(token, started.assetIds), { ok: false, error: "We could not find your files. Please try sending them again." });
+
+  // The video lands at the declared size; the photo arrives cut short, so it does not count.
+  const byName = Object.fromEntries(assets.map((asset) => [asset.fileName, asset]));
+  const written: string[] = [];
+  const place = async (storageKey: string, bytes: number) => {
+    const file = localPathFor(storageKey)!;
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, Buffer.alloc(bytes));
+    written.push(file);
+  };
+  await place(byName["Tablescape Reel.MOV"].storageKey, 2048);
+  await place(byName["flatlay.jpg"].storageKey, 100);
+  try {
+    assert.deepEqual(await finishUpload(token, [byName["Tablescape Reel.MOV"].id]), { ok: true, received: 1, missing: 0 });
+    // Reporting the same file again changes nothing.
+    assert.deepEqual(await finishUpload(token, [byName["Tablescape Reel.MOV"].id]), { ok: false, error: "We could not find your files. Please try sending them again." });
+    assert.deepEqual(await finishUpload(token, [byName["flatlay.jpg"].id]), { ok: false, error: "We could not find your files. Please try sending them again." });
+    const after = await db.contentAsset.findMany({ where: { campaignCreatorId: creator.id }, orderBy: { fileName: "asc" } });
+    assert.deepEqual(after.map((asset) => asset.status), ["received", "uploading"]);
+
+    // The content came in: Posts to check, a person is asked to look, the move is logged, and the post is not recorded twice.
+    const moved = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+    assert.equal(moved.status, "content_posted");
+    assert.equal(moved.nextAction, "Review the creator's files");
+    assert.equal(await db.post.count({ where: { campaignCreatorId: creator.id } }), 1);
+    assert.equal(await db.activity.count({ where: { campaignCreatorId: creator.id, kind: "status_change" } }), 1);
+    const logged = await db.activity.findFirstOrThrow({ where: { campaignCreatorId: creator.id, kind: "content_received" } });
+    assert.match(logged.body, /sent 1 video through their upload link \(usage: our posts and paid ads\), with the post link/);
+    assert.equal(await db.contentAsset.count({ where: { campaignCreatorId: creator.id, status: "approved" } }), 0, "nothing is approved by itself");
+
+    // A creator cannot pile up unfinished uploads behind one link.
+    const many = await startUpload(token, { ...base, files: Array.from({ length: CREATOR_LIMITS.pending }, () => photo) });
+    assert.match((many as { error: string }).error ?? "", /still on their way/);
+
+    // Asking for changes puts "tell the creator" on the list until someone writes to them.
+    await db.contentAsset.updateMany({ where: { campaignCreatorId: creator.id, status: "received" }, data: { status: "changes_requested", reviewedAt: new Date(), reviewNote: "Brighter, please" } });
+    await refreshNextAction(creator.id);
+    assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } })).nextAction, "Tell the creator what to change");
+    await db.campaignCreator.update({ where: { id: creator.id }, data: { lastContactedAt: new Date(Date.now() + 1000) } });
+    await refreshNextAction(creator.id);
+    assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } })).nextAction, "Check the post and mark completed");
+
+    // The daily tidy-up: a file that arrived in full but was never reported is received after all; a missing one is archived.
+    await db.campaignCreator.update({ where: { id: creator.id }, data: { status: "completed" } });
+    const old = new Date(Date.now() - 7 * 60 * 60 * 1000);
+    await db.contentAsset.update({ where: { id: byName["flatlay.jpg"].id }, data: { createdAt: old } });
+    await place(byName["flatlay.jpg"].storageKey, 512);
+    const lost = await db.contentAsset.create({ data: { campaignCreatorId: creator.id, kind: "photo", fileName: "lost.jpg", contentType: "image/jpeg", sizeBytes: 10, storageKey: `content/test/${creator.id}/lost/lost.jpg`, usageRights: "paid", createdAt: old } });
+    assert.deepEqual(await settleStaleUploads(), { received: 1, archived: 1 });
+    assert.equal((await db.contentAsset.findUniqueOrThrow({ where: { id: byName["flatlay.jpg"].id } })).status, "received");
+    assert.equal((await db.contentAsset.findUniqueOrThrow({ where: { id: lost.id } })).archived, true);
+    // New files reopen a completed collaboration, so they never sit unseen.
+    const reopened = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+    assert.equal(reopened.status, "content_posted");
+    assert.equal(reopened.nextAction, "Review the creator's files");
+
+    // An expired link, or a creator closed out, is refused everywhere.
+    await db.campaignCreator.update({ where: { id: creator.id }, data: { uploadExpiresAt: new Date(Date.now() - 1000) } });
+    assert.deepEqual(await startUpload(token, { ...base, files: [photo] }), { ok: false, error: UPLOAD_LINK_INACTIVE });
+    assert.deepEqual(await signUpload(token, started.assetIds[1]), { ok: false, error: UPLOAD_LINK_INACTIVE });
+    assert.deepEqual(await finishUpload(token, []), { ok: false, error: UPLOAD_LINK_INACTIVE });
+    const renewed = await ensureUploadUrl(creator.id);
+    assert.notEqual(renewed, url, "an expired link is replaced by a new one");
+    await db.campaignCreator.update({ where: { id: creator.id }, data: { status: "blacklisted" } });
+    assert.equal(await loadUploadTarget(renewed.split("/upload/")[1]), null);
+  } finally {
+    for (const file of written) await rm(path.dirname(file), { recursive: true, force: true });
+  }
 });

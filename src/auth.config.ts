@@ -30,8 +30,8 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = Boolean(auth?.user);
       if (PUBLIC_PATHS.has(nextUrl.pathname)) return true;
-      // The creator's product-selection page (guarded by its own token) and the scheduler endpoint (guarded by CRON_SECRET).
-      if (nextUrl.pathname.startsWith("/select/") || nextUrl.pathname.startsWith("/api/cron/")) return true;
+      // The creator's product-selection and content-upload pages (each guarded by its own token) and the scheduler endpoint (guarded by CRON_SECRET).
+      if (nextUrl.pathname.startsWith("/select/") || nextUrl.pathname.startsWith("/upload/") || nextUrl.pathname.startsWith("/api/cron/")) return true;
       if (nextUrl.pathname === "/login") {
         if (isLoggedIn) return Response.redirect(new URL("/today", nextUrl));
         return true;

@@ -101,6 +101,16 @@ We agreed on a post around now, so I wanted to check in. Is there a date that wo
 {sender}`,
   },
   {
+    // Also added to existing databases by the migration 20261030090100_upload_template.
+    name: "Send your files",
+    purpose: "upload",
+    body: `Hi {name}! Thank you so much for creating with our {product}. Could you send us the original video and photos, in full quality rather than the version from Instagram? This private link takes about a minute, and you can tell us there how we may use them:
+{upload_link}
+
+Thank you!
+{sender}, {brand}`,
+  },
+  {
     name: "Amazon: first message",
     purpose: "first",
     body: `Hi {name},

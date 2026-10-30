@@ -67,6 +67,11 @@ existing users keep their password.
 | `META_GRAPH_VERSION` | no | Pin a Graph API version, e.g. `v23.0`. |
 | `ANTHROPIC_API_KEY` | for AI scoring | Anthropic API key. |
 | `ANTHROPIC_MODEL` | no | Scoring model. Default `claude-opus-5-5`. |
+| `CONTENT_S3_ENDPOINT` | for the content library | S3-compatible endpoint for creators' files. For Cloudflare R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. |
+| `CONTENT_S3_BUCKET` | for the content library | The private bucket, e.g. `creator-content`. |
+| `CONTENT_S3_ACCESS_KEY_ID` | for the content library | Access key of an R2 API token with Object Read & Write on that bucket only. |
+| `CONTENT_S3_SECRET_ACCESS_KEY` | for the content library | Its secret. |
+| `CONTENT_S3_REGION` | no | Default `auto`, which R2 expects. |
 
 A missing key never crashes anything: the feature reports "not configured". The Admin page
 shows which services are configured.
@@ -759,6 +764,59 @@ Ctrl-click still opens the profile page.
   own width (a container query), Home can no longer scroll sideways, board cards stay
   inside their lanes, and the browser formats dates in the team's zone (`APP_TIME_ZONE`
   is passed to the client in `next.config.ts`), which removes a hydration error.
+
+## Phase 3G: the content library
+
+The manager's point 7, "we want actual videos from them" (2026-10-30). Creators send their
+original files through a private upload link, and the team reviews them in one library.
+
+- **The link.** The Message dialog fills `{upload_link}` once a creator's gift is on its way
+  (from "Address collected" on); the template "Send your files" uses it. The link is 192 random
+  bits like the selection link, but it is reused rather than spent: it works for 60 days from
+  when it was last sent, for as many files as the creator likes (`src/lib/content-upload.ts`).
+- **The creator's page** (`/upload/<token>`, public, rate limited like `/select`). They pick
+  videos and photos (up to 20 at a time, 2 GB each), choose what we may do with them (our posts
+  and paid ads, our posts only, or not to be reposted), and may paste the post link and date.
+  Each file goes straight from their browser to storage with its own 15-minute signed address and
+  is reported the moment it lands, so closing the page halfway loses nothing that arrived. The
+  portal checks each file in storage at the declared size before it counts.
+- **What happens next.** A creator still owing content (or already completed) moves to "Posts to
+  check", the post link is recorded once (however it was copied), and Home asks for "Review the
+  creator's files". Nothing is approved automatically. In Content > Files the team watches the
+  file, approves it or asks for changes with a note; asking puts "Tell the creator what to change"
+  on Home until someone writes to the creator. Files are removed from the library by archiving;
+  nothing is deleted.
+- **Limits.** Only exact video and photo types are stored (no SVG or anything a browser would run),
+  a creator can keep at most 200 files and 20 GB, and at most 20 files can be on their way at once.
+  The daily run settles uploads nobody reported: received if the file arrived in full, archived if not.
+- **Storage** (`src/lib/content-storage.ts`). Live: a private S3-compatible bucket, planned as
+  Cloudflare R2 (free up to 10 GB, no download fees); the team views files through signed
+  addresses that last an hour, so the bucket never needs to be public. The test copy uses a folder,
+  `.content-store/`, behind signed addresses of its own (`/api/content-store`), which answers
+  404 in production. Without the `CONTENT_S3_*` variables a live upload link tells the creator
+  to reply with a link instead, and nothing breaks.
+
+**Switching it on (Cloudflare R2).**
+
+1. In the Cloudflare dashboard, open R2 and create a bucket (for example `creator-content`).
+   Leave public access and custom domains off.
+2. R2 > Manage API tokens > Create API token: permission **Object Read & Write**, applied to that
+   one bucket. Copy the access key id and the secret, and the account id from the R2 overview.
+3. On the bucket, Settings > CORS policy, paste this (add any other address the portal is opened at):
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://creator-growth-engine.netlify.app"],
+       "AllowedMethods": ["PUT", "GET", "HEAD"],
+       "AllowedHeaders": ["Content-Type"],
+       "ExposeHeaders": ["ETag"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+4. Add the four `CONTENT_S3_*` variables to Netlify and deploy.
 
 ## Phase 1 discovery and scoring
 

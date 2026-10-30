@@ -15,6 +15,16 @@ export const RATE_LIMITS = {
   selectionMiss: { name: "selection-miss", max: 10, windowMs: 60 * 60 * 1000 },
   /** Submitting a choice, per caller address. */
   selectionSubmit: { name: "selection-submit", max: 5, windowMs: 60 * 60 * 1000 },
+  /** Opening content-upload links, per caller address. */
+  uploadView: { name: "upload-view", max: 60, windowMs: 10 * 60 * 1000 },
+  /** Opening upload links that do not exist, per caller address. */
+  uploadMiss: { name: "upload-miss", max: 10, windowMs: 60 * 60 * 1000 },
+  /** Starting a batch of file uploads, per caller address (each batch can hold several files). */
+  uploadStart: { name: "upload-start", max: 15, windowMs: 60 * 60 * 1000 },
+  /** Starting a batch, per upload link, so a forwarded link cannot be used from many addresses at once. */
+  uploadStartLink: { name: "upload-start-link", max: 20, windowMs: 60 * 60 * 1000 },
+  /** Asking for a file's upload address, and reporting it sent, per caller address (once per file each). */
+  uploadFile: { name: "upload-file", max: 300, windowMs: 60 * 60 * 1000 },
 } satisfies Record<string, RateLimitRule>;
 
 const PURGE_AFTER_MS = 24 * 60 * 60 * 1000;

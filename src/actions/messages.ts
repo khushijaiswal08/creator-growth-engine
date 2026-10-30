@@ -1,11 +1,13 @@
 "use server";
 
+import type { CreatorStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
 import { allowed, type BrandScope } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
 import type { Channel } from "@/lib/channels";
+import { ensureUploadUrl, uploadLinkExpiry } from "@/lib/content-upload";
 import { db } from "@/lib/db";
 import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
 import { ensureSelectionUrl } from "@/lib/selection";
@@ -31,6 +33,9 @@ export type LogMessageResult =
  * Loads the creator and applies every rule that can forbid contact, the suppression list included.
  * A creator of a brand outside the scope is not found at all.
  */
+/** From the address onwards: a gift is on its way or has arrived, so there will be content to send. */
+const UPLOAD_STAGES: ReadonlySet<CreatorStatus> = new Set(["address_collected", "product_shipped", "content_expected", "content_posted", "completed", "no_content"]);
+
 async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
   const creator = await db.campaignCreator.findFirst({
     where: { id: campaignCreatorId, ...scope.creators },
@@ -58,11 +63,12 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
  * disabled until this passes, so the suppression list is checked before the
  * user can send anything, not only when the message is logged. Also returns
  * what the templates and the channels need: the brand, the creator's
- * product-selection link, their email and the brand's Creator Connections page.
+ * product-selection link, their content-upload link once a gift is on its way,
+ * their email and the brand's Creator Connections page.
  */
 export async function checkMessageAllowed(
   campaignCreatorId: string,
-): Promise<{ ok: true; brand: string; selectionUrl: string; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
   const user = await requireUser();
   const sendable = await loadSendable(campaignCreatorId, allowed(user));
   if (!sendable.ok) return sendable;
@@ -71,6 +77,8 @@ export async function checkMessageAllowed(
     ok: true,
     brand: brandName(sendable.creator.campaign.brandId),
     selectionUrl: await ensureSelectionUrl(campaignCreatorId),
+    // Only once there is content to send: before that, an upload link would mean nothing to the creator.
+    uploadUrl: UPLOAD_STAGES.has(sendable.creator.status) ? await ensureUploadUrl(campaignCreatorId) : null,
     email: sendable.creator.influencer.email,
     amazonCreator: sendable.creator.influencer.amazonTier !== null,
     creatorConnectionsUrl: settings?.creatorConnectionsUrl ?? null,
@@ -121,6 +129,7 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
   const isFollowUp = creator.status === "follow_up_due";
   const movedToContacted = firstContact || isFollowUp;
   const sharesSelectionLink = Boolean(creator.selectionToken && body.includes(`/select/${creator.selectionToken}`));
+  const sharesUploadLink = Boolean(creator.uploadToken && body.includes(`/upload/${creator.uploadToken}`));
   const now = new Date();
 
   await db.$transaction(async (tx) => {
@@ -142,6 +151,9 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
         status: movedToContacted ? "contacted" : undefined,
         followUpsSent: isFollowUp ? { increment: 1 } : undefined,
         selectionSentAt: sharesSelectionLink && !creator.selectionSentAt ? now : undefined,
+        uploadSentAt: sharesUploadLink ? now : undefined,
+        // The link's 60 days count from when it was actually sent, not from when a message box was opened.
+        uploadExpiresAt: sharesUploadLink ? uploadLinkExpiry(now) : undefined,
       },
     });
     await logActivity(tx, {
@@ -149,7 +161,7 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
       kind: "message_logged",
       campaignCreatorId: creator.id,
       influencerId: creator.influencerId,
-      body: `${input.channel === "email" ? `Message prepared for ${target}` : `Message copied and ${target} opened`}${template ? ` (template "${template.name}")` : ""}${isFollowUp ? `, follow-up ${creator.followUpsSent + 1}` : ""}${sharesSelectionLink ? ", with the product selection link" : ""}.`,
+      body: `${input.channel === "email" ? `Message prepared for ${target}` : `Message copied and ${target} opened`}${template ? ` (template "${template.name}")` : ""}${isFollowUp ? `, follow-up ${creator.followUpsSent + 1}` : ""}${sharesSelectionLink ? ", with the product selection link" : ""}${sharesUploadLink ? ", with the content upload link" : ""}.`,
     });
     if (movedToContacted) {
       await logActivity(tx, {

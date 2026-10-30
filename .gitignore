@@ -18,3 +18,6 @@ pnpm-debug.log*
 
 # Creator exports and import files: personal data, never commit
 /data/
+
+# Creators' files on a local test copy (src/lib/content-storage.ts); live files go to object storage.
+/.content-store/

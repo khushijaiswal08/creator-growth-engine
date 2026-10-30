@@ -141,7 +141,7 @@ type Outcome = {
   logged: { ok: true; movedToContacted: boolean } | { ok: false; error: string };
 };
 
-type Allowed = { ok: true; brand: string; selectionUrl: string; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string };
+type Allowed = { ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string };
 
 function ComposerDialog({
   target,
@@ -207,6 +207,7 @@ function ComposerDialog({
           product,
           brand: allowed?.ok ? allowed.brand : "",
           selection_link: allowed?.ok ? allowed.selectionUrl : "",
+          upload_link: allowed?.ok ? (allowed.uploadUrl ?? "") : "",
         })
       : "");
   const unfilled = remainingPlaceholders(body);

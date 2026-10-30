@@ -51,6 +51,8 @@ const creatorSelect = {
     take: 1,
     select: { status: true, shippedAt: true, deliveredAt: true },
   },
+  _count: { select: { contentAssets: { where: { status: "received", archived: false } } } },
+  contentAssets: { where: { status: "changes_requested", archived: false }, orderBy: { reviewedAt: "desc" }, take: 1, select: { reviewedAt: true } },
 } satisfies Prisma.CampaignCreatorSelect;
 
 type LoadedCreator = Prisma.CampaignCreatorGetPayload<{ select: typeof creatorSelect }>;
@@ -63,6 +65,8 @@ const toInput = (creator: LoadedCreator, status: CreatorStatus = creator.status)
   contentDueAt: creator.contentDueAt,
   reengageAfter: creator.reengageAfter,
   gift: creator.giftOrders[0] ?? null,
+  filesToReview: creator._count.contentAssets,
+  changesAskedAt: creator.contentAssets[0]?.reviewedAt ?? null,
 });
 
 /**

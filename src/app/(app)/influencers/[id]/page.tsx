@@ -17,6 +17,8 @@ import { CreatorStatusPill, Pill } from "@/components/status-pill";
 import { StatusSelect } from "@/components/status-select";
 import { Tabs } from "@/components/tabs";
 import { openAddress } from "@/lib/address-crypto";
+import { presignView } from "@/lib/content-storage";
+import { CONTENT_STATUS_LABELS, USAGE_LABELS } from "@/lib/content-upload";
 import { activityOfInfluencer, allowed, viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatCount, formatDay, timeAgo } from "@/lib/format";
@@ -127,6 +129,12 @@ export default async function InfluencerPage({
               metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true } },
             },
           },
+          contentAssets: {
+            where: { archived: false, status: { not: "uploading" } },
+            orderBy: { receivedAt: "desc" },
+            take: 30,
+            select: { id: true, fileName: true, kind: true, contentType: true, storageKey: true, status: true, usageRights: true, receivedAt: true },
+          },
         },
       },
     },
@@ -191,6 +199,10 @@ export default async function InfluencerPage({
   const active = links[0] ?? null;
   const gifts = links.flatMap((link) => link.giftOrders.map((gift) => ({ ...gift, campaignName: link.campaign.name })));
   const posts = links.flatMap((link) => link.posts.map((post) => ({ ...post, campaignName: link.campaign.name })));
+  // Signed view addresses, made only for this creator's files on a page the person may open; they expire within the hour.
+  const files = await Promise.all(
+    links.flatMap((link) => link.contentAssets.map(async (asset) => ({ ...asset, campaignName: link.campaign.name, viewUrl: await presignView(asset.storageKey, asset.contentType) }))),
+  );
 
   const followers = influencer.profiles.reduce<number | null>((best, profile) => (profile.followers !== null && (best === null || profile.followers > best) ? profile.followers : best), null);
   const engagement = influencer.profiles.find((profile) => profile.engagementRate !== null)?.engagementRate ?? null;
@@ -288,7 +300,7 @@ export default async function InfluencerPage({
           { key: "overview", label: "Overview" },
           { key: "messages", label: "Messages", count: messages.length },
           { key: "gifts", label: "Gifts", count: gifts.length },
-          { key: "content", label: "Content", count: posts.length },
+          { key: "content", label: "Content", count: posts.length + files.length },
           { key: "history", label: "History", count: activities.length },
           { key: "notes", label: "Notes" },
         ]}
@@ -577,8 +589,33 @@ export default async function InfluencerPage({
               <div className="border-b px-5 py-3">
                 <h2>Content</h2>
               </div>
+              {files.length > 0 ? (
+                <div className="border-b px-5 py-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <h3>Files from the creator</h3>
+                    <Link href="/content" className="link text-xs">
+                      Open the library
+                    </Link>
+                  </div>
+                  <ul className="grid gap-1.5">
+                    {files.map((asset) => (
+                      <li key={asset.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                        <a className="link min-w-0 truncate font-semibold" href={asset.viewUrl} target="_blank" rel="noopener noreferrer">
+                          {asset.fileName}
+                        </a>
+                        <span className="text-muted-foreground">
+                          {asset.kind === "video" ? "Video" : asset.kind === "photo" ? "Photo" : "File"}
+                          {asset.receivedAt ? ` · ${formatDay(asset.receivedAt)}` : ""} · {asset.campaignName}
+                        </span>
+                        <Pill tone={asset.status === "approved" ? "success" : asset.status === "changes_requested" ? "danger" : "warning"}>{CONTENT_STATUS_LABELS[asset.status]}</Pill>
+                        <Pill tone={asset.usageRights === "paid" ? "success" : asset.usageRights === "organic" ? "info" : "neutral"}>{USAGE_LABELS[asset.usageRights]}</Pill>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {posts.length === 0 ? (
-                <p className="px-5 pt-6 pb-2 text-center text-muted-foreground">Nothing recorded yet.</p>
+                <p className="px-5 pt-6 pb-2 text-center text-muted-foreground">{files.length === 0 ? "Nothing recorded yet. Message \u203a \u201cSend your files\u201d gives the creator a link to upload their videos and photos." : "No post links recorded yet."}</p>
               ) : (
                 <ul className="grid gap-2 p-5 pb-0">
                   {posts.map((post) => (
