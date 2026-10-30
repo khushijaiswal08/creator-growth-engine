@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { setInfluencerArchived } from "@/actions/influencers";
 import { ActionMenu, MENU_ITEM_CLASS } from "@/components/action-menu";
 import { ActivityList } from "@/components/activity-list";
+import { AttributionLinkCard } from "@/components/attribution-link";
 import { Avatar } from "@/components/avatar";
 import { EditDetailsButton, LogReplyButton } from "@/components/creator-actions";
 import { AddProfileForm, AddToCampaignForm, EditInfluencerForm } from "@/components/influencer-forms";
@@ -17,6 +18,8 @@ import { CreatorStatusPill, Pill } from "@/components/status-pill";
 import { StatusSelect } from "@/components/status-select";
 import { Tabs } from "@/components/tabs";
 import { openAddress } from "@/lib/address-crypto";
+import { suggestedAdGroupName } from "@/lib/amazon-reports";
+import { conversionRate } from "@/lib/amazon-stats";
 import { presignView } from "@/lib/content-storage";
 import { CONTENT_STATUS_LABELS, USAGE_LABELS } from "@/lib/content-upload";
 import { activityOfInfluencer, allowed, viewed } from "@/lib/brand-scope";
@@ -129,6 +132,7 @@ export default async function InfluencerPage({
               metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true } },
             },
           },
+          attributionLinks: { where: { archived: false }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, adGroupName: true, asin: true } },
           contentAssets: {
             where: { archived: false, status: { not: "uploading" } },
             orderBy: { receivedAt: "desc" },
@@ -199,6 +203,14 @@ export default async function InfluencerPage({
   const active = links[0] ?? null;
   const gifts = links.flatMap((link) => link.giftOrders.map((gift) => ({ ...gift, campaignName: link.campaign.name })));
   const posts = links.flatMap((link) => link.posts.map((post) => ({ ...post, campaignName: link.campaign.name })));
+  // What Amazon Attribution counted for each of the active campaign's links, all time.
+  const linkStats = active
+    ? new Map(
+        (
+          await db.attributionStat.groupBy({ by: ["linkId"], where: { linkId: { in: active.attributionLinks.map((link) => link.id) } }, _sum: { clicks: true, purchases: true, productSales: true } })
+        ).map((row) => [row.linkId, { clicks: row._sum.clicks ?? 0, purchases: row._sum.purchases ?? 0, sales: row._sum.productSales === null ? 0 : Number(row._sum.productSales) }]),
+      )
+    : new Map<string, { clicks: number; purchases: number; sales: number }>();
   // Signed view addresses, made only for this creator's files on a page the person may open; they expire within the hour.
   const files = await Promise.all(
     links.flatMap((link) => link.contentAssets.map(async (asset) => ({ ...asset, campaignName: link.campaign.name, viewUrl: await presignView(asset.storageKey, asset.contentType) }))),
@@ -461,6 +473,18 @@ export default async function InfluencerPage({
                     <h2>Gift</h2>
                     <p className="mt-1 text-sm text-muted-foreground">Nothing chosen yet. Once they agree, Message with the product selection template makes their private link.</p>
                   </section>
+                ) : null}
+
+                {active ? (
+                  <AttributionLinkCard
+                    campaignCreatorId={active.id}
+                    campaignName={active.campaign.name}
+                    suggestedName={suggestedAdGroupName(influencer.profiles[0]?.platform ?? null, influencer.profiles[0]?.handle ?? null, active.id)}
+                    links={active.attributionLinks.map((link) => {
+                      const totals = linkStats.get(link.id) ?? { clicks: 0, purchases: 0, sales: 0 };
+                      return { id: link.id, url: link.url, adGroupName: link.adGroupName, landing: link.asin ? `Product page ${link.asin}` : "Amazon page", ...totals, conversion: conversionRate(totals) };
+                    })}
+                  />
                 ) : null}
 
                 <section className="card p-5">

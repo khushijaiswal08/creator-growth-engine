@@ -76,7 +76,7 @@ export function TemplateForm({
         <Label htmlFor={`tpl-body-${key}`}>Message</Label>
         <Textarea id={`tpl-body-${key}`} name="body" required rows={8} defaultValue={template?.body} className="text-sm" />
         <p className="text-xs text-muted-foreground">
-          Placeholders filled in when messaging: {"{name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link}"}
+          Placeholders filled in when messaging: {"{name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link} {amazon_link}"}
         </p>
       </div>
       <FormError state={state} />

@@ -210,7 +210,15 @@ function CardBody({ card }: { card: CreatorCard }) {
                 icon={<DollarSign className="size-3.5" strokeWidth={2.3} />}
                 label="Sales"
                 value={stats.salesUsd > 0 ? money(stats.salesUsd) : "–"}
-                note={stats.salesUsd > 0 && stats.giftValueUsd > 0 ? `${(stats.salesUsd / stats.giftValueUsd).toFixed(1)}× the gift value` : stats.salesUsd > 0 ? "from their content" : "none logged yet"}
+                note={
+                  card.fromLinks
+                    ? `${card.fromLinks.purchases} Amazon ${card.fromLinks.purchases === 1 ? "order" : "orders"} from our link${stats.giftValueUsd > 0 && stats.salesUsd > 0 ? `, ${(stats.salesUsd / stats.giftValueUsd).toFixed(1)}× the gift` : ""}`
+                    : stats.salesUsd > 0 && stats.giftValueUsd > 0
+                      ? `${(stats.salesUsd / stats.giftValueUsd).toFixed(1)}× the gift value`
+                      : stats.salesUsd > 0
+                        ? "from their content"
+                        : "none logged yet"
+                }
                 good={stats.salesUsd > 0}
               />
             </div>

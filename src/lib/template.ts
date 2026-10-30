@@ -1,12 +1,12 @@
-export const TEMPLATE_VARS = ["name", "handle", "platform", "sender", "product", "brand", "selection_link", "upload_link"] as const;
+export const TEMPLATE_VARS = ["name", "handle", "platform", "sender", "product", "brand", "selection_link", "upload_link", "amazon_link"] as const;
 
 export type TemplateVar = (typeof TEMPLATE_VARS)[number];
 export type TemplateVars = Record<TemplateVar, string>;
 
-const PLACEHOLDER_RE = /\{(name|handle|platform|sender|product|brand|selection_link|upload_link)\}/g;
+const PLACEHOLDER_RE = /\{(name|handle|platform|sender|product|brand|selection_link|upload_link|amazon_link)\}/g;
 
 /**
- * Replaces {name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link}.
+ * Replaces {name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link} {amazon_link}.
  * A placeholder with no value is left as is, so it shows up as still to fill in.
  */
 export function fillTemplate(body: string, vars: TemplateVars): string {

@@ -818,6 +818,41 @@ original files through a private upload link, and the team reviews them in one l
 
 4. Add the four `CONTENT_S3_*` variables to Netlify and deploy.
 
+## Phase 3H: Amazon tracking links, attributed sales and units sold
+
+The manager's points 3 and 4 (2026-10-30): where attribution comes from, and units sold per
+month. No Amazon API is needed: the team uploads the two files Amazon already gives them.
+
+- **Tracking links** (`AttributionLink`, the card on a creator's Overview). In Amazon Ads >
+  Amazon Attribution the team adds one ad group per creator to the brand's creator campaign,
+  named as the card suggests (`IG_@handle_k3v9x2`: the end is the creator's code), and pastes the
+  tag here. Only real tags are accepted (amazon.com, `maas=` with `ref_=aa_maas` or `tag=maas`,
+  no short links or search pages). A tag stays with the creator it was first saved for, removed or
+  not, because it carries their sales history; two live links of one brand may not share an ad
+  group name. Messages fill `{amazon_link}` with the newest live link.
+- **Attribution report** (Reports > Amazon sales). The daily Campaign report from Amazon
+  Attribution, CSV or Excel; the browser sends only the header and the columns the portal reads
+  (`compactGrid`). Columns are found by name in any of the spellings Amazon uses, the plain
+  "Purchases" before "Total purchases". Rows match a link by its exact ad group name (case and
+  punctuation ignored) or by the creator code at the end; anything else is listed back, never
+  guessed. A file that mostly matches the other brand's links is refused. A newer file replaces
+  the days it covers, so nothing is counted twice; one that would cut an earlier summary in two is
+  refused. A summary file (no dates) needs its first and last day and is spread evenly over them.
+- **Business Report**. Seller Central's Detail Page Sales and Traffic by Child Item, one month at
+  a time (the file has no dates, so the month is chosen). Uploading a month again replaces it; a
+  file that is mostly the other brand's ASINs is refused. Several SKU rows of one ASIN add up.
+- **Where it shows.** Reports > Amazon sales (creators' clicks, page views, add to cart, orders,
+  units, sales and conversion over 30 or 90 days or all time; units sold by product and month,
+  with creator-link units beside them); Performance (Amazon orders, sales, link clicks and click
+  to order, with the period before); the Ranking sort "Most sales from our links"; the creator
+  card, where Amazon's numbers take over from hand-logged post numbers campaign by campaign.
+  Amazon's days are plain calendar dates; periods are turned into the team's days before they are
+  compared. Removed links keep counting for the days they covered. Conversion shows only from 10
+  clicks, as Amazon does. Definitions: `src/lib/amazon-reports.ts`, `amazon-import.ts`,
+  `amazon-stats.ts`.
+- **Later, with an Amazon Ads API approval:** the same tables can be filled by the Attribution
+  API instead of uploads.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

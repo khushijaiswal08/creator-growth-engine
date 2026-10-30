@@ -6,6 +6,7 @@ import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/panel";
 import { ReportTabs } from "@/components/report-tabs";
+import { attributionByInfluencer, attributionTotals, conversionRate } from "@/lib/amazon-stats";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -31,14 +32,15 @@ function show(key: keyof Figures, value: number | null): string {
 }
 
 /** Up in green, down in red, the same in grey. Points for the rate, counts for the rest. */
-function Delta({ now, before, points = false, suffix = "vs previous" }: { now: number | null; before: number | null; points?: boolean; suffix?: string }) {
+function Delta({ now, before, points = false, money = false, suffix = "vs previous" }: { now: number | null; before: number | null; points?: boolean; money?: boolean; suffix?: string }) {
   if (now === null || before === null) return <span className="chip border-transparent bg-surface-2">no earlier period</span>;
   const delta = now - before;
   if (delta === 0) return <span className="chip border-transparent bg-surface-2">same {suffix}</span>;
   const up = delta > 0;
   return (
     <span className={cn("chip border-transparent", up ? "bg-success-soft text-success-text" : "bg-danger-soft text-danger-text")}>
-      {up ? "▲" : "▼"} {Math.abs(delta)}
+      {up ? "▲" : "▼"} {money ? "$" : ""}
+      {Math.abs(delta).toLocaleString("en-US")}
       {points ? " pts" : ""} {suffix}
     </span>
   );
@@ -48,8 +50,8 @@ function Delta({ now, before, points = false, suffix = "vs previous" }: { now: n
  * The performance report: one period (week, month, quarter or custom dates),
  * per brand and campaign, with the previous period beside it, an eight-week
  * trend of messages and replies, where creators drop off, the top creators of
- * the period and the week-by-week table. Attributed orders arrive with the
- * Amazon imports in Phase B.
+ * the period and the week-by-week table. Amazon orders and sales come from the
+ * imported Attribution reports (Reports > Amazon sales).
  */
 export default async function PerformancePage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; campaign?: string }> }) {
   const user = await requireUser();
@@ -82,6 +84,14 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     messagedIn(earlier),
   ]);
   const [reading, readingBefore] = await Promise.all([readingFiguresFor(period, where), readingFiguresFor(earlier, where)]);
+  // What creator links brought in on Amazon, from the imported Attribution reports.
+  const [amazonNow, amazonBefore, amazonByCreator] = await Promise.all([
+    attributionTotals({ campaign: where }, period),
+    attributionTotals({ campaign: where }, earlier),
+    attributionByInfluencer({ campaign: where }, period),
+  ]);
+  const conversionNow = conversionRate(amazonNow);
+  const conversionBefore = conversionRate(amazonBefore);
   // Reply rate the way the outreach report defines it: replies divided by the creators messaged in the period.
   const replyRateNow = messagedNow.length > 0 ? Math.round((figures.replies / messagedNow.length) * 100) : null;
   const replyRateBefore = messagedBefore.length > 0 ? Math.round((before.replies / messagedBefore.length) * 100) : null;
@@ -122,6 +132,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     `Agreed: ${figures.agreed}`,
     `Gifts chosen: ${figures.giftsOrdered}, shipped: ${figures.giftsShipped}, delivered: ${figures.giftsDelivered}`,
     `Content posted: ${figures.posted}, no content: ${figures.noContent}${figures.contentRate !== null ? `, content rate ${figures.contentRate}%` : ""}`,
+    `Amazon from creator links: ${amazonNow.purchases} orders, $${Math.round(amazonNow.productSales).toLocaleString("en-US")} in sales, ${amazonNow.clicks} clicks`,
     "",
     `Full report: ${process.env.APP_URL ?? ""}${href({})}`,
   ].join("\n");
@@ -243,6 +254,43 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
       </section>
 
+      <section aria-label="Amazon from creator links" className="mb-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Amazon orders</p>
+          <p className="stat-number text-[28px]">{amazonNow.purchases.toLocaleString("en-US")}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={amazonNow.purchases} before={amazonBefore.purchases} />
+            <span>from creator links</span>
+          </div>
+        </div>
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Amazon sales</p>
+          <p className="stat-number text-[28px]">${Math.round(amazonNow.productSales).toLocaleString("en-US")}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={Math.round(amazonNow.productSales)} before={Math.round(amazonBefore.productSales)} money />
+            <span>{amazonNow.unitsSold.toLocaleString("en-US")} units</span>
+          </div>
+        </div>
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Link clicks</p>
+          <p className="stat-number text-[28px]">{amazonNow.clicks.toLocaleString("en-US")}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Delta now={amazonNow.clicks} before={amazonBefore.clicks} />
+            <span>{amazonNow.detailPageViews.toLocaleString("en-US")} page views</span>
+          </div>
+        </div>
+        <div className="card grid gap-1.5 p-4">
+          <p className="label">Click to order</p>
+          <p className="stat-number text-[28px]">{conversionNow === null ? "–" : `${conversionNow}%`}</p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {conversionNow === null ? <span className="chip border-transparent bg-surface-2">under 10 clicks</span> : <Delta now={conversionNow} before={conversionBefore} points />}
+            <Link href="/reports/amazon" className="link">
+              Amazon sales
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <section aria-label="Rachna's reading of replies" className="mb-5 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-3">
         <div className="card grid gap-1.5 p-4">
           <p className="label">Replies read by Rachna</p>
@@ -331,7 +379,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                 <TableHead className="text-right">Engagement</TableHead>
                 <TableHead>Amazon tier</TableHead>
                 <TableHead className="text-right">Monthly sales</TableHead>
-                <TableHead>Attributed orders</TableHead>
+                <TableHead className="text-right">Amazon orders</TableHead>
                 <TableHead>Last collaboration</TableHead>
               </TableRow>
             </TableHeader>
@@ -364,7 +412,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     <TableCell className="text-right tabular-nums">{profile?.engagementRate !== null && profile?.engagementRate !== undefined ? `${profile.engagementRate}%` : "–"}</TableCell>
                     <TableCell>{row.link.influencer.amazonTier ?? <span className="text-muted-foreground">–</span>}</TableCell>
                     <TableCell className="text-right tabular-nums">{gmv === null ? "–" : `$${Math.round(gmv).toLocaleString("en-US")}`}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">after Amazon import</TableCell>
+                    <TableCell className="text-right tabular-nums">{amazonByCreator.get(row.link.influencer.id)?.purchases ?? <span className="text-muted-foreground">–</span>}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDay(row.link.lastContactedAt) || "–"}</TableCell>
                   </TableRow>
                 );

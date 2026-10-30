@@ -64,21 +64,27 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
  * user can send anything, not only when the message is logged. Also returns
  * what the templates and the channels need: the brand, the creator's
  * product-selection link, their content-upload link once a gift is on its way,
- * their email and the brand's Creator Connections page.
+ * their Amazon tracking link when one is saved, their email and the brand's
+ * Creator Connections page.
  */
 export async function checkMessageAllowed(
   campaignCreatorId: string,
-): Promise<{ ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; amazonUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
   const user = await requireUser();
   const sendable = await loadSendable(campaignCreatorId, allowed(user));
   if (!sendable.ok) return sendable;
-  const settings = await db.brandSettings.findUnique({ where: { brandId: sendable.creator.campaign.brandId }, select: { creatorConnectionsUrl: true } });
+  const [settings, amazonLink] = await Promise.all([
+    db.brandSettings.findUnique({ where: { brandId: sendable.creator.campaign.brandId }, select: { creatorConnectionsUrl: true } }),
+    // The newest live link, when a creator has more than one.
+    db.attributionLink.findFirst({ where: { campaignCreatorId, archived: false }, orderBy: { createdAt: "desc" }, select: { url: true } }),
+  ]);
   return {
     ok: true,
     brand: brandName(sendable.creator.campaign.brandId),
     selectionUrl: await ensureSelectionUrl(campaignCreatorId),
     // Only once there is content to send: before that, an upload link would mean nothing to the creator.
     uploadUrl: UPLOAD_STAGES.has(sendable.creator.status) ? await ensureUploadUrl(campaignCreatorId) : null,
+    amazonUrl: amazonLink?.url ?? null,
     email: sendable.creator.influencer.email,
     amazonCreator: sendable.creator.influencer.amazonTier !== null,
     creatorConnectionsUrl: settings?.creatorConnectionsUrl ?? null,

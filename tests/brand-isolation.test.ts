@@ -44,6 +44,7 @@ type BrandFixture = {
   giftId: string;
   assetId: string;
   uploadToken: string;
+  linkId: string;
 };
 const fixtures: Record<string, BrandFixture> = {};
 
@@ -171,7 +172,11 @@ before(async () => {
         receivedAt: new Date(),
       },
     });
-    fixtures[brand] = { id: brand, user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, productId: product.id, giftId: gift.id, assetId: asset.id, uploadToken };
+    // An Amazon tracking link with a day of numbers, so the Amazon report has something to show or hide.
+    const link = await db.attributionLink.create({ data: { campaignCreatorId: creator.id, url: `https://www.amazon.com/dp/B0ISOLATION?maas=m_${brand}&ref_=aa_maas`, maas: `m_${brand}`, asin: "B0ISOLATION", adGroupName: `${brand}-adgroup`, addedById: user.id } });
+    const reportImport = await db.reportImport.create({ data: { brandId: brand, kind: "attribution", fileName: `${brand}.csv`, periodStart: new Date(), periodEnd: new Date(), rows: 1, matched: 1, importedById: user.id } });
+    await db.attributionStat.create({ data: { linkId: link.id, periodStart: new Date(Date.now() - 3 * 86_400_000), periodEnd: new Date(Date.now() - 3 * 86_400_000), clicks: brand === "ridhi" ? 111 : 222, purchases: 3, productSales: 99, importId: reportImport.id } });
+    fixtures[brand] = { id: brand, user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, productId: product.id, giftId: gift.id, assetId: asset.id, uploadToken, linkId: link.id };
   }
 
   server = spawn("pnpm", ["exec", "next", "start", "-p", String(APP_PORT), "-H", "127.0.0.1"], { env, shell: true, stdio: "ignore" });
@@ -242,6 +247,11 @@ for (const [mine, theirs] of [
     const library = await (await get(cookie, "/content?files=all")).text();
     assert.match(library, new RegExp(`${mine}-reel\\.mp4`), "the library lists the own brand's file");
     assert.doesNotMatch(library, new RegExp(`${theirs}-reel\\.mp4`), "the library never lists the other brand's file");
+    // The Amazon report counts the own brand's links and never the other brand's.
+    const amazon = await (await get(cookie, "/reports/amazon")).text();
+    assert.match(amazon, new RegExp(`${mine} creator`), "the Amazon report lists the own brand's creator");
+    assert.doesNotMatch(amazon, new RegExp(`${theirs} creator`), "the Amazon report never lists the other brand's creator");
+    assert.doesNotMatch(amazon, new RegExp(theirs === "ridhi" ? ">111<" : ">222<"), "nor the other brand's clicks");
     // The test copy's local file store does not exist in a production build, signed address or not.
     assert.equal((await fetch(`${BASE}/api/content-store/content/${theirs}/x/asset/${theirs}-reel.mp4?m=GET&exp=9999999999&size=0&type=video%2Fmp4&dl=&sig=forged`)).status, 404);
     // Without bucket keys, a creator's upload link says uploads are not on yet instead of taking files.
@@ -254,7 +264,7 @@ for (const [mine, theirs] of [
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
@@ -262,9 +272,16 @@ for (const [mine, theirs] of [
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
       influencer: await db.influencer.findUniqueOrThrow({ where: { id: other.influencerId } }),
       asset: await db.contentAsset.findUniqueOrThrow({ where: { id: other.assetId } }),
+      link: await db.attributionLink.findUniqueOrThrow({ where: { id: other.linkId } }),
+      otherSales: await db.productMonthlySales.count({ where: { brandId: theirs } }),
       activity: await db.activity.count(),
     };
     await callAction(cookie, ids.get("updateCreatorStatus")!, [other.creatorId, "completed"]);
+    await callAction(cookie, ids.get("saveAttributionLink")!, [other.creatorId, "https://www.amazon.com/dp/B0FORGED01?maas=m_forged&ref_=aa_maas", "forged"]);
+    await callAction(cookie, ids.get("archiveAttributionLink")!, [other.linkId]);
+    // A marketer naming the other brand still imports into their own: the account's brand wins.
+    // (In the action wire format a leading "$" is escaped as "$$", as React's encodeReply does.)
+    await callAction(cookie, ids.get("uploadBusinessReport")!, [{ brandId: theirs, rows: [["(Child) ASIN", "Units Ordered", "Ordered Product Sales"], ["B0FORGED01", "5", "$$50"]], fileName: "forged.csv", month: "2026-09" }]);
     await callAction(cookie, ids.get("reviewContent")!, [other.assetId, "approve", ""]);
     await callAction(cookie, ids.get("archiveContent")!, [other.assetId]);
     await callAction(cookie, ids.get("decideGift")!, [other.giftId, "cancel"]);
@@ -275,14 +292,30 @@ for (const [mine, theirs] of [
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
       influencer: await db.influencer.findUniqueOrThrow({ where: { id: other.influencerId } }),
       asset: await db.contentAsset.findUniqueOrThrow({ where: { id: other.assetId } }),
+      link: await db.attributionLink.findUniqueOrThrow({ where: { id: other.linkId } }),
+      otherSales: await db.productMonthlySales.count({ where: { brandId: theirs } }),
       activity: await db.activity.count(),
     };
+    assert.equal(await db.attributionLink.count({ where: { maas: "m_forged" } }), 0, "no link saved on the other brand's creator");
+    assert.equal(afterwards.link.archived, false, "the other brand's link not removed by a forged call");
+    assert.equal(afterwards.otherSales, before.otherSales, "nothing imported into the other brand");
+    assert.equal(await db.productMonthlySales.count({ where: { brandId: mine, childAsin: "B0FORGED01" } }), 1, "the upload went to the own brand");
+    await db.productMonthlySales.deleteMany({ where: { childAsin: "B0FORGED01" } });
     assert.equal(afterwards.asset.status, before.asset.status, "file not approved by a forged call");
     assert.equal(afterwards.asset.archived, false, "file not removed by a forged call");
     assert.equal(afterwards.creator.status, before.creator.status, "status unchanged by a forged call");
     assert.equal(afterwards.gift.status, before.gift.status, "gift unchanged by a forged call");
     assert.equal(afterwards.influencer.archived, false, "creator not archived by a forged call");
-    assert.equal(afterwards.activity, before.activity, "no activity written by forged calls");
+    // The one write that is allowed (the own-brand import) logs one line; nothing else did.
+    assert.equal(afterwards.activity, before.activity + 1, "no activity written by forged calls");
+
+    // A removed tag of the other brand cannot be taken over by saving it on an own creator: it stays with its creator and its history.
+    await db.attributionLink.update({ where: { id: other.linkId }, data: { archived: true } });
+    await callAction(cookie, ids.get("saveAttributionLink")!, [me.creatorId, `https://www.amazon.com/dp/B0ISOLATION?maas=m_${theirs}&ref_=aa_maas`, "takeover"]);
+    const kept = await db.attributionLink.findUniqueOrThrow({ where: { id: other.linkId } });
+    assert.equal(kept.campaignCreatorId, other.creatorId, "the other brand's removed tag stays with its creator");
+    assert.equal(kept.archived, true);
+    await db.attributionLink.update({ where: { id: other.linkId }, data: { archived: false } });
 
     // The same forged call against an own record does work, so the test is not passing by accident.
     await callAction(cookie, ids.get("updateCreatorStatus")!, [me.creatorId, "product_shipped"]);

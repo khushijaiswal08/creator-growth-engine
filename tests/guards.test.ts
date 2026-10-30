@@ -1840,3 +1840,198 @@ test("a creator's upload link takes their files, checks what arrived, and hands 
     for (const file of written) await rm(path.dirname(file), { recursive: true, force: true });
   }
 });
+
+test("Amazon's files are read by column name, however Amazon spells and formats them", async () => {
+  const { headerKey, parseCount, parseMoney, parseDay, readAttributionReport, readBusinessReport, parseAttributionUrl, suggestedAdGroupName, adGroupKey, codeInAdGroup, compactGrid } = await import("@/lib/amazon-reports");
+
+  assert.equal(headerKey("﻿(Child) ASIN"), "child asin");
+  assert.equal(headerKey("Sessions – Total"), "sessions total");
+  assert.equal(headerKey("Click-throughs"), "click throughs");
+  assert.equal(parseCount("1,017"), 1017);
+  assert.equal(parseCount("--"), null);
+  assert.equal(parseMoney("$1,017.50"), 1017.5);
+  assert.equal(parseMoney("Can$3.10"), 3.1);
+  assert.equal(parseMoney("N/A"), null);
+  for (const text of ["2026-10-28", "10/28/2026", "10/28/26", "Oct 28, 2026", "20261028"]) assert.equal(parseDay(text)?.toISOString().slice(0, 10), "2026-10-28", text);
+  assert.equal(parseDay("02/30/2026"), null, "not a real day");
+
+  // A daily Attribution report with a title line above the table and a totals row at the bottom.
+  const attribution = readAttributionReport([
+    ["Amazon Attribution campaign report"],
+    ["Date", "Campaign", "Ad group", "Publisher", "Click-throughs", "Detail page views", "Add to carts", "Purchases", "Units sold", "Product sales"],
+    ["10/27/2026", "CPC Creators Q4", "IG_@emma_k3v9x2", "Instagram", "12", "9", "3", "2", "2", "$58.00"],
+    ["10/28/2026", "CPC Creators Q4", "IG_@emma_k3v9x2", "Instagram", "1,004", "700", "80", "40", "41", "$1,189.59"],
+    ["", "Total", "", "", "1,016", "", "", "42", "", "$1,247.59"],
+  ]);
+  assert.ok(attribution.ok && attribution.daily);
+  if (attribution.ok) {
+    assert.equal(attribution.rows.length, 2, "the totals row is not a creator");
+    assert.deepEqual([attribution.rows[1].clicks, attribution.rows[1].purchases, attribution.rows[1].productSales], [1004, 40, 1189.59]);
+  }
+  assert.equal(readAttributionReport([["Date", "Campaign", "Clicks"], ["10/28/2026", "x", "4"]]).ok, false, "no ad group column");
+  const summary = readAttributionReport([["Ad group", "Purchases", "Total product sales"], ["TT_@nora_abc123", "3", "90"]]);
+  assert.ok(summary.ok && !summary.daily, "a summary file has no dates");
+
+  // The Business Report: renamed columns, money with symbols, one ASIN on two SKU rows.
+  const business = readBusinessReport([
+    ["(Parent) ASIN", "(Child) ASIN", "Title", "SKU", "Sessions – Total", "Page Views – Total", "Units Ordered", "Units Ordered – B2B", "Ordered Product Sales", "Total Order Items"],
+    ["B0PARENT01", "B0TABLE001", "Tablecloth, Marigold", "CPC-TC-01", "1,200", "1,900", "30", "1", "$1,020.00", "29"],
+    ["B0PARENT01", "B0TABLE001", "Tablecloth, Marigold", "CPC-TC-01-FBM", "1,200", "1,900", "2", "0", "$68.00", "2"],
+    ["", "not-an-asin", "", "", "", "", "5", "", "$1", ""],
+  ]);
+  assert.ok(business.ok);
+  if (business.ok) {
+    assert.equal(business.rows.length, 1);
+    assert.deepEqual([business.rows[0].unitsOrdered, business.rows[0].orderedProductSales, business.rows[0].sessions], [32, 1088, 1200], "units and sales add up, traffic does not");
+  }
+  assert.equal(readBusinessReport([["ASIN", "Sessions"], ["B0TABLE001", "3"]]).ok, false, "Units Ordered is required");
+  // B2B units and order items add up across one ASIN's SKU rows too.
+  const twoSkus = readBusinessReport([["(Child) ASIN", "Units Ordered", "Units Ordered - B2B", "Total Order Items"], ["B0TABLE001", "3", "1", "3"], ["B0TABLE001", "2", "", "2"]]);
+  assert.ok(twoSkus.ok && twoSkus.rows[0].unitsOrderedB2B === 1 && twoSkus.rows[0].totalOrderItems === 5);
+
+  // Where Amazon puts a "Total" column (which can include brand halo sales) before the plain one, the plain one wins.
+  const both = readAttributionReport([["Ad group", "Total purchases", "Purchases", "Total product sales", "Product sales"], ["IG_@emma_k3v9x2", "9", "4", "$300", "$120"]]);
+  assert.ok(both.ok && both.rows[0].purchases === 4 && both.rows[0].productSales === 120);
+
+  // Before upload the browser keeps only the header on and the columns the readers use.
+  const wide = [["Report title"], ["Date", "Notes", "Ad group", "Secret column", "Clicks"], ["10/28/2026", "x", "IG_@emma_k3v9x2", "y", "5"]];
+  assert.deepEqual(compactGrid(wide, "attribution"), [["Ad group", "Date", "Clicks"], ["IG_@emma_k3v9x2", "10/28/2026", "5"]]);
+  const compacted = readAttributionReport(compactGrid(wide, "attribution"));
+  assert.ok(compacted.ok && compacted.rows[0].clicks === 5 && compacted.daily, "the compacted file reads the same");
+
+  // Tracking links: the real tag only.
+  const link = parseAttributionUrl("https://www.amazon.com/dp/B0TABLE001?maas=maas_adg_api_123_static_9_99&ref_=aa_maas&tag=maas");
+  assert.ok(link.ok && link.link.asin === "B0TABLE001" && link.link.maas === "maas_adg_api_123_static_9_99");
+  assert.match((parseAttributionUrl("https://amzn.to/3xyz") as { error: string }).error, /Short links/);
+  assert.match((parseAttributionUrl("https://www.amazon.com/dp/B0TABLE001") as { error: string }).error, /no Amazon Attribution tag/);
+  assert.match((parseAttributionUrl("https://www.amazon.com/s?k=tablecloth&maas=abc&ref_=aa_maas") as { error: string }).error, /Search-result/);
+  assert.equal(parseAttributionUrl("https://www.amazon.com/stores/page/ABC?maas=m1&tag=maas").ok, true, "a Store page works");
+  assert.equal(suggestedAdGroupName("instagram", "emma", "cmabcdefk3v9x2"), "IG_@emma_k3v9x2");
+  assert.equal(adGroupKey("IG_@Emma_k3v9x2"), adGroupKey("ig @emma k3v9x2"));
+  assert.equal(codeInAdGroup("IG_@emma_k3v9x2"), "k3v9x2");
+  assert.equal(codeInAdGroup("Nora reel"), null);
+});
+
+test("Attribution imports find each creator by their ad group, never count a day twice, and list what they could not place", async () => {
+  const { importAttribution } = await import("@/lib/amazon-import");
+  const { attributionTotals, attributionByInfluencer, conversionRate, shareInside } = await import("@/lib/amazon-stats");
+  const { creatorCode } = await import("@/lib/amazon-reports");
+  const { user, campaign } = await makeUserAndCampaign("attribution", ["home decor"]);
+  const emma = await makeCreator(campaign.id, "aa_emma", { status: "content_posted" });
+  const nora = await makeCreator(campaign.id, "aa_nora", { status: "content_posted" });
+  await db.attributionLink.create({ data: { campaignCreatorId: emma.id, url: "https://www.amazon.com/dp/B0TABLE001?maas=m_emma&ref_=aa_maas", maas: "m_emma", asin: "B0TABLE001", adGroupName: "IG_@aa_emma_x1", addedById: user.id } });
+  await db.attributionLink.create({ data: { campaignCreatorId: nora.id, url: "https://www.amazon.com/dp/B0TABLE002?maas=m_nora&ref_=aa_maas", maas: "m_nora", asin: "B0TABLE002", adGroupName: "Nora reel", addedById: user.id } });
+  const brandId = "test" as never;
+  const header = ["Date", "Campaign", "Ad group", "Clicks", "Purchases", "Units sold", "Product sales"];
+
+  const first = await importAttribution({
+    brandId,
+    userId: user.id,
+    fileName: "october.xlsx",
+    grid: [
+      header,
+      ["2026-10-01", "Q4", "ig @AA_EMMA x1", "100", "5", "5", "$150.00"], // the saved name, typed differently
+      ["2026-10-01", "Q4", "IG_@aa_emma_x1", "20", "1", "1", "$30.00"], // the same day again (another publisher): adds up
+      ["2026-10-02", "Q4", `TT_@aa_nora_${creatorCode(nora.id)}`, "40", "2", "2", "$60.00"], // not the saved name, but it ends in Nora's creator code
+      ["2026-10-02", "Q4", "TT_@aa_nora_new", "3", "0", "0", "$0.00"], // a handle alone is never enough: nothing is guessed
+      ["2026-10-02", "Q4", "Someone else", "7", "0", "0", "$0.00"],
+    ],
+  });
+  assert.ok(first.ok);
+  if (!first.ok) return;
+  assert.deepEqual([first.rows, first.matchedRows, first.creators, first.from, first.to], [5, 3, 2, "2026-10-01", "2026-10-02"]);
+  assert.deepEqual(first.unmatched, [{ adGroup: "Someone else", campaign: "Q4", clicks: 7, purchases: 0 }, { adGroup: "TT_@aa_nora_new", campaign: "Q4", clicks: 3, purchases: 0 }]);
+  const creators = { campaignId: campaign.id };
+  assert.deepEqual(await attributionTotals(creators), { clicks: 160, detailPageViews: 0, addToCarts: 0, purchases: 8, unitsSold: 8, productSales: 240, brandReferralBonus: null });
+
+  // The same days imported again (say, a corrected file) replace what was there instead of adding to it.
+  const again = await importAttribution({ brandId, userId: user.id, fileName: "october-v2.xlsx", grid: [header, ["2026-10-01", "Q4", "IG_@aa_emma_x1", "130", "7", "7", "$210.00"]] });
+  assert.ok(again.ok);
+  const byPerson = await attributionByInfluencer(creators);
+  assert.equal(byPerson.get(emma.influencerId)?.purchases, 7, "Emma's 1 October was replaced, not added to");
+  assert.equal(byPerson.get(nora.influencerId)?.purchases, 2, "Nora's 2 October was outside the new file and stays");
+  assert.equal(conversionRate({ clicks: 130, purchases: 7 }), 5.4);
+  assert.equal(conversionRate({ clicks: 9, purchases: 3 }), null, "too few clicks to read");
+
+  // A period counts a day only when the whole day lies inside it.
+  assert.equal((await attributionTotals(creators, { from: new Date("2026-10-02T00:00:00Z"), to: new Date("2026-10-03T00:00:00Z") })).purchases, 2);
+
+  // A removed link keeps counting for the days it covered.
+  await db.attributionLink.update({ where: { maas: "m_nora" }, data: { archived: true } });
+  assert.equal((await attributionByInfluencer(creators)).get(nora.influencerId)?.purchases, 2);
+  await db.attributionLink.update({ where: { maas: "m_nora" }, data: { archived: false } });
+
+  // A summary file has no dates of its own, so the person must say which days it covers.
+  const summaryGrid = [["Ad group", "Purchases", "Product sales"], ["Nora reel", "4", "$120"]];
+  assert.deepEqual(await importAttribution({ brandId, userId: user.id, fileName: "summary.csv", grid: summaryGrid }), { ok: false, error: "This report has no dates, so choose the first and last day it covers." });
+  const dated = await importAttribution({ brandId, userId: user.id, fileName: "summary.csv", grid: summaryGrid, from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-30T00:00:00Z") });
+  assert.ok(dated.ok && dated.matchedRows === 1);
+  assert.equal(await db.reportImport.count({ where: { brandId: "test", kind: "attribution" } }), 3);
+  assert.equal(await db.activity.count({ where: { kind: "csv_import", body: { contains: "Amazon Attribution report" } } }), 3);
+
+  // The summary is spread over its 30 days: half of September holds half of it.
+  assert.equal(shareInside({ periodStart: new Date("2026-09-01T00:00:00Z"), periodEnd: new Date("2026-09-30T00:00:00Z") }, new Date("2026-09-01T00:00:00Z"), new Date("2026-09-16T00:00:00Z")), 0.5);
+  assert.equal((await attributionByInfluencer(creators, { from: new Date("2026-09-01T00:00:00Z"), to: new Date("2026-09-16T00:00:00Z") })).get(nora.influencerId)?.purchases, 2);
+  // A daily file inside that summary would cut it in two, losing the days it does not cover: refused.
+  const inside = await importAttribution({ brandId, userId: user.id, fileName: "mid-september.csv", grid: [header, ["2026-09-15", "Q4", "Nora reel", "10", "1", "1", "$30.00"]] });
+  assert.match((inside as { error: string }).error, /holds one total for 2026-09-01 to 2026-09-30/);
+
+  // Two links sharing a name name nobody; their rows are listed, never merged.
+  const third = await makeCreator(campaign.id, "aa_third", { status: "content_posted" });
+  await db.attributionLink.create({ data: { campaignCreatorId: third.id, url: "https://www.amazon.com/dp/B0TABLE003?maas=m_third&ref_=aa_maas", maas: "m_third", adGroupName: "Shared name", addedById: user.id } });
+  await db.attributionLink.create({ data: { campaignCreatorId: emma.id, url: "https://www.amazon.com/dp/B0TABLE004?maas=m_emma2&ref_=aa_maas", maas: "m_emma2", adGroupName: "shared  NAME", addedById: user.id } });
+  const shared = await importAttribution({ brandId, userId: user.id, fileName: "shared.csv", grid: [header, ["2026-11-01", "Q4", "Shared name", "5", "1", "1", "$30.00"]] });
+  assert.ok(shared.ok && shared.matchedRows === 0 && shared.unmatched[0].adGroup === "Shared name");
+
+  // A file that is the other brand's (picked under the wrong brand) is refused, not spread over look-alike names.
+  const elsewhere = await db.campaign.create({ data: { name: "elsewhere", brandId: "ridhi", brief: "x", nicheKeywords: [], negativeKeywords: [] } });
+  const rows: string[][] = [header];
+  for (const name of ["r_one", "r_two", "r_three"]) {
+    const other = await makeCreator(elsewhere.id, name);
+    await db.attributionLink.create({ data: { campaignCreatorId: other.id, url: `https://www.amazon.com/dp/B0TABLE005?maas=m_${name}&ref_=aa_maas`, maas: `m_${name}`, adGroupName: `IG_@${name}_${creatorCode(other.id)}`, addedById: user.id } });
+    rows.push(["2026-11-02", "Ridhi Q4", `IG_@${name}_${creatorCode(other.id)}`, "9", "1", "1", "$40.00"]);
+  }
+  assert.match((await importAttribution({ brandId, userId: user.id, fileName: "ridhi.csv", grid: rows }) as { error: string }).error, /belong to Ridhi Block Print/);
+});
+
+test("Business Reports give monthly units per product, replace a month when uploaded again, and refuse the other brand's file", async () => {
+  const { importBusinessReport, monthFromField } = await import("@/lib/amazon-import");
+  const { unitsByMonth } = await import("@/lib/amazon-stats");
+  const { user, campaign } = await makeUserAndCampaign("business", ["home decor"]);
+  await db.product.create({ data: { brandId: "ridhi", sku: "BR-TC-01", asin: "B0BRTABLE1", title: "Tablecloth" } });
+  await db.product.create({ data: { brandId: "ridhi", sku: "BR-NP-01", asin: "B0BRNAPKN1", title: "Napkins" } });
+  for (const [index, asin] of ["B0CPCOTHR1", "B0CPCOTHR2", "B0CPCOTHR3", "B0CPCOTHR4"].entries()) {
+    await db.product.create({ data: { brandId: "cotton-print-club", sku: `CPC-X-${index}`, asin, title: "Quilt" } });
+  }
+  const october = monthFromField("2026-10", new Date("2026-10-30T00:00:00Z"))!;
+  assert.equal(october.toISOString().slice(0, 10), "2026-10-01");
+  assert.equal(monthFromField("2026-13"), null);
+  assert.equal(monthFromField("2026-12", new Date("2026-10-30T00:00:00Z")), null, "not a future month");
+
+  const header = ["(Child) ASIN", "Title", "SKU", "Units Ordered", "Ordered Product Sales"];
+  const first = await importBusinessReport({ brandId: "ridhi", userId: user.id, fileName: "oct.csv", month: october, grid: [header, ["B0BRTABLE1", "Tablecloth", "BR-TC-01", "30", "$1,020.00"], ["B0BRNAPKN1", "Napkins", "BR-NP-01", "12", "$240.00"], ["B0UNKNOWN1", "Mystery", "", "1", "$9.99"]] });
+  assert.ok(first.ok);
+  if (first.ok) assert.deepEqual([first.products, first.matched, first.units, first.unmatched], [3, 2, 43, ["B0UNKNOWN1"]]);
+
+  // The same month again replaces it: a product missing from the new file does not keep its old numbers.
+  const corrected = await importBusinessReport({ brandId: "ridhi", userId: user.id, fileName: "oct-final.csv", month: october, grid: [header, ["B0BRTABLE1", "Tablecloth", "BR-TC-01", "33", "$1,122.00"]] });
+  assert.ok(corrected.ok);
+  assert.equal(await db.productMonthlySales.count({ where: { brandId: "ridhi", month: october } }), 1);
+
+  // Creator links pointing at a product show their units beside the month's total.
+  const creator = await makeCreator(campaign.id, "br_creator");
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+  const link = await db.attributionLink.create({ data: { campaignCreatorId: creator.id, url: "https://www.amazon.com/dp/B0BRTABLE1?maas=m_br&ref_=aa_maas", maas: "m_br", asin: "B0BRTABLE1", adGroupName: "br", addedById: user.id } });
+  const importRow = await db.reportImport.create({ data: { brandId: "ridhi", kind: "attribution", fileName: "x", periodStart: october, periodEnd: october, rows: 1, matched: 1, importedById: user.id } });
+  await db.attributionStat.create({ data: { linkId: link.id, periodStart: new Date("2026-10-15T00:00:00Z"), periodEnd: new Date("2026-10-15T00:00:00Z"), unitsSold: 4, purchases: 4, productSales: 136, importId: importRow.id } });
+  const table = await unitsByMonth(["ridhi"], 2, new Date("2026-10-30T00:00:00Z"));
+  assert.deepEqual(table.months.map((month) => month.toISOString().slice(0, 7)), ["2026-09", "2026-10"]);
+  const tablecloth = table.groups.find((group) => group.title === "Tablecloth")!;
+  assert.deepEqual([tablecloth.units[1], tablecloth.sales[1], tablecloth.fromCreators[1]], [33, 1122, 4]);
+  assert.equal(table.totals.units[1], 33);
+
+  // A Cotton Print Club file uploaded as Ridhi is refused, since each brand is its own seller account.
+  const wrong = await importBusinessReport({ brandId: "ridhi", userId: user.id, fileName: "cpc.csv", month: october, grid: [header, ["B0CPCOTHR1", "Quilt", "", "3", "$90"], ["B0CPCOTHR2", "Quilt", "", "3", "$90"], ["B0CPCOTHR3", "Quilt", "", "3", "$90"], ["B0CPCOTHR4", "Quilt", "", "3", "$90"]] });
+  assert.deepEqual(wrong, { ok: false, error: "Most products in this file belong to Cotton Print Club, not Ridhi Block Print. Check the brand and upload it again." });
+  assert.equal(await db.productMonthlySales.count({ where: { brandId: "ridhi", month: october } }), 1, "the refused file changed nothing");
+});

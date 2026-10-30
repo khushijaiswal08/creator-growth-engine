@@ -9,6 +9,7 @@ import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { attributionByInfluencer } from "@/lib/amazon-stats";
 import { viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatCount, formatDay } from "@/lib/format";
@@ -25,6 +26,7 @@ const SORTS = {
   gifts: "Most gifts given",
   rate: "Best content rate",
   gmv: "Highest Amazon sales",
+  links: "Most sales from our links",
   followers: "Most followers",
   engagement: "Highest engagement",
   recent: "Most recent collaboration",
@@ -39,9 +41,9 @@ const TIER_ORDER = ["platinum", "gold", "silver", "bronze", "entry"];
 
 /**
  * Every creator in view, ranked. The figures come from what the portal has
- * recorded (gifts, posts, follow-ups) and from Amazon Creator Connections
- * where the creator is in that programme. Attributed sales from Amazon
- * Attribution join this table once those reports are imported.
+ * recorded (gifts, posts, follow-ups), from Amazon Creator Connections
+ * where the creator is in that programme, and from the imported Amazon
+ * Attribution reports: what the creator's tracking links sold, all time.
  */
 export default async function RankingPage({
   searchParams,
@@ -77,7 +79,7 @@ export default async function RankingPage({
       },
     },
   });
-  const records = await trackRecordFor(influencers.map((row) => row.id), view);
+  const [records, fromLinks] = await Promise.all([trackRecordFor(influencers.map((row) => row.id), view), attributionByInfluencer(view.creators)]);
 
   const rows = influencers
     .map((row) => {
@@ -102,6 +104,8 @@ export default async function RankingPage({
         record: describeTrackRecord(record),
         tier: row.amazonTier,
         gmv: row.amazonMonthlyGmvUsd === null ? null : Number(row.amazonMonthlyGmvUsd),
+        linkOrders: fromLinks.get(row.id)?.purchases ?? 0,
+        linkSales: fromLinks.get(row.id)?.productSales ?? 0,
         lastCollaboration: [lastPost, lastGift].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
         added: row.createdAt,
         us,
@@ -138,6 +142,8 @@ export default async function RankingPage({
         return (b.rate ?? -1) - (a.rate ?? -1) || b.posts - a.posts;
       case "gmv":
         return (b.gmv ?? -1) - (a.gmv ?? -1) || tierRank(a.tier) - tierRank(b.tier);
+      case "links":
+        return b.linkSales - a.linkSales || b.linkOrders - a.linkOrders || b.content - a.content;
       case "followers":
         return b.followers - a.followers;
       case "engagement":
@@ -253,6 +259,11 @@ export default async function RankingPage({
                       <CreatorName id={row.id} name={row.name} className="font-bold text-foreground hover:text-primary-text" />
                       <ProfileLinks profiles={row.profiles} inline />
                       {row.location ? <div className="text-xs font-medium text-muted-foreground">{row.location}</div> : null}
+                      {row.linkOrders > 0 || row.linkSales > 0 ? (
+                        <div className="text-xs font-semibold text-primary-text">
+                          Our links: {row.linkOrders} {row.linkOrders === 1 ? "order" : "orders"} · ${Math.round(row.linkSales).toLocaleString("en-US")}
+                        </div>
+                      ) : null}
                       {row.tier ? (
                         <div className="text-xs font-semibold text-foreground">
                           Amazon <span className="capitalize">{row.tier}</span>

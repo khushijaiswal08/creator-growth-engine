@@ -1,4 +1,5 @@
 import type { CollaborationType, CreatorStatus, GiftOrderStatus, Platform, TemplatePurpose } from "@prisma/client";
+import { attributionByCampaignCreator } from "@/lib/amazon-stats";
 import type { BrandScope } from "@/lib/brand-scope";
 import { contentCount, contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
 import { db } from "@/lib/db";
@@ -83,6 +84,8 @@ export type CreatorCard = {
   campaigns: CardCampaign[];
   months: MonthPoint[];
   message: CardMessageTarget | null;
+  /** What the creator's Amazon tracking links brought in, from imported Attribution reports; null when nothing is imported. */
+  fromLinks: { clicks: number; purchases: number; productSales: number } | null;
 };
 
 const num = (value: { toNumber(): number } | number | null | undefined): number | null => (value === null || value === undefined ? null : typeof value === "number" ? value : value.toNumber());
@@ -183,6 +186,19 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
   const latest = (dates: Date[]) => dates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
   const open = row.campaigns.find((link) => !CLOSED_STATUSES.includes(link.status)) ?? null;
+  // Campaign by campaign, Amazon Attribution's own count takes over from numbers logged by hand on that
+  // campaign's posts, so nothing is counted twice and other campaigns keep their hand-logged numbers.
+  const byCampaign = await attributionByCampaignCreator({ ...scope.creators, influencerId: row.id });
+  const measured = new Set([...byCampaign].filter(([, totals]) => totals.clicks > 0 || totals.purchases > 0 || totals.productSales > 0).map(([id]) => id));
+  const fromLinks =
+    measured.size > 0
+      ? [...measured].reduce((all, id) => {
+          const totals = byCampaign.get(id)!;
+          return { clicks: all.clicks + totals.clicks, purchases: all.purchases + totals.purchases, productSales: Math.round((all.productSales + totals.productSales) * 100) / 100 };
+        }, { clicks: 0, purchases: 0, productSales: 0 })
+      : null;
+  const handLogged = campaigns.filter((link) => !measured.has(link.id)).flatMap((link) => link.posts);
+
   const stats: CreatorStats = {
     firstName: firstName(row.name),
     gifts: gifts.length,
@@ -193,8 +209,8 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     pending: campaigns.filter((link) => ["address_collected", "product_shipped", "content_expected"].includes(link.status)).length,
     reach: sum(posts.map((post) => post.views)),
     engagements: sum(posts.map((post) => (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0))),
-    clicks: sum(posts.map((post) => post.clicks)),
-    salesUsd: sum(posts.map((post) => post.salesUsd)),
+    clicks: (fromLinks?.clicks ?? 0) + sum(handLogged.map((post) => post.clicks)),
+    salesUsd: Math.round(((fromLinks?.productSales ?? 0) + sum(handLogged.map((post) => post.salesUsd))) * 100) / 100,
     followers: Math.max(0, ...row.profiles.map((profile) => profile.followers ?? 0)),
     fitScore: campaigns.map((link) => link.fitScore).find((score): score is number => score !== null) ?? null,
     lastGiftAt: latest(gifts.map((gift) => gift.at)),
@@ -241,5 +257,6 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
       now,
     ),
     message,
+    fromLinks,
   };
 }

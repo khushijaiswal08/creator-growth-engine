@@ -178,6 +178,8 @@ model User {
   brandSettings      BrandSettings[]
   approvedGifts      GiftOrder[]
   reviewedContent    ContentAsset[]    @relation("ContentReviewer")
+  attributionLinks   AttributionLink[] @relation("AttributionLinksAdded")
+  reportImports      ReportImport[]
 }
 
 model Influencer {
@@ -307,13 +309,14 @@ model CampaignCreator {
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
 
-  campaign      Campaign        @relation(fields: [campaignId], references: [id], onDelete: Restrict)
-  influencer    Influencer      @relation(fields: [influencerId], references: [id], onDelete: Restrict)
-  owner         User?           @relation(fields: [ownerId], references: [id])
-  discoveryRun  DiscoveryRun?   @relation(fields: [discoveryRunId], references: [id])
-  assessments   FitAssessment[]
-  giftOrders    GiftOrder[]
-  contentAssets ContentAsset[]
+  campaign         Campaign          @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  influencer       Influencer        @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  owner            User?             @relation(fields: [ownerId], references: [id])
+  discoveryRun     DiscoveryRun?     @relation(fields: [discoveryRunId], references: [id])
+  assessments      FitAssessment[]
+  giftOrders       GiftOrder[]
+  contentAssets    ContentAsset[]
+  attributionLinks AttributionLink[]
 
   agreement  Agreement?
   posts      Post[]
@@ -646,6 +649,7 @@ model Product {
 
   giftOrders    GiftOrder[]
   contentAssets ContentAsset[]
+  monthlySales  ProductMonthlySales[]
 
   @@index([brandId, title])
   @@index([asin])
@@ -736,4 +740,113 @@ model AutomationRun {
   summary    Json?
 
   @@index([startedAt])
+}
+
+/**
+ * An Amazon Attribution tag given to one creator for one campaign. The team
+ * makes the tag in the Amazon Ads console (one ad group per creator) and
+ * pastes it here; the ad group name is how rows in Amazon's report find the
+ * creator again. A creator can have one per landing page.
+ */
+model AttributionLink {
+  id                String   @id @default(cuid())
+  campaignCreatorId String
+  url               String   @db.Text
+  // The tag's own value (maas=...), the same however the link was copied.
+  maas              String   @unique
+  // The product page the tag lands on, or null for a Store page.
+  asin              String?
+  // Exactly as in the Amazon Attribution console.
+  adGroupName       String
+  addedById         String
+  archived          Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  campaignCreator CampaignCreator   @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
+  addedBy         User              @relation("AttributionLinksAdded", fields: [addedById], references: [id])
+  stats           AttributionStat[]
+
+  @@index([campaignCreatorId])
+  @@index([adGroupName])
+}
+
+/**
+ * What Amazon Attribution counted for one link over one day (daily report
+ * rows) or one chosen period (summary rows). Dates are Amazon's own calendar
+ * days, stored as plain dates. A newer import replaces the rows it covers.
+ */
+model AttributionStat {
+  id                 String   @id @default(cuid())
+  linkId             String
+  periodStart        DateTime @db.Date
+  periodEnd          DateTime @db.Date
+  clicks             Int      @default(0)
+  detailPageViews    Int      @default(0)
+  addToCarts         Int      @default(0)
+  purchases          Int      @default(0)
+  unitsSold          Int      @default(0)
+  productSales       Decimal  @default(0) @db.Decimal(12, 2)
+  // Amazon's estimate; null when the brand is not in Brand Referral Bonus or the file does not say.
+  brandReferralBonus Decimal? @db.Decimal(12, 2)
+  importId           String
+
+  link   AttributionLink @relation(fields: [linkId], references: [id], onDelete: Restrict)
+  import ReportImport    @relation(fields: [importId], references: [id], onDelete: Restrict)
+
+  @@unique([linkId, periodStart, periodEnd])
+  @@index([periodStart])
+}
+
+/**
+ * One uploaded Amazon file: an Attribution report or a monthly Business Report, for one brand.
+ */
+model ReportImport {
+  id           String   @id @default(cuid())
+  brandId      String
+  kind         String // "attribution" or "business"
+  fileName     String
+  periodStart  DateTime @db.Date
+  periodEnd    DateTime @db.Date
+  rows         Int
+  matched      Int
+  // Ad group names or ASINs that matched nothing, so the team can fix them.
+  unmatched    Json?
+  importedById String
+  createdAt    DateTime @default(now())
+
+  importedBy       User                  @relation(fields: [importedById], references: [id])
+  attributionStats AttributionStat[]
+  productSales     ProductMonthlySales[]
+
+  @@index([brandId, kind, createdAt])
+}
+
+/**
+ * One product's month from Seller Central's Business Report ("Detail Page
+ * Sales and Traffic by Child Item"). The file carries no date, so the month
+ * is chosen when it is uploaded; uploading the same month again replaces it.
+ */
+model ProductMonthlySales {
+  id                  String   @id @default(cuid())
+  brandId             String
+  month               DateTime @db.Date // the first day of the month
+  childAsin           String
+  parentAsin          String?
+  sku                 String?
+  title               String?
+  productId           String?
+  unitsOrdered        Int
+  unitsOrderedB2B     Int?
+  orderedProductSales Decimal  @db.Decimal(12, 2)
+  totalOrderItems     Int?
+  sessions            Int?
+  pageViews           Int?
+  importId            String
+
+  product Product?     @relation(fields: [productId], references: [id])
+  import  ReportImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+
+  @@unique([brandId, month, childAsin])
+  @@index([brandId, month])
 }
