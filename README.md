@@ -492,7 +492,7 @@ reviewer's own yes or no with agreement rates at thresholds 50, 60 and 75.
 **Long jobs run in slices.** Discovery and scoring never run inside one request: a run is a row
 (`DiscoveryRun`, `ScoringRun`) with a cursor, and each slice does a few seconds of work. The screen
 that started a run keeps asking for the next slice while someone watches; the scheduled job tick
-(`netlify/functions/job-tick.mts`, every two minutes, calling `/api/cron/jobs` with `CRON_SECRET`)
+(`netlify/functions/job-tick.mts`, every ten minutes from 08:30 to 20:20 IST, calling `/api/cron/jobs` with `CRON_SECRET`)
 continues any run nobody is watching. A lock on the run keeps the two apart. On Netlify's free plan
 a function has 10 seconds; slices are sized for that (3 creators per scoring slice, 40 channels or
 8 posts per discovery slice). The paid plan (Pro) raises the limit to 26 seconds and adds
@@ -531,7 +531,7 @@ Definitions live in `src/lib/performance-stats.ts`; period boundaries follow `AP
 
 **Creator ranking** (Creators > Ranking, `/influencers/ranking`). Every creator in view sorted by
 content delivered, gifts given, content rate, Amazon sales, followers, engagement, most recent
-collaboration or newest added (an "Added" column shows the date), each with a "Reverse order"
+collaboration or newest added (the added date shows under the last collaboration), each with a "Reverse order"
 switch (`dir=asc`) for oldest or fewest first; filters for worked-with-before, US based, Amazon
 tier, minimum followers and a search. Amazon Creator Connections creators carry their tier and average monthly sales as fields
 (`Influencer.amazonTier`, `amazonMonthlyGmvUsd`, `amazonGmvDetail`), filled from the imported

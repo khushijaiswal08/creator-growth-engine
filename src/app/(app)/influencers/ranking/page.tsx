@@ -225,26 +225,23 @@ export default async function RankingPage({
         </form>
       </div>
 
-      <Table className="[&_th]:leading-snug [&_th]:whitespace-normal">
+      <Table className="[&_th]:leading-snug [&_th]:tracking-[0.03em] [&_th]:whitespace-normal">
         <TableHeader>
           <TableRow>
             <TableHead>#</TableHead>
             <TableHead>Creator</TableHead>
-            <TableHead>Profiles</TableHead>
             <TableHead className="text-right">Followers</TableHead>
             <TableHead className="text-right">Engagement</TableHead>
             <TableHead className="text-right">Gifts</TableHead>
             <TableHead className="text-right">Content</TableHead>
             <TableHead className="text-right">Content rate</TableHead>
-            <TableHead>Amazon</TableHead>
-            <TableHead>Last collaboration</TableHead>
-            <TableHead>Added</TableHead>
+            <TableHead>Last worked with</TableHead>
             <TableHead>Rachna says</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {shown.length === 0 ? (
-            <EmptyRow colSpan={12}>No creators match these filters.</EmptyRow>
+            <EmptyRow colSpan={9}>No creators match these filters.</EmptyRow>
           ) : (
             shown.map((row, index) => (
               <TableRow key={row.id}>
@@ -254,12 +251,16 @@ export default async function RankingPage({
                     <Avatar name={row.name} />
                     <div className="min-w-0">
                       <CreatorName id={row.id} name={row.name} className="font-bold text-foreground hover:text-primary-text" />
+                      <ProfileLinks profiles={row.profiles} inline />
                       {row.location ? <div className="text-xs font-medium text-muted-foreground">{row.location}</div> : null}
+                      {row.tier ? (
+                        <div className="text-xs font-semibold text-foreground">
+                          Amazon <span className="capitalize">{row.tier}</span>
+                          {row.gmv !== null ? <span className="font-medium text-muted-foreground"> · ${row.gmv.toLocaleString("en-US", { maximumFractionDigits: 0 })}/mo</span> : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                </TableCell>
-                <TableCell>
-                  <ProfileLinks profiles={row.profiles} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{row.followers ? formatCount(row.followers) : ""}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.engagement ? `${row.engagement.toFixed(1)}%` : ""}</TableCell>
@@ -268,21 +269,16 @@ export default async function RankingPage({
                   {row.content || ""}
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{row.rate === null ? "" : `${row.rate}%`}</TableCell>
-                <TableCell>
-                  {row.tier ? (
-                    <span className="font-semibold capitalize">
-                      {row.tier}
-                      {row.gmv !== null ? <span className="font-medium text-muted-foreground normal-case"> · ${row.gmv.toLocaleString("en-US", { maximumFractionDigits: 0 })}/mo</span> : null}
-                    </span>
-                  ) : (
-                    ""
-                  )}
+                <TableCell className="text-muted-foreground">
+                  <div>{formatDay(row.lastCollaboration) || "Not yet"}</div>
+                  <div className="text-xs">Added {formatDay(row.added)}</div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDay(row.lastCollaboration)}</TableCell>
-                <TableCell className="text-muted-foreground">{formatDay(row.added)}</TableCell>
-                <TableCell>
+                <TableCell className="whitespace-normal">
+                  {/* The longest verdicts ("Took the gift, no post") wrap to two lines rather than widen the table. */}
                   <span title={row.record?.text}>
-                    <Pill tone={GRADES[row.grade].tone}>{GRADES[row.grade].label}</Pill>
+                    <Pill tone={GRADES[row.grade].tone} className="h-auto max-w-[9.5rem] rounded-lg py-1 leading-tight whitespace-normal">
+                      {GRADES[row.grade].label}
+                    </Pill>
                   </span>
                 </TableCell>
               </TableRow>

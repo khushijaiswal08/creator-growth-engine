@@ -6,9 +6,10 @@ import { scoringSlice } from "@/lib/scoring";
  * Long jobs (discovery, AI scoring) never run inside one request. They are
  * split into slices that each finish in a few seconds. The screen that
  * started a job keeps asking for the next slice while someone is watching;
- * this tick, called by a scheduled function every two minutes, continues any
- * running job nobody is watching, one slice per run per tick, within a time
- * budget so the tick itself stays short.
+ * this tick, called by a scheduled function every ten minutes in working
+ * hours, continues any running job nobody is watching, one slice per run per
+ * tick, within a time budget so the tick itself stays short. Most ticks find
+ * nothing, so both lists are read at once and the tick returns straight away.
  */
 export type TickSummary = { discovery: { runId: string; done: boolean }[]; scoring: { runId: string; done: boolean }[]; skipped: number };
 
@@ -17,7 +18,12 @@ export async function tickJobs(now = new Date(), budgetMs = 6000): Promise<TickS
   const summary: TickSummary = { discovery: [], scoring: [], skipped: 0 };
   const free = { OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] };
 
-  const discoveries = await db.discoveryRun.findMany({ where: { status: "running", ...free }, orderBy: { startedAt: "asc" }, take: 5, select: { id: true } });
+  const [discoveries, scorings] = await Promise.all([
+    db.discoveryRun.findMany({ where: { status: "running", ...free }, orderBy: { startedAt: "asc" }, take: 5, select: { id: true } }),
+    db.scoringRun.findMany({ where: { status: "running", ...free }, orderBy: { startedAt: "asc" }, take: 5, select: { id: true } }),
+  ]);
+  if (discoveries.length === 0 && scorings.length === 0) return summary;
+
   for (const run of discoveries) {
     if (Date.now() - started > budgetMs) {
       summary.skipped += 1;
@@ -27,7 +33,6 @@ export async function tickJobs(now = new Date(), budgetMs = 6000): Promise<TickS
     summary.discovery.push({ runId: run.id, done: result.done });
   }
 
-  const scorings = await db.scoringRun.findMany({ where: { status: "running", ...free }, orderBy: { startedAt: "asc" }, take: 5, select: { id: true } });
   for (const run of scorings) {
     if (Date.now() - started > budgetMs) {
       summary.skipped += 1;

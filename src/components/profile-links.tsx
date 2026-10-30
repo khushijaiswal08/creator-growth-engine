@@ -4,13 +4,30 @@ import { displayHandle, PLATFORM_LABELS, profileUrl } from "@/lib/profile-url";
 
 const PLATFORM_SHORT: Record<Platform, string> = { instagram: "IG", tiktok: "TT", youtube: "YT" };
 
-/** Compact one-line-per-profile list for table cells. */
+/**
+ * Compact one-line-per-profile list for table cells. `inline` puts the
+ * handles on one small line (no follower counts), for under a name.
+ */
 export function ProfileLinks({
   profiles,
+  inline = false,
 }: {
   profiles: { id: string; platform: Platform; handle: string; followers: number | null }[];
+  inline?: boolean;
 }) {
-  if (profiles.length === 0) return <span className="text-muted-foreground">None</span>;
+  if (profiles.length === 0) return inline ? null : <span className="text-muted-foreground">None</span>;
+
+  if (inline) {
+    return (
+      <span className="flex flex-wrap gap-x-2 text-xs font-medium">
+        {profiles.map((profile) => (
+          <a key={profile.id} href={profileUrl(profile.platform, profile.handle)} target="_blank" rel="noopener noreferrer" className="link" title={PLATFORM_LABELS[profile.platform]}>
+            <span className="font-semibold text-muted-foreground">{PLATFORM_SHORT[profile.platform]}</span> {displayHandle(profile.handle)}
+          </a>
+        ))}
+      </span>
+    );
+  }
 
   return (
     <ul className="grid gap-0.5">

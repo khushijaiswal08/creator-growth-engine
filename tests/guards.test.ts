@@ -1213,6 +1213,38 @@ test("scoring runs in slices the job tick can continue, records cost and the pro
   assert.equal(latest.scoringPromptId, active.id);
 });
 
+test("the job tick sleeps at night, skips the login middleware, and returns at once when nothing is running", async () => {
+  const { tickJobs } = await import("@/lib/jobs");
+
+  // Every run costs Netlify credits, so the schedule covers Indian working hours only, every ten minutes.
+  const source = readFileSync("netlify/functions/job-tick.mts", "utf8");
+  const schedule = /schedule:\s*"([^"]+)"/.exec(source)?.[1] ?? "";
+  const [minute, hour] = schedule.split(" ");
+  assert.equal(minute, "*/10", "every ten minutes");
+  const [from, to] = hour.split("-").map(Number);
+  assert.ok(from >= 2 && to <= 15, `UTC hours ${hour} stay inside 07:30 to 21:30 IST`);
+
+  // The scheduler endpoints check CRON_SECRET themselves; the middleware would only add a billed edge request.
+  const middleware = readFileSync("src/middleware.ts", "utf8");
+  assert.ok(middleware.includes("api/cron|"), "the matcher leaves out /api/cron");
+
+  // Nothing free to work on: the tick reports an empty summary.
+  const running = { status: "running" as const, OR: [{ lockedUntil: null }, { lockedUntil: { lt: new Date() } }] };
+  const held = new Date(Date.now() + 60_000);
+  const [discoveryIds, scoringIds] = await Promise.all([
+    db.discoveryRun.findMany({ where: running, select: { id: true } }),
+    db.scoringRun.findMany({ where: running, select: { id: true } }),
+  ]);
+  await db.discoveryRun.updateMany({ where: { id: { in: discoveryIds.map((row) => row.id) } }, data: { lockedUntil: held } });
+  await db.scoringRun.updateMany({ where: { id: { in: scoringIds.map((row) => row.id) } }, data: { lockedUntil: held } });
+  try {
+    assert.deepEqual(await tickJobs(), { discovery: [], scoring: [], skipped: 0 });
+  } finally {
+    await db.discoveryRun.updateMany({ where: { id: { in: discoveryIds.map((row) => row.id) } }, data: { lockedUntil: null } });
+    await db.scoringRun.updateMany({ where: { id: { in: scoringIds.map((row) => row.id) } }, data: { lockedUntil: null } });
+  }
+});
+
 test("the outreach figures mean the same thing everywhere", async () => {
   const { personStats, brandTargets, replyRate, weeklyStats } = await import("@/lib/outreach-stats");
   const { user: anna, campaign } = await makeUserAndCampaign("outreach", ["home decor"]);

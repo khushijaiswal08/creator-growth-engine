@@ -4,8 +4,8 @@ import { tickJobs } from "@/lib/jobs";
 export const dynamic = "force-dynamic";
 
 /**
- * Called every two minutes by netlify/functions/job-tick.mts with the shared
- * secret. Continues any running discovery or scoring job by one slice.
+ * Called every ten minutes in working hours by netlify/functions/job-tick.mts
+ * with the shared secret. Continues any running discovery or scoring job by one slice.
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET?.trim();
