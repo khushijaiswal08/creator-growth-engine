@@ -12,10 +12,11 @@ import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
 import { MessageButton } from "@/components/message-button";
 import { Button } from "@/components/ui/button";
-import { formatCount } from "@/lib/format";
+import { reachLabel } from "@/lib/channels";
+import { DAY_MS, daysLateText, formatCount } from "@/lib/format";
 import { LANES, type Lane } from "@/lib/pipeline";
 import type { Warmth } from "@/lib/reply-reader";
-import { CREATOR_STATUS_LABELS, CREATOR_STATUS_TONES, TONE_CLASSES } from "@/lib/status";
+import { CREATOR_STATUS_LABELS, CREATOR_STATUS_TONES, TONE_CLASSES, type StatusTone } from "@/lib/status";
 
 export type BoardCard = {
   id: string;
@@ -39,37 +40,25 @@ export type BoardCard = {
 };
 
 const SHOWN = 3;
-const DAY = 24 * 60 * 60 * 1000;
-
-type Tone = "red" | "amber" | "blue" | "grey" | "green" | "violet";
-
-const CHIP: Record<Tone, string> = {
-  red: "bg-danger-soft text-danger-text",
-  amber: "bg-warning-soft text-warning-text",
-  blue: "bg-info-soft text-info-text",
-  grey: "bg-surface-2 text-accent-text",
-  green: "bg-success-soft text-success-text",
-  violet: "bg-violet-soft text-violet-text",
-};
 
 /** The one chip on a card: how late, how warm, or where the creator is, in two or three words. */
-function chipFor(card: BoardCard, now: Date): { text: string; tone: Tone } {
+function chipFor(card: BoardCard, now: Date): { text: string; tone: StatusTone } {
   const dueNow = card.dueAt !== null && card.dueAt <= now && card.waitingOn !== "creator" && card.nextAction !== null;
-  const late = dueNow && card.dueAt ? Math.floor((now.getTime() - card.dueAt.getTime()) / DAY) : 0;
-  if (card.warmth === "hot" && dueNow) return { text: "Hot", tone: "red" };
-  if (card.warmth === "warm" && dueNow) return { text: late > 0 ? `Warm · ${late}d late` : "Warm", tone: "amber" };
-  if (dueNow && late > 0) return { text: late === 1 ? "1 day late" : `${late} days late`, tone: "red" };
+  const late = dueNow && card.dueAt ? Math.floor((now.getTime() - card.dueAt.getTime()) / DAY_MS) : 0;
+  if (card.warmth === "hot" && dueNow) return { text: "Hot", tone: "danger" };
+  if (card.warmth === "warm" && dueNow) return { text: late > 0 ? `Warm · ${late}d late` : "Warm", tone: "warning" };
+  if (dueNow && late > 0) return { text: daysLateText(late), tone: "danger" };
   if (card.status === "address_collected") return { text: "Approve gift", tone: "violet" };
-  if (card.status === "product_shipped") return { text: "In transit", tone: "amber" };
-  if (card.status === "scored" && card.fitScore !== null) return { text: `Fit ${card.fitScore}`, tone: card.fitScore >= 70 ? "blue" : "grey" };
-  if (dueNow) return { text: "Due today", tone: "amber" };
-  if (card.status === "replied") return { text: "Replied", tone: "blue" };
+  if (card.status === "product_shipped") return { text: "In transit", tone: "warning" };
+  if (card.status === "scored" && card.fitScore !== null) return { text: `Fit ${card.fitScore}`, tone: card.fitScore >= 70 ? "info" : "neutral" };
+  if (dueNow) return { text: "Due today", tone: "warning" };
+  if (card.status === "replied") return { text: "Replied", tone: "info" };
   if (card.dueAt && card.dueAt > now) {
-    const days = Math.ceil((card.dueAt.getTime() - now.getTime()) / DAY);
-    return { text: days <= 1 ? "Due tomorrow" : `Due in ${days} days`, tone: "grey" };
+    const days = Math.ceil((card.dueAt.getTime() - now.getTime()) / DAY_MS);
+    return { text: days <= 1 ? "Due tomorrow" : `Due in ${days} days`, tone: "neutral" };
   }
-  if (card.status === "approved" || card.status === "outreach_scheduled") return { text: "First message", tone: "grey" };
-  return { text: CREATOR_STATUS_LABELS[card.status], tone: "grey" };
+  if (card.status === "approved" || card.status === "outreach_scheduled") return { text: "First message", tone: "neutral" };
+  return { text: CREATOR_STATUS_LABELS[card.status], tone: "neutral" };
 }
 
 /** The verb on a card, when there is something to do now; "Track" and "Remind" while waiting on a parcel or a post. */
@@ -82,6 +71,17 @@ function verbFor(card: BoardCard, due: boolean): string | null {
   if (card.nextAction?.startsWith("Approve") || card.status === "address_collected") return "Approve";
   if (card.nextAction?.startsWith("Check the post")) return "Open";
   return "Message";
+}
+
+/** Where a verb button goes when it opens a page instead of the message composer. */
+function hrefFor(verb: string | null, card: BoardCard, reviewHref: string): string | null {
+  switch (verb) {
+    case "Review": return reviewHref;
+    case "Approve": return "/orders?status=needs_approval";
+    case "Open": return `/influencers/${card.influencerId}#content`;
+    case "Track": return `/influencers/${card.influencerId}#gifts`;
+    default: return null;
+  }
 }
 
 const PRIMARY_VERBS = new Set(["Reply", "Send link", "Approve"]);
@@ -112,8 +112,9 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
     setMoved((current) => ({ ...current, [id]: lane.dropTo }));
     startTransition(async () => {
       const result = await updateCreatorStatus(id, lane.dropTo);
-      if (result.ok) rachna?.nudge(id, lane.dropTo);
-      if (!result.ok) {
+      if (result.ok) {
+        rachna?.nudge(id, lane.dropTo);
+      } else {
         setError(result.error);
         setMoved((current) => {
           const next = { ...current };
@@ -161,7 +162,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
         <b className="text-base font-extrabold text-foreground tabular-nums">{doneTotal.toLocaleString("en-US")}</b>
         {done.map((row) => (
           <Link key={row.status} href={`${listHref}&status=${row.status}`} className={cn("inline-flex h-6 items-center rounded-full px-2.5 text-xs font-extrabold hover:underline", TONE_CLASSES[CREATOR_STATUS_TONES[row.status]])}>
-            {CREATOR_STATUS_LABELS[row.status]} {row.count + (doneLane.statuses.includes(row.status) && row.status === doneLane.dropTo ? movedToDone : 0)}
+            {CREATOR_STATUS_LABELS[row.status]} {row.count + (row.status === doneLane.dropTo ? movedToDone : 0)}
           </Link>
         ))}
         {doneTotal === 0 ? <span className="text-sm font-medium text-muted-foreground">Nobody here yet. Drop a card to mark it done.</span> : null}
@@ -190,9 +191,9 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                   const status = statusOf(card);
                   const chip = chipFor({ ...card, status }, now);
                   const dueNow = card.dueAt !== null && card.dueAt <= now && card.waitingOn !== "creator";
-                  const late = chip.tone === "red" && chip.text !== "Hot";
+                  const late = chip.tone === "danger" && chip.text !== "Hot";
                   const verb = verbFor({ ...card, status }, dueNow || status === "replied");
-                  const href = verb === "Review" ? reviewHref : verb === "Approve" ? "/orders?status=needs_approval" : verb === "Open" ? `/influencers/${card.influencerId}#content` : verb === "Track" ? `/influencers/${card.influencerId}#gifts` : null;
+                  const href = hrefFor(verb, card, reviewHref);
                   const variant = verb && PRIMARY_VERBS.has(verb) ? "action" : "outline";
                   return (
                     <article
@@ -216,13 +217,13 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                         <div className="min-w-0">
                           <CreatorName id={card.influencerId} name={card.name} className="text-[14px] font-bold text-foreground hover:text-primary" />
                           <p className="truncate text-[12.5px] font-medium text-muted-foreground">
-                            {card.handle ?? (card.amazonCreator ? "Amazon Creator Connections" : (card.email ?? "No profile"))}
+                            {reachLabel(card)}
                             {card.followers !== null ? ` · ${formatCount(card.followers)}` : ""}
                           </p>
                         </div>
                       </div>
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span title={card.readSummary ?? card.nextAction ?? undefined} className={cn("inline-flex h-6 min-w-0 items-center gap-1 rounded-full px-2.5 text-xs font-extrabold", CHIP[chip.tone])}>
+                        <span title={card.readSummary ?? card.nextAction ?? undefined} className={cn("inline-flex h-6 min-w-0 items-center gap-1 rounded-full px-2.5 text-xs font-extrabold", TONE_CLASSES[chip.tone])}>
                           {chip.text === "Hot" ? <Flame className="size-3 shrink-0" strokeWidth={2.5} /> : null}
                           <span className="truncate">{chip.text}</span>
                         </span>

@@ -1,13 +1,10 @@
 import { cn } from "cn";
 
 export function PageHeader({
-  eyebrow,
   title,
   meta,
   children,
 }: {
-  /** A quiet line above the title, such as the date or the campaign a page belongs to. */
-  eyebrow?: React.ReactNode;
   title: string;
   meta?: React.ReactNode;
   children?: React.ReactNode;
@@ -15,7 +12,6 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div className="min-w-0">
-        {eyebrow ? <p className="mb-1.5 text-[13px] font-semibold text-muted-foreground">{eyebrow}</p> : null}
         <h1>{title}</h1>
         {meta ? <div className="mt-1.5 text-[15px] font-medium text-muted-foreground">{meta}</div> : null}
       </div>

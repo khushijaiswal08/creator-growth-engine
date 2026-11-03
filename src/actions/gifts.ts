@@ -5,14 +5,14 @@ import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
 import { allowed, type BrandScope } from "@/lib/brand-scope";
+import { normalizeHeader } from "@/lib/csv";
 import { db } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
+import { DAY_MS } from "@/lib/format";
 import { applyTracking, loadGift } from "@/lib/gift-flow";
 import { giftReference } from "@/lib/gifts";
 import { cancelAtAmazon } from "@/lib/mcf-flow";
 import { requireUser } from "@/lib/session";
-
-const DAY = 24 * 60 * 60 * 1000;
 
 function revalidateGift(where: { campaignId: string; influencerId: string }) {
   revalidatePath("/orders");
@@ -92,7 +92,7 @@ export async function updateGift(_prev: FormState, formData: FormData): Promise<
   const rawDelivered = field(formData, "deliveredAt");
   const delivered = rawDelivered ? new Date(`${rawDelivered}T12:00:00Z`) : null;
   if (delivered && Number.isNaN(delivered.getTime())) return { error: "The delivered date is not valid." };
-  if (delivered && delivered.getTime() > Date.now() + DAY) return { error: "The delivered date is in the future." };
+  if (delivered && delivered.getTime() > Date.now() + DAY_MS) return { error: "The delivered date is in the future." };
 
   // Another brand's order is reported exactly like one that does not exist.
   if (!(await giftInScope(field(formData, "giftId"), allowed(user)))) return { error: "Gift order not found." };
@@ -113,7 +113,7 @@ export async function updateGift(_prev: FormState, formData: FormData): Promise<
   return { message: "Saved." };
 }
 
-export type TrackingImportReport = { error?: string; updated?: number; notes?: string[] } | null;
+type TrackingImportReport ={ error?: string; updated?: number; notes?: string[] } | null;
 
 // Amazon's own shipment reports name the same things differently; they are accepted as they are.
 const TRACKING_HEADER_ALIASES: Record<string, string> = {
@@ -146,7 +146,7 @@ export async function importTracking(_prev: TrackingImportReport, formData: Form
     header: true,
     skipEmptyLines: "greedy",
     transformHeader: (header) => {
-      const key = header.trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const key = normalizeHeader(header);
       return TRACKING_HEADER_ALIASES[key] ?? key;
     },
   });
@@ -176,8 +176,8 @@ export async function importTracking(_prev: TrackingImportReport, formData: Form
     const date = (name: string) => {
       const raw = cell(name);
       if (!raw) return { value: null, bad: false };
-      const parsed = new Date(raw.length <= 10 ? `${raw}T12:00:00Z` : raw);
-      return { value: Number.isNaN(parsed.getTime()) ? null : parsed, bad: Number.isNaN(parsed.getTime()), raw };
+      const when = new Date(raw.length <= 10 ? `${raw}T12:00:00Z` : raw);
+      return { value: Number.isNaN(when.getTime()) ? null : when, bad: Number.isNaN(when.getTime()), raw };
     };
     const delivered = date("delivered_date");
     if (delivered.bad) {

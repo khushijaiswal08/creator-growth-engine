@@ -5,7 +5,7 @@
  * figure errs on the high side. Update when Anthropic changes prices.
  * Source: Anthropic pricing, as of October 2026.
  */
-export type ModelPrice = { input: number; output: number };
+type ModelPrice ={ input: number; output: number };
 
 const PRICES: Record<string, ModelPrice> = {
   "claude-fable-5-1": { input: 10, output: 50 },
@@ -23,7 +23,7 @@ const PRICES: Record<string, ModelPrice> = {
 };
 
 /** The price row for a model id, matching the longest known prefix (so dated ids still match). */
-export function priceFor(model: string): ModelPrice | null {
+function priceFor(model: string): ModelPrice | null {
   const known = Object.keys(PRICES)
     .filter((id) => model === id || model.startsWith(`${id}-`))
     .sort((a, b) => b.length - a.length)[0];

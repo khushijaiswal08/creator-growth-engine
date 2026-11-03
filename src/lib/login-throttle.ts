@@ -7,7 +7,7 @@ export const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 
 const PURGE_AFTER_MS = 24 * 60 * 60 * 1000;
 
-/** The caller's address as the platform reports it. Vercel sets x-forwarded-for itself. */
+/** The caller's address as the platform reports it (Netlify and Vercel both set x-forwarded-for). */
 export function clientIp(request: Request | undefined): string {
   const forwarded = request?.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return forwarded || request?.headers.get("x-real-ip")?.trim() || "unknown";

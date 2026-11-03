@@ -1,9 +1,8 @@
 import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
 import { db } from "@/lib/db";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
-
-const DAY = 24 * 60 * 60 * 1000;
+import { DAY_MS, isoDay } from "@/lib/format";
+import { statusChangeText } from "@/lib/status";
 
 export async function loadGift(id: string) {
   return db.giftOrder.findUnique({
@@ -17,7 +16,7 @@ export async function loadGift(id: string) {
   });
 }
 
-export type TrackingUpdate = {
+type TrackingUpdate = {
   orderNumber?: string | null;
   carrier?: string | null;
   trackingNumber?: string | null;
@@ -27,7 +26,7 @@ export type TrackingUpdate = {
   problem?: string | null;
 };
 
-export type TrackingResult = { error: string } | { error: null; campaignId: string; influencerId: string };
+type TrackingResult = { error: string } | { error: null; campaignId: string; influencerId: string };
 
 /**
  * Applies order and tracking details to one gift order and moves the creator on:
@@ -75,7 +74,7 @@ export async function applyTracking(giftId: string, update: TrackingUpdate, user
     update.trackingNumber && update.trackingNumber !== gift.trackingNumber
       ? `tracking ${[carrier, update.trackingNumber].filter(Boolean).join(" ")}`
       : "",
-    update.delivered && !gift.deliveredAt ? `delivered ${update.delivered.toISOString().slice(0, 10)}` : "",
+    update.delivered && !gift.deliveredAt ? `delivered ${isoDay(update.delivered)}` : "",
     update.problem ? `problem: ${update.problem}` : "",
   ].filter(Boolean);
   if (notes.length === 0 && status === gift.status) return { error: null, ...where };
@@ -101,7 +100,7 @@ export async function applyTracking(giftId: string, update: TrackingUpdate, user
           status: creatorStatus,
           contentDueAt:
             creatorStatus === "content_expected" && deliveredAt
-              ? new Date(deliveredAt.getTime() + creator.campaign.contentDueDays * DAY)
+              ? new Date(deliveredAt.getTime() + creator.campaign.contentDueDays * DAY_MS)
               : undefined,
         },
       });
@@ -110,7 +109,7 @@ export async function applyTracking(giftId: string, update: TrackingUpdate, user
         kind: "status_change",
         campaignCreatorId: creator.id,
         influencerId: creator.influencerId,
-        body: `Status changed from ${CREATOR_STATUS_LABELS[creator.status]} to ${CREATOR_STATUS_LABELS[creatorStatus]}.`,
+        body: `${statusChangeText(creator.status, creatorStatus)}.`,
       });
     }
     await logActivity(tx, {

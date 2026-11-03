@@ -1,21 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { headers } from "next/headers";
+import { appBaseUrl } from "@/lib/app-url";
 import { db } from "@/lib/db";
+import { DAY_MS } from "@/lib/format";
 
 /** A selection link works for this many days after it is made. */
 export const SELECTION_LINK_DAYS = 14;
-
-const DAY = 24 * 60 * 60 * 1000;
-
-/** The site's public address: APP_URL when set, otherwise taken from the current request. */
-export async function appBaseUrl(): Promise<string> {
-  const configured = process.env.APP_URL?.trim().replace(/\/+$/, "");
-  if (configured) return configured;
-  const incoming = await headers();
-  const host = incoming.get("x-forwarded-host") ?? incoming.get("host") ?? "localhost:3000";
-  const protocol = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
-  return `${protocol}://${host}`;
-}
 
 /** 192 random bits, URL-safe. Cannot be guessed; nothing about the creator is in it. */
 export function newSelectionToken(): string {
@@ -45,7 +34,7 @@ export async function ensureSelectionUrl(campaignCreatorId: string, now = new Da
     token = newSelectionToken();
     await db.campaignCreator.update({
       where: { id: campaignCreatorId },
-      data: { selectionToken: token, selectionExpiresAt: new Date(now.getTime() + SELECTION_LINK_DAYS * DAY), selectionUsedAt: null },
+      data: { selectionToken: token, selectionExpiresAt: new Date(now.getTime() + SELECTION_LINK_DAYS * DAY_MS), selectionUsedAt: null },
     });
   }
   return `${await appBaseUrl()}/select/${token}`;

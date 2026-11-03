@@ -3,7 +3,7 @@ import Papa from "papaparse";
 import { normalizeHandle, parsePlatform } from "@/lib/profile-url";
 import { parseCreatorStatus } from "@/lib/status";
 
-export const CSV_COLUMNS = [
+const CSV_COLUMNS = [
   "handle",
   "platform",
   "name",
@@ -16,11 +16,11 @@ export const CSV_COLUMNS = [
   "owner_email",
 ] as const;
 
-export const CSV_REQUIRED_COLUMNS = ["handle", "platform"] as const;
+const CSV_REQUIRED_COLUMNS = ["handle", "platform"] as const;
 
 export const CSV_MAX_ROWS = 2000;
 
-export type CsvRow = {
+type CsvRow = {
   /** Spreadsheet row number, counting the header as row 1. */
   row: number;
   platform: Platform;
@@ -37,9 +37,9 @@ export type CsvRow = {
   warnings: string[];
 };
 
-export type CsvRowError = { row: number; handle: string; platform: string; reason: string };
+type CsvRowError = { row: number; handle: string; platform: string; reason: string };
 
-export type CsvParseResult =
+type CsvParseResult =
   | { ok: false; error: string }
   | { ok: true; rows: CsvRow[]; errors: CsvRowError[]; ignoredColumns: string[] };
 
@@ -50,7 +50,7 @@ export function isEmail(value: string): boolean {
 }
 
 /** "12,500" -> 12500, "12.5k" -> 12500, "1.2M" -> 1200000. */
-export function parseFollowers(raw: string): number | null {
+function parseFollowers(raw: string): number | null {
   const match = /^([\d.,]+)\s*([km])?$/i.exec(raw.trim());
   if (!match) return null;
   const suffix = match[2]?.toLowerCase();
@@ -61,8 +61,9 @@ export function parseFollowers(raw: string): number | null {
   return scaled >= 0 && scaled <= 2_000_000_000 ? scaled : null;
 }
 
-function normalizeHeader(header: string): string {
-  return header.replace(/^﻿/, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+/** "Order Number" -> "order_number": trimmed, lower case, spaces and dashes to underscores. */
+export function normalizeHeader(header: string): string {
+  return header.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
 export function parseCreatorCsv(text: string): CsvParseResult {

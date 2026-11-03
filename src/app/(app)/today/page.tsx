@@ -14,12 +14,12 @@ import { MessageComposer } from "@/components/message-button";
 import { TaskList, type TaskRow } from "@/components/task-list";
 import { Button } from "@/components/ui/button";
 import { runAutomationsIfStale } from "@/lib/automation";
-import { activityIn, viewed } from "@/lib/brand-scope";
-import { BRANDS, brandName } from "@/lib/brands";
-import { AMAZON_CONSOLE_URL } from "@/lib/channels";
+import { activityIn, brandsIn, viewed } from "@/lib/brand-scope";
+import { brandName, DEFAULT_BRAND } from "@/lib/brands";
+import { AMAZON_CONSOLE_URL, REACHABLE_INFLUENCER_SELECT } from "@/lib/channels";
 import { db } from "@/lib/db";
-import { QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
-import { startOfWeekInZone, timeAgo } from "@/lib/format";
+import { DUE_STATUSES, QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
+import { DAY_MS, isoDay, startOfWeekInZone, timeAgo } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { brandTargets, personStats, todayStats } from "@/lib/outreach-stats";
 import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
@@ -34,32 +34,22 @@ export const maxDuration = 300;
 
 const PER_QUEUE = 8;
 const ALL = 60;
-const RECENT = 6;
-const DAY = 24 * 60 * 60 * 1000;
-
-// Short chip names for the queues, in the order they are shown.
-const QUEUE_CHIPS: Record<string, string> = {
-  replies: "Replies",
-  selection: "Links",
-  followups: "Follow-ups",
-  first: "First messages",
-  gifts: "Gifts",
-  delivery: "Parcels",
-  content: "Content",
-  posted: "Posts",
-  review: "Review",
-};
+const RECENT = 4;
 
 // The journey as a funnel: each creator is counted at the furthest stage they reached, dead ends included.
-const STAGES: { label: string; statuses: CreatorStatus[]; color: string }[] = [
-  { label: "Candidates", statuses: ["discovered", "scored", "review_later", "rejected", "duplicate", "on_hold"], color: "bg-border-strong" },
-  { label: "Approved", statuses: ["approved", "outreach_scheduled"], color: "bg-info-soft" },
-  { label: "Contacted", statuses: ["contacted", "follow_up_due", "no_reply", "not_interested", "invalid_contact", "bounced", "unsubscribed", "blacklisted"], color: "bg-[#93c5fd]" },
-  { label: "Replied", statuses: ["replied", "interested", "negotiating"], color: "bg-[#60a5fa]" },
-  { label: "Agreed", statuses: ["agreed", "address_collected"], color: "bg-[#3b82f6]" },
-  { label: "Gift sent", statuses: ["product_shipped", "content_expected", "no_content"], color: "bg-[#d97706]" },
-  { label: "Posted", statuses: ["content_posted", "completed"], color: "bg-[#16a34a]" },
+const STAGES: { label: string; statuses: CreatorStatus[] }[] = [
+  { label: "Candidates", statuses: ["discovered", "scored", "review_later", "rejected", "duplicate", "on_hold"] },
+  { label: "Approved", statuses: ["approved", "outreach_scheduled"] },
+  { label: "Contacted", statuses: ["contacted", "follow_up_due", "no_reply", "not_interested", "invalid_contact", "bounced", "unsubscribed", "blacklisted"] },
+  { label: "Replied", statuses: ["replied", "interested", "negotiating"] },
+  { label: "Agreed", statuses: ["agreed", "address_collected"] },
+  { label: "Gift sent", statuses: ["product_shipped", "content_expected", "no_content"] },
+  { label: "Posted", statuses: ["content_posted", "completed"] },
 ];
+// The funnel on the side starts at "Contacted": the two earlier stages are the long tail of candidates.
+const FUNNEL_FROM = 2;
+// One colour per funnel step (the stages from Contacted on), palest first.
+const FUNNEL_COLORS = ["#c7d7fe", "#93b4fb", "#6d8ef5", "#f2b45a", "#4ade80"];
 
 /** The word on the task button: the one thing to do, not the generic "Message". */
 function verbFor(queueKey: string, message: boolean): string {
@@ -81,14 +71,18 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const thisMonth = resolvePeriod("this-month", undefined, undefined, now);
   const lastMonth = previousPeriod(thisMonth);
   const notArchived = { influencer: { archived: false }, campaign: openCampaign };
-  const activeQueue = QUEUES.some((queue) => queue.key === params.queue) ? params.queue! : null;
+  const activeQueue = QUEUES.find((queue) => queue.key === params.queue)?.key ?? null;
   // "Creator Connections" narrows the task list to creators who came through Amazon.
   const amazonOnly = params.source === "amazon";
   // "Hot" narrows the list to creators whose latest reply Rachna read as keen.
   const hotOnly = params.hot === "1";
-  const showAll = params.all === "1" || activeQueue !== null || amazonOnly || hotOnly;
+  // Any chosen queue or filter narrows the list.
+  const filtered = activeQueue !== null || amazonOnly || hotOnly;
+  const showAll = params.all === "1" || filtered;
   const amazonInfluencer = { archived: false, amazonTier: { not: null } };
   const ccWhere = { campaign: openCampaign, influencer: amazonInfluencer };
+  // Everything due in any queue, for the Creator Connections and Hot counts.
+  const dueAny = dueWhere(view, DUE_STATUSES, now);
 
   const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccPosted, ccDue, hotTotal] = await Promise.all([
     Promise.all(
@@ -110,7 +104,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   replyWarmth: true,
                   replyRead: true,
                   campaign: { select: { name: true } },
-                  influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
+                  influencer: { select: REACHABLE_INFLUENCER_SELECT },
                 },
               }),
         ]);
@@ -127,8 +121,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       select: { id: true, body: true, createdAt: true, automated: true, user: { select: { name: true } }, campaignCreator: { select: { campaign: { select: { name: true } } } } },
     }),
     todayStats(openCampaign, now),
-    personStats({ from: new Date(weekStart.getTime() - 7 * DAY), to: weekStart }, openCampaign),
-    brandTargets(BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id)),
+    personStats(resolvePeriod("last-week", undefined, undefined, now), openCampaign),
+    brandTargets(brandsIn(view).map((brand) => brand.id)),
     db.giftOrder.count({ where: { ...view.gifts, status: { in: ["approved", "ordered", "shipped"] } } }),
     db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
     db.campaignCreator.count({ where: { ...notArchived, status: "content_expected", contentDueAt: { lt: now } } }),
@@ -142,12 +136,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     // The Creator Connections column: where the Amazon creators stand.
     db.campaignCreator.count({ where: ccWhere }),
     db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["content_posted", "completed"] } } }),
-    db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), influencer: amazonInfluencer } }),
-    db.campaignCreator.count({ where: { ...dueWhere(view, QUEUES.flatMap((queue) => queue.statuses), now), replyWarmth: "hot" } }),
+    db.campaignCreator.count({ where: { ...dueAny, influencer: amazonInfluencer } }),
+    db.campaignCreator.count({ where: { ...dueAny, replyWarmth: "hot" } }),
   ]);
 
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
-  const target = targets.get(view.brandId ?? BRANDS[0].id) ?? { daily: 0, weekly: 0 };
+  const target = targets.get(view.brandId ?? DEFAULT_BRAND) ?? { daily: 0, weekly: 0 };
   // This person's own week, the way the sidebar and the weekly email count it.
   const mineWeek = outreachStats.week.find((row) => row.userId === user.id);
   const mineToday = outreachStats.today.find((row) => row.userId === user.id);
@@ -163,7 +157,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const rows: TaskRow[] = queues.flatMap((queue) =>
     queue.items.map((item) => {
       const handle = item.influencer.profiles[0];
-      const lateDays = item.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - item.nextActionDueAt.getTime()) / DAY)) : 0;
+      const lateDays = item.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - item.nextActionDueAt.getTime()) / DAY_MS)) : 0;
       return {
         id: item.id,
         queue: queue.key,
@@ -192,27 +186,28 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   // Inside each queue the hot replies come first; the sort is stable, so the due order holds otherwise.
   rows.sort((a, b) => QUEUES.findIndex((queue) => queue.key === a.queue) - QUEUES.findIndex((queue) => queue.key === b.queue) || warmthRank(a.warmth) - warmthRank(b.warmth));
   const shown = rows.length;
+  const allHref = activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1";
   const funnelCampaign = openCampaigns.length === 1 ? openCampaigns[0] : null;
   // The Creator Connections page of the brand in view, or the first brand that has one.
   const amazonUrl = [...targets.values()].map((row) => row.creatorConnectionsUrl).find(Boolean) ?? AMAZON_CONSOLE_URL;
 
   // The tabs across the list: the busiest queues up front, the rest under More.
   const FRONT = ["replies", "selection", "gifts"];
-  const href = (queue: string | null, extra = "") => `/today${queue ? `?queue=${queue}${extra}` : extra ? `?${extra.slice(1)}` : ""}`;
+  const href = (queue: string) => `/today?queue=${queue}`;
   const queueTabs: QueueTab[] = [
-    { key: "all", label: "All", count: total, href: "/today", active: activeQueue === null && !amazonOnly && !hotOnly },
+    { key: "all", label: "All", count: total, href: "/today", active: !filtered },
     ...(hotTotal > 0 ? [{ key: "hot", label: "Hot", count: hotTotal, href: "/today?hot=1", active: hotOnly, hot: true }] : []),
     ...FRONT.map((key) => {
       const queue = queues.find((item) => item.key === key)!;
-      return { key, label: QUEUE_CHIPS[key], count: queue.count, href: href(key), active: activeQueue === key };
+      return { key, label: queue.short, count: queue.count, href: href(key), active: activeQueue === key };
     }),
   ];
   const moreTabs: QueueTab[] = [
-    ...queues.filter((queue) => !FRONT.includes(queue.key) && queue.count > 0).map((queue) => ({ key: queue.key, label: QUEUE_CHIPS[queue.key] ?? queue.title, count: queue.count, href: href(queue.key), active: activeQueue === queue.key })),
+    ...queues.filter((queue) => !FRONT.includes(queue.key) && queue.count > 0).map((queue) => ({ key: queue.key, label: queue.short, count: queue.count, href: href(queue.key), active: activeQueue === queue.key })),
     ...(ccTotal > 0 ? [{ key: "amazon", label: "Creator Connections", count: ccDue, href: "/today?source=amazon", active: amazonOnly }] : []),
   ];
-  const funnelSteps = STAGES.slice(2);
-  const funnelTop = reached[2] || 1;
+  const funnelSteps = STAGES.slice(FUNNEL_FROM);
+  const funnelTop = reached[FUNNEL_FROM] || 1;
 
   return (
     <MessageComposer templates={templates} senderName={user.name}>
@@ -258,7 +253,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         total={total}
         weekSent={sent}
         weekTarget={target.weekly}
-        weekKey={weekStart.toISOString().slice(0, 10)}
+        weekKey={isoDay(weekStart)}
       />
       <section id="home-tiles" aria-label="This week at a glance" className="mb-6 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <Kpi icon={<MessageCircle className="size-[19px]" strokeWidth={2} />} tint="bg-primary-faint text-primary" label="Messages" value={sent} of={target.weekly > 0 ? target.weekly : undefined}>
@@ -299,7 +294,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             <span className="count-pill">{total.toLocaleString("en-US")}</span>
             <span className="flex-1" />
             {total > shown ? (
-              <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"} className="inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:underline">
+              <Link href={allHref} className="inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:underline">
                 View all
                 <ChevronRight className="size-4" strokeWidth={2.4} />
               </Link>
@@ -345,14 +340,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
             </span>
             {total > shown ? (
               <Button asChild size="sm" variant="outline">
-                <Link href={activeQueue ? `/today?queue=${activeQueue}&all=1` : "/today?all=1"}>Show all tasks</Link>
+                <Link href={allHref}>Show all tasks</Link>
               </Button>
             ) : null}
           </div>
         </section>
 
         <aside id="home-side" className="grid min-w-0 grid-cols-1 content-start gap-5">
-          {activeQueue === null && !amazonOnly && !hotOnly ? <RachnaPick row={pickFor(rows)} /> : null}
+          {!filtered ? <RachnaPick row={pickFor(rows)} /> : null}
 
           <section className="card grid gap-3.5 p-5" aria-labelledby="funnel-title">
             <div className="flex items-center gap-2">
@@ -371,9 +366,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
                   <li key={stage.label} className="grid grid-cols-[78px_minmax(0,1fr)_48px] items-center gap-2.5 text-[13px] font-semibold">
                     <span className="text-accent-text">{stage.label}</span>
                     <span aria-hidden className="block h-2.5 overflow-hidden rounded-full bg-surface-2">
-                      <span className="block h-full rounded-full" style={{ width: `${reached[index + 2] > 0 ? Math.max(4, Math.round((reached[index + 2] / funnelTop) * 100)) : 0}%`, background: FUNNEL_COLORS[index] }} />
+                      <span className="block h-full rounded-full" style={{ width: `${reached[index + FUNNEL_FROM] > 0 ? Math.max(4, Math.round((reached[index + FUNNEL_FROM] / funnelTop) * 100)) : 0}%`, background: FUNNEL_COLORS[index] }} />
                     </span>
-                    <span className="text-right font-extrabold text-foreground tabular-nums">{reached[index + 2].toLocaleString("en-US")}</span>
+                    <span className="text-right font-extrabold text-foreground tabular-nums">{reached[index + FUNNEL_FROM].toLocaleString("en-US")}</span>
                   </li>
                 ))}
               </ol>
@@ -414,7 +409,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
               <p className="text-sm text-muted-foreground">Nothing logged yet.</p>
             ) : (
               <ol className="grid gap-3.5">
-                {activities.slice(0, 4).map((item) => (
+                {activities.map((item) => (
                   <li key={item.id} className="flex gap-2.5 text-[13px] leading-snug">
                     <Avatar name={item.automated ? "Automation" : item.user.name} className={cn("size-7 text-[10.5px]", item.automated && "bg-surface-2 text-accent-text")} />
                     <div className="min-w-0">
@@ -433,8 +428,6 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     </MessageComposer>
   );
 }
-
-const FUNNEL_COLORS = ["#c7d7fe", "#93b4fb", "#6d8ef5", "#f2b45a", "#4ade80"];
 
 /** "Status changed from A to B." reads after a name as "status changed from A to B." */
 function lowerFirst(text: string): string {

@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePreservedForm } from "@/components/use-preserved-form";
 import { BRANDS } from "@/lib/brands";
 import type { FormState } from "@/lib/form";
+import { PLATFORM_LABELS, PLATFORMS } from "@/lib/profile-url";
 
 function FormMessage({ state }: { state: FormState | UserFormState }) {
   if (!state?.message) return null;
@@ -105,9 +106,11 @@ export function AddSuppressionForm() {
         <div className="grid gap-1.5">
           <Label htmlFor="sup-platform">Platform</Label>
           <NativeSelect id="sup-platform" name="platform" defaultValue="instagram">
-            <option value="instagram">Instagram</option>
-            <option value="tiktok">TikTok</option>
-            <option value="youtube">YouTube</option>
+            {PLATFORMS.map((platform) => (
+              <option key={platform} value={platform}>
+                {PLATFORM_LABELS[platform]}
+              </option>
+            ))}
           </NativeSelect>
         </div>
         <div className="grid gap-1.5">

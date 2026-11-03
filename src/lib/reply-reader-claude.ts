@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { REPLY_CLASSES, type ReplyClass } from "@/lib/replies";
-import { feeIn, isWarmth, questionsIn, readWithRules, SURE, WARMTH_OF, type Reading } from "@/lib/reply-reader";
+import { isReplyClass, REPLY_CLASSES } from "@/lib/replies";
+import { feeIn, isWarmth, MAX_FEE, MAX_QUESTIONS, NOT_SURE_SUMMARY, questionsIn, readWithRules, SURE, WARMTH_OF, type Reading } from "@/lib/reply-reader";
 import { scoringConfigured } from "@/lib/scoring";
 
 /**
@@ -9,10 +9,10 @@ import { scoringConfigured } from "@/lib/scoring";
  * key never reaches the browser.
  */
 
-export const CLAUDE_READER_VERSION = "claude-reply-v1";
+const CLAUDE_READER_VERSION = "claude-reply-v1";
 const DEFAULT_MODEL = "claude-sonnet-5-5";
 
-export function readerModel(): string {
+function readerModel(): string {
   return process.env.ANTHROPIC_READER_MODEL?.trim() || DEFAULT_MODEL;
 }
 
@@ -20,7 +20,7 @@ export function readerConfigured(): boolean {
   return scoringConfigured();
 }
 
-export type ReplyContext = {
+type ReplyContext = {
   brand: string;
   campaign: string;
   creatorName: string;
@@ -65,20 +65,20 @@ function parse(text: string, raw: string): Reading | null {
   }
   if (!data || typeof data !== "object") return null;
   const v = data as Record<string, unknown>;
-  const replyClass = typeof v.reply_class === "string" && (REPLY_CLASSES as readonly string[]).includes(v.reply_class) ? (v.reply_class as ReplyClass) : null;
+  const replyClass = typeof v.reply_class === "string" && isReplyClass(v.reply_class) ? v.reply_class : null;
   if (!replyClass) return null;
   const confidence = typeof v.confidence === "number" && Number.isFinite(v.confidence) ? Math.min(1, Math.max(0, v.confidence)) : 0;
   const sure = confidence >= SURE;
   const summary = typeof v.summary === "string" ? v.summary.trim().slice(0, 160) : "";
-  const questions = Array.isArray(v.questions) ? v.questions.filter((q): q is string => typeof q === "string" && q.trim().length > 3).map((q) => q.trim().slice(0, 160)).slice(0, 3) : questionsIn(raw);
+  const questions = Array.isArray(v.questions) ? v.questions.filter((q): q is string => typeof q === "string" && q.trim().length > 3).map((q) => q.trim().slice(0, 160)).slice(0, MAX_QUESTIONS) : questionsIn(raw);
   const feeRaw = typeof v.fee === "number" && Number.isFinite(v.fee) ? Math.round(v.fee) : null;
-  const fee = feeRaw !== null && feeRaw >= 0 && feeRaw <= 1_000_000 ? feeRaw : feeIn(raw);
+  const fee = feeRaw !== null && feeRaw >= 0 && feeRaw <= MAX_FEE ? feeRaw : feeIn(raw);
   return {
     replyClass,
     confidence,
     sure,
     warmth: sure ? (isWarmth(v.warmth) ? v.warmth : WARMTH_OF[replyClass]) : null,
-    summary: sure && summary ? summary : "Not sure what they mean, please pick.",
+    summary: sure && summary ? summary : NOT_SURE_SUMMARY,
     questions,
     fee,
     reader: "claude",

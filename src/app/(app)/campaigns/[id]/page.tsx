@@ -21,14 +21,18 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { allowed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
+import { REACHABLE_INFLUENCER_SELECT } from "@/lib/channels";
+import { creatorSearchWhere } from "@/lib/creator-search";
 import { db } from "@/lib/db";
 import { RUN_STATUS_LABELS, SOURCE_LABELS } from "@/lib/discovery";
 import { formatCalendarDay, formatDateTime, formatDay } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { CLOSED_STATUSES, LANES } from "@/lib/pipeline";
 import { OFFER_STATUS_WHERE } from "@/lib/product-list";
+import { PLATFORMS } from "@/lib/profile-url";
+import { unscoredWhere } from "@/lib/scoring";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS, CREATOR_STATUSES, parseCreatorStatus, SEND_BLOCKED_STATUSES } from "@/lib/status";
+import { CREATOR_STATUS_LABELS, CREATOR_STATUSES, parseCreatorStatus, sendBlockedReason } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
 
 export const metadata: Metadata = { title: "Campaign" };
@@ -36,7 +40,6 @@ export const metadata: Metadata = { title: "Campaign" };
 const PAGE_SIZE = 100;
 const VIEWS = ["board", "list", "discovery", "settings"] as const;
 type View = (typeof VIEWS)[number];
-const PLATFORMS: Platform[] = ["instagram", "youtube", "tiktok"];
 
 // Discovery calls outside APIs from a Server Action on this page.
 export const maxDuration = 300;
@@ -66,16 +69,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 
   // Everything the toolbar narrows: search, owner, platform, followers, "only mine".
   const influencerWhere: Prisma.InfluencerWhereInput = {
-    ...(q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
-            { location: { contains: q, mode: "insensitive" } },
-            { profiles: { some: { handle: { contains: q.replace(/^@/, "").toLowerCase() } } } },
-          ],
-        }
-      : {}),
+    ...(q ? creatorSearchWhere(q) : {}),
     ...(filters.platform || filters.followers
       ? { profiles: { some: { ...(filters.platform ? { platform: filters.platform as Platform } : {}), ...(filters.followers ? { followers: { gte: Number(filters.followers) } } : {}) } } }
       : {}),
@@ -214,7 +208,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
           <span className="ml-auto flex items-center gap-3 text-[12.5px] font-semibold text-faint">
             <span>
               {total.toLocaleString("en-US")} {total === 1 ? "creator" : "creators"}
-              {view === "board" ? <DueCount campaignId={id} base={base} now={now} /> : null}
+              {view === "board" ? <DueCount base={base} now={now} /> : null}
             </span>
             {view === "board" ? (
               <span className="hidden items-center gap-1.5 md:inline-flex">
@@ -237,7 +231,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 type Templates = { id: string; name: string; purpose: TemplatePurpose; body: string }[];
 
 /** " · 3 need you today", for the right of the toolbar. */
-async function DueCount({ base, now }: { campaignId: string; base: Prisma.CampaignCreatorWhereInput; now: Date }) {
+async function DueCount({ base, now }: { base: Prisma.CampaignCreatorWhereInput; now: Date }) {
   const due = await db.campaignCreator.count({ where: { ...base, status: { notIn: CLOSED_STATUSES }, nextActionDueAt: { lte: now }, waitingOn: { not: "creator" } } });
   return due > 0 ? ` · ${due} need you today` : "";
 }
@@ -273,7 +267,7 @@ async function BoardView({
         fitScore: true,
         replyWarmth: true,
         replyRead: true,
-        influencer: { select: { id: true, name: true, email: true, amazonTier: true, profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } } } },
+        influencer: { select: REACHABLE_INFLUENCER_SELECT },
       },
     }),
     db.campaignCreator.groupBy({ by: ["status"], where: { ...base, status: { in: doneStatuses } }, _count: { _all: true } }),
@@ -298,7 +292,7 @@ async function BoardView({
       profiles: row.influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle })),
       email: row.influencer.email,
       amazonCreator: row.influencer.amazonTier !== null,
-      blockedReason: suppressed ? `On the do-not-contact list: ${suppressed}` : SEND_BLOCKED_STATUSES.has(row.status) ? `Marked ${CREATOR_STATUS_LABELS[row.status]}.` : null,
+      blockedReason: sendBlockedReason(row.status, suppressed),
       purpose: suggestedTemplate(row.status, row.nextAction),
     };
   });
@@ -394,7 +388,7 @@ async function ListView({
               creators.map((creator) => {
                 const { influencer } = creator;
                 const suppressed = suppressions.reasonFor(influencer);
-                const blockedReason = influencer.archived ? "This creator is archived." : suppressed ? `On the do-not-contact list: ${suppressed}` : SEND_BLOCKED_STATUSES.has(creator.status) ? `Marked ${CREATOR_STATUS_LABELS[creator.status]}.` : null;
+                const blockedReason = sendBlockedReason(creator.status, suppressed, influencer.archived);
                 const late = Boolean(creator.nextActionDueAt && creator.nextActionDueAt <= now && creator.waitingOn !== "creator");
                 return (
                   <TableRow key={creator.id}>
@@ -483,7 +477,7 @@ async function ListView({
 async function DiscoveryView({ campaign }: { campaign: { id: string; nicheKeywords: string[]; negativeKeywords: string[] } }) {
   const [runs, unscored] = await Promise.all([
     db.discoveryRun.findMany({ where: { campaignId: campaign.id }, orderBy: { startedAt: "desc" }, take: 8, include: { startedBy: { select: { name: true } } } }),
-    db.campaignCreator.count({ where: { campaignId: campaign.id, status: "discovered", assessments: { none: {} } } }),
+    db.campaignCreator.count({ where: unscoredWhere(campaign.id) }),
   ]);
   return (
     <div className="grid gap-5">

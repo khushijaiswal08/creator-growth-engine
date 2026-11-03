@@ -1,5 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
 import { BRANDS } from "@/lib/brands";
+import { refuseUnlessScheduler } from "@/lib/cron-auth";
 import { tickJobs } from "@/lib/jobs";
 import { mcfConfigured } from "@/lib/mcf";
 import { syncAmazonOrders } from "@/lib/mcf-flow";
@@ -13,13 +13,8 @@ export const dynamic = "force-dynamic";
  * with the gifts sent through one-click MCF (only when a brand has the keys).
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return Response.json({ error: "CRON_SECRET is not set." }, { status: 503 });
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret}`);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    return Response.json({ error: "Not authorised." }, { status: 401 });
-  }
+  const refused = refuseUnlessScheduler(request);
+  if (refused) return refused;
   const now = new Date();
   const started = Date.now();
   const jobs = await tickJobs(now);

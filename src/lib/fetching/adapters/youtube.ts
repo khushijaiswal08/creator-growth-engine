@@ -56,10 +56,10 @@ type Cursor = {
   phase: "uploads";
   channels: PendingChannel[];
   index: number;
-  report: Report;
+  report: YoutubeReport;
 };
 
-type Report = {
+export type YoutubeReport = {
   searches: { keyword: string; channelIds: number; units: number }[];
   searchesSkippedForBudget: string[];
   channelsFetched: number;
@@ -99,7 +99,7 @@ async function searchStep(brief: Brief, key: string): Promise<DiscoveryStep> {
   if (keywords.length === 0) return finished("failed", "The campaign has no niche keywords to search for.");
 
   const budget = brief.quotaBudget ?? null;
-  const report: Report = { searches: [], searchesSkippedForBudget: [], channelsFetched: 0, uploadsRead: 0, budget };
+  const report: YoutubeReport = { searches: [], searchesSkippedForBudget: [], channelsFetched: 0, uploadsRead: 0, budget };
   let quotaUsed = 0;
   let status: DiscoveryStep["status"] = "completed";
   let note: string | null = null;
@@ -265,7 +265,7 @@ async function discoverStep(brief: Brief, cursor: Record<string, unknown> | null
   return searchStep(brief, key);
 }
 
-/** The whole run in one call, for scripts and tests. */
+/** The whole run in one call: what fetchCandidates and the optional CreatorSource.discover use. */
 async function discover(brief: Brief): Promise<DiscoveryResult> {
   const candidates: Candidate[] = [];
   let cursor: Record<string, unknown> | null = null;

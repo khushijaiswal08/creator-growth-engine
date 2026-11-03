@@ -5,7 +5,7 @@ import rulesFile from "../../config/gift-rules.json";
  * read and change them without touching code. Validated once at start-up:
  * a broken file stops the app rather than approving orders by accident.
  */
-export type GiftRules = {
+type GiftRules = {
   allowedCountries: string[];
   maxQuantity: number;
   maxProductPriceUsd: number | null;
@@ -13,7 +13,7 @@ export type GiftRules = {
   paidCollaborationNeedsApprovedFee: boolean;
 };
 
-export const RULE_LABELS: Record<keyof GiftRules, string> = {
+const RULE_LABELS: Record<keyof GiftRules, string> = {
   allowedCountries: "ships to an allowed country",
   maxQuantity: "within the quantity limit",
   maxProductPriceUsd: "within the price limit",
@@ -54,7 +54,7 @@ export const GIFT_RULES: GiftRules = read();
 
 export type RuleCheck = { rule: keyof GiftRules; passed: boolean; reason: string | null };
 
-export type OrderFacts = {
+type OrderFacts = {
   country: string;
   quantity: number;
   /** Amazon price in US dollars, when known. */

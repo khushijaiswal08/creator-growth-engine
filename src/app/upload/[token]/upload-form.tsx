@@ -2,7 +2,7 @@
 
 import { cn } from "cn";
 import { CheckCircle2, Film, ImageIcon, UploadCloud, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { finishContentUpload, signContentUpload, startContentUpload } from "@/actions/content-upload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,7 +41,6 @@ function put(file: File, url: string, headers: Record<string, string>, onProgres
  * hands out the addresses and checks what arrived.
  */
 export function UploadForm({ token }: { token: string }) {
-  const picker = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
   const [usage, setUsage] = useState("");
   const [postUrl, setPostUrl] = useState("");
@@ -53,7 +52,7 @@ export function UploadForm({ token }: { token: string }) {
   const [done, setDone] = useState<string | null>(null);
 
   function add(list: FileList | null) {
-    // While a batch is going up the list is fixed, so nothing added now could be lost when it clears.
+    // While a batch is going up the list is fixed, so nothing added now could be lost when it clears. The 20 is MAX_FILES_PER_UPLOAD in src/lib/content-storage.ts, which this browser code cannot import.
     if (!list || busy) return;
     setDone(null);
     setFiles((current) => [...current, ...Array.from(list)].slice(0, 20));
@@ -127,7 +126,7 @@ export function UploadForm({ token }: { token: string }) {
         <UploadCloud className="size-8 text-primary-text" strokeWidth={1.8} />
         <span className="font-bold text-foreground">Choose videos and photos</span>
         <span className="text-sm text-muted-foreground">or drop them here · up to 20 files, 2 GB each</span>
-        <input ref={picker} type="file" multiple accept="video/*,image/*,.mov,.mp4,.heic" className="sr-only" disabled={busy} onChange={(event) => { add(event.target.files); event.target.value = ""; }} />
+        <input type="file" multiple accept="video/*,image/*,.mov,.mp4,.heic" className="sr-only" disabled={busy} onChange={(event) => { add(event.target.files); event.target.value = ""; }} />
       </label>
 
       {files.length > 0 ? (

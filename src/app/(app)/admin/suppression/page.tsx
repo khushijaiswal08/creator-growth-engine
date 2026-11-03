@@ -4,7 +4,7 @@ import { EmptyRow, PageHeader, Panel } from "@/components/panel";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db } from "@/lib/db";
 import { formatDay } from "@/lib/format";
-import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
+import { profileLabel } from "@/lib/profile-url";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Do-not-contact list" };
@@ -41,7 +41,7 @@ export default async function SuppressionPage() {
                 <EmptyRow colSpan={4}>Nobody is on the list.</EmptyRow>
               ) : (
                 rows.map((row) => {
-                  const label = row.email ?? `${PLATFORM_LABELS[row.platform!]} ${displayHandle(row.handle!)}`;
+                  const label = row.email ?? profileLabel(row.platform!, row.handle!);
                   return (
                     <TableRow key={row.id}>
                       <TableCell className="font-medium">{label}</TableCell>

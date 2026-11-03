@@ -20,18 +20,10 @@ function FormMessage({ state }: { state: FormState }) {
   );
 }
 
-export function EditInfluencerForm({
-  influencer,
-}: {
-  influencer: {
-    id: string;
-    name: string;
-    email: string | null;
-    location: string | null;
-    usSignal: number | null;
-    notes: string | null; affiliateQuote: string | null;
-  };
-}) {
+/** The details the Edit form changes. */
+export type EditableInfluencer = { id: string; name: string; email: string | null; location: string | null; usSignal: number | null; notes: string | null; affiliateQuote: string | null };
+
+export function EditInfluencerForm({ influencer }: { influencer: EditableInfluencer }) {
   const { state, onSubmit, pending } = usePreservedForm(updateInfluencer);
 
   return (

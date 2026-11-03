@@ -17,6 +17,9 @@ import { LISTING_SHEET, readListingRows } from "@/lib/amazon-listing";
 import { BRANDS } from "@/lib/brands";
 import { MILESTONES } from "@/lib/rachna";
 import type { FormState } from "@/lib/form";
+import { TIMING_FIELDS } from "@/lib/next-action";
+import { POST_FORMATS } from "@/lib/post-formats";
+import type { ProductListFilter } from "@/lib/product-list";
 import { REPLY_CLASS_LABELS, REPLY_CLASSES, REPLY_OUTCOMES, type ReplyClass } from "@/lib/replies";
 import { afterReplyLine, type Reading } from "@/lib/reply-reader";
 import { CREATOR_STATUS_LABELS } from "@/lib/status";
@@ -223,16 +226,6 @@ export function GiftTrackingForm({
   );
 }
 
-const POST_FORMATS = [
-  ["reel", "Reel"],
-  ["story", "Story"],
-  ["post", "Feed post"],
-  ["carousel", "Carousel"],
-  ["video", "Video (YouTube / TikTok)"],
-  ["short", "Short"],
-  ["pin", "Pin"],
-];
-
 const POST_CHECKS = [
   ["mentionsBrand", "Brand is tagged"],
   ["productShown", "Correct product is shown"],
@@ -321,19 +314,7 @@ export function RunAutomationsButton() {
   );
 }
 
-const TIMINGS: { name: string; label: string }[] = [
-  { name: "followUpAfterDays", label: "Days without a reply before a follow-up is due" },
-  { name: "maxFollowUps", label: "Follow-ups before giving up" },
-  { name: "closeAfterDays", label: "Days after the last follow-up before closing as No reply" },
-  { name: "selectionWaitDays", label: "Days to wait for a product choice before nudging" },
-  { name: "deliveryWaitDays", label: "Days after shipping before checking on delivery" },
-  { name: "arrivalCheckDays", label: "Days after delivery before asking whether everything arrived" },
-  { name: "contentReminderDays", label: "Days after delivery before a content reminder" },
-  { name: "contentDueDays", label: "Days after delivery before content is overdue" },
-  { name: "noContentAfterDays", label: "Days overdue before closing as No content delivered" },
-];
-
-/** Admin: the waiting periods for one campaign, and which product types creators may choose. */
+/** The waiting periods for one campaign, and which product types creators may choose. On Settings for everyone, and on a campaign's Settings tab for admins. */
 export function AutomationSettingsForm({
   campaignId,
   values,
@@ -351,7 +332,7 @@ export function AutomationSettingsForm({
     <form action={action} className="grid gap-4 p-4">
       <input type="hidden" name="campaignId" value={campaignId} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {TIMINGS.map((timing) => (
+        {TIMING_FIELDS.map((timing) => (
           <label key={timing.name} className="grid content-between gap-1 text-sm">
             <span>{timing.label}</span>
             <Input name={timing.name} type="number" min={0} step={1} required defaultValue={values[timing.name]} className="w-24" />
@@ -487,7 +468,7 @@ export function ProductUploadForm() {
 }
 
 /** Admin: switch every product in the current search on or off for creators. */
-export function OfferListForm({ filter, total }: { filter: { q: string; brand: string; view: string }; total: number }) {
+export function OfferListForm({ filter, total }: { filter: ProductListFilter; total: number }) {
   const [state, action] = useActionState(setOfferedForList, null);
   const ask = (question: string) => (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!window.confirm(question)) event.preventDefault();

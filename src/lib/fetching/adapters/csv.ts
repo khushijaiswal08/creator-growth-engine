@@ -13,9 +13,8 @@ export const csvSource: CreatorSource = {
   async fetchCandidates(brief) {
     const parsed = parseCreatorCsv(brief.input ?? "");
     if (!parsed.ok) throw new Error(parsed.error);
-    const rows = brief.platforms
-      ? parsed.rows.filter((row) => brief.platforms!.includes(row.platform))
-      : parsed.rows;
+    const platforms = brief.platforms;
+    const rows = platforms ? parsed.rows.filter((row) => platforms.includes(row.platform)) : parsed.rows;
     return rows.slice(0, brief.limit).map((row) => ({
       ...bareProfile("csv", row.platform, row.handle),
       name: row.name,

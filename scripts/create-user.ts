@@ -9,15 +9,13 @@
  * cotton-print-club), or "both". Admins always have both. With --out the
  * temporary password is written to that file and not shown on screen.
  */
-import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import bcrypt from "bcryptjs";
-import { BRANDS, isBrandId } from "../src/lib/brands";
+import { BRANDS, brandsLabel, isBrandId } from "../src/lib/brands";
 import { isEmail } from "../src/lib/csv";
 import { db } from "../src/lib/db";
-
-const TEMP_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000;
+import { temporaryPassword, temporaryPasswordExpiry } from "../src/lib/temporary-password";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -36,15 +34,15 @@ async function main() {
 
   if (await db.user.findUnique({ where: { email }, select: { id: true } })) throw new Error(`A user with the email ${email} already exists.`);
 
-  const password = randomBytes(9).toString("base64url");
+  const password = temporaryPassword();
   const passwordHash = await bcrypt.hash(password, 12);
   if (!(await bcrypt.compare(password, passwordHash))) throw new Error("The password did not verify; nothing was created.");
-  const expiresAt = new Date(Date.now() + TEMP_PASSWORD_TTL_MS);
+  const expiresAt = temporaryPasswordExpiry();
   const timeZone = process.env.APP_TIME_ZONE?.trim() || "UTC";
   const expires = `${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone }).format(expiresAt)} (${timeZone} time)`;
   if (outFile) mkdirSync(path.dirname(outFile), { recursive: true });
 
-  const brandLabel = brandId ? (BRANDS.find((b) => b.id === brandId)?.name ?? brandId) : "both brands";
+  const brandLabel = brandsLabel(brandId);
   await db.$transaction(async (tx) => {
     const user = await tx.user.create({
       data: { name, email, role, brandId, passwordHash, mustChangePassword: true, tempPasswordExpiresAt: expiresAt },

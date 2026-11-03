@@ -1,23 +1,17 @@
-import { timingSafeEqual } from "node:crypto";
 import { runAutomations } from "@/lib/automation";
 import { settleStaleUploads } from "@/lib/content-upload";
+import { refuseUnlessScheduler } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
- * Called by the scheduler (Vercel Cron, see vercel.json) once a day.
- * Vercel sends "Authorization: Bearer <CRON_SECRET>"; anything else is refused.
+ * Called once a day by netlify/functions/daily-automations.mts with the shared secret.
+ * The caller sends "Authorization: Bearer <CRON_SECRET>"; anything else is refused.
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return Response.json({ error: "CRON_SECRET is not set." }, { status: 503 });
-
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret}`);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    return Response.json({ error: "Not authorised." }, { status: 401 });
-  }
+  const refused = refuseUnlessScheduler(request);
+  if (refused) return refused;
 
   const summary = await runAutomations("cron");
   // Files whose upload page closed before reporting back: received if they arrived in full, archived if not.

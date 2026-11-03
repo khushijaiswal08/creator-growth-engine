@@ -1,6 +1,5 @@
 import type { CreatorStatus, GiftOrderStatus, TemplatePurpose } from "@prisma/client";
-
-const DAY = 24 * 60 * 60 * 1000;
+import { DAY_MS } from "@/lib/format";
 
 /** Statuses where nothing more is expected. Everything else must have a next action. */
 export const TERMINAL_STATUSES: ReadonlySet<CreatorStatus> = new Set([
@@ -30,6 +29,32 @@ export type CampaignTimings = {
   noContentAfterDays: number;
 };
 
+/** Each timer: the column it is stored in, how the settings form labels it, and the whole-number range the server accepts. In the order the form shows them. */
+export const TIMING_FIELDS: readonly { name: keyof CampaignTimings; label: string; min: number; max: number }[] = [
+  { name: "followUpAfterDays", label: "Days without a reply before a follow-up is due", min: 1, max: 60 },
+  { name: "maxFollowUps", label: "Follow-ups before giving up", min: 0, max: 5 },
+  { name: "closeAfterDays", label: "Days after the last follow-up before closing as No reply", min: 1, max: 90 },
+  { name: "selectionWaitDays", label: "Days to wait for a product choice before nudging", min: 1, max: 60 },
+  { name: "deliveryWaitDays", label: "Days after shipping before checking on delivery", min: 1, max: 60 },
+  { name: "arrivalCheckDays", label: "Days after delivery before asking whether everything arrived", min: 0, max: 30 },
+  { name: "contentReminderDays", label: "Days after delivery before a content reminder", min: 1, max: 90 },
+  { name: "contentDueDays", label: "Days after delivery before content is overdue", min: 1, max: 180 },
+  { name: "noContentAfterDays", label: "Days overdue before closing as No content delivered", min: 1, max: 365 },
+];
+
+/** The campaign columns to select so a creator's next step can be worked out: one per CampaignTimings field. */
+export const CAMPAIGN_TIMINGS_SELECT = {
+  followUpAfterDays: true,
+  maxFollowUps: true,
+  closeAfterDays: true,
+  arrivalCheckDays: true,
+  selectionWaitDays: true,
+  deliveryWaitDays: true,
+  contentReminderDays: true,
+  contentDueDays: true,
+  noContentAfterDays: true,
+} as const satisfies Record<keyof CampaignTimings, true>;
+
 export type NextActionInput = {
   status: CreatorStatus;
   lastContactedAt: Date | null;
@@ -56,7 +81,7 @@ export type NextAction = {
 };
 
 const none: NextAction = { action: null, dueAt: null, waitingOn: null };
-const plus = (date: Date, days: number) => new Date(date.getTime() + days * DAY);
+const plus = (date: Date, days: number) => new Date(date.getTime() + days * DAY_MS);
 
 /**
  * The single place that decides what happens next for a creator. Pure: the
@@ -155,7 +180,15 @@ export function nextActionFor(input: NextActionInput, timings: CampaignTimings, 
   }
 }
 
-export type DeliveryStep = { action: string; at: Date; purpose: TemplatePurpose };
+type DeliveryStep = { action: string; at: Date; purpose: TemplatePurpose };
+
+/** The four touches after a parcel arrives, in order; the day of each comes from the campaign's timers. */
+const DELIVERY_TOUCHES: { action: string; purpose: TemplatePurpose; daysAfter: (timings: CampaignTimings) => number }[] = [
+  { action: "Send the delivery note", purpose: "delivered", daysAfter: () => 0 },
+  { action: "Ask whether everything arrived", purpose: "arrival", daysAfter: (t) => t.arrivalCheckDays },
+  { action: "Send a content reminder", purpose: "reminder", daysAfter: (t) => t.contentReminderDays },
+  { action: "Check the agreed posting date", purpose: "deadline", daysAfter: (t) => t.contentDueDays },
+];
 
 /**
  * The touches after a parcel arrives, in order: the delivery note the same
@@ -163,19 +196,14 @@ export type DeliveryStep = { action: string; at: Date; purpose: TemplatePurpose 
  * agreed posting date. Days come from the campaign's timers.
  */
 export function deliverySteps(deliveredAt: Date, timings: CampaignTimings): DeliveryStep[] {
-  return [
-    { action: "Send the delivery note", at: deliveredAt, purpose: "delivered" as const },
-    { action: "Ask whether everything arrived", at: plus(deliveredAt, timings.arrivalCheckDays), purpose: "arrival" as const },
-    { action: "Send a content reminder", at: plus(deliveredAt, timings.contentReminderDays), purpose: "reminder" as const },
-    { action: "Check the agreed posting date", at: plus(deliveredAt, timings.contentDueDays), purpose: "deadline" as const },
-  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+  return DELIVERY_TOUCHES.map((touch) => {
+    const days = touch.daysAfter(timings);
+    return { action: touch.action, at: days === 0 ? deliveredAt : plus(deliveredAt, days), purpose: touch.purpose };
+  }).sort((a, b) => a.at.getTime() - b.at.getTime());
 }
 
 const ACTION_TEMPLATES: Record<string, TemplatePurpose> = {
-  "Send the delivery note": "delivered",
-  "Ask whether everything arrived": "arrival",
-  "Send a content reminder": "reminder",
-  "Check the agreed posting date": "deadline",
+  ...Object.fromEntries(DELIVERY_TOUCHES.map((touch) => [touch.action, touch.purpose])),
   "Content is overdue: chase the creator": "reminder",
   "Send the product selection link": "selection",
   "Send the first message": "first",
@@ -189,9 +217,4 @@ export function suggestedTemplate(status: CreatorStatus, action: string | null):
   if (action?.startsWith("Send follow-up")) return "followup";
   if (status === "agreed") return "agreed";
   return null;
-}
-
-/** True when the item belongs in today's work queue. */
-export function isDue(next: { nextActionDueAt: Date | null }, now: Date): boolean {
-  return next.nextActionDueAt !== null && next.nextActionDueAt <= now;
 }

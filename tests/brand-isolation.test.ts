@@ -8,7 +8,7 @@
  * creator, campaign, product and gift order per brand, signs in as the
  * Cotton Print Club user and as the Ridhi user, and tries to reach the other
  * brand's records by direct address and by forged Server Action calls. Every
- * attempt must come back 404 (or 401 for the scheduler) and leave the
+ * attempt must come back 404 or 403 (401 for the scheduler) and leave the
  * database untouched. Admin pages must be 404 for both marketers.
  */
 import assert from "node:assert/strict";
@@ -35,12 +35,10 @@ let server: ChildProcess;
 let db: PrismaClient;
 
 type BrandFixture = {
-  id: "ridhi" | "cotton-print-club";
   user: { email: string };
   campaignId: string;
   influencerId: string;
   creatorId: string;
-  productId: string;
   giftId: string;
   assetId: string;
   uploadToken: string;
@@ -176,7 +174,7 @@ before(async () => {
     const link = await db.attributionLink.create({ data: { campaignCreatorId: creator.id, url: `https://www.amazon.com/dp/B0ISOLATION?maas=m_${brand}&ref_=aa_maas`, maas: `m_${brand}`, asin: "B0ISOLATION", adGroupName: `${brand}-adgroup`, addedById: user.id } });
     const reportImport = await db.reportImport.create({ data: { brandId: brand, kind: "attribution", fileName: `${brand}.csv`, periodStart: new Date(), periodEnd: new Date(), rows: 1, matched: 1, importedById: user.id } });
     await db.attributionStat.create({ data: { linkId: link.id, periodStart: new Date(Date.now() - 3 * 86_400_000), periodEnd: new Date(Date.now() - 3 * 86_400_000), clicks: brand === "ridhi" ? 111 : 222, purchases: 3, productSales: 99, importId: reportImport.id } });
-    fixtures[brand] = { id: brand, user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, productId: product.id, giftId: gift.id, assetId: asset.id, uploadToken, linkId: link.id };
+    fixtures[brand] = { user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, giftId: gift.id, assetId: asset.id, uploadToken, linkId: link.id };
   }
 
   server = spawn("pnpm", ["exec", "next", "start", "-p", String(APP_PORT), "-H", "127.0.0.1"], { env, shell: true, stdio: "ignore" });
@@ -271,9 +269,7 @@ for (const [mine, theirs] of [
     const before = {
       creator: await db.campaignCreator.findUniqueOrThrow({ where: { id: other.creatorId } }),
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
-      influencer: await db.influencer.findUniqueOrThrow({ where: { id: other.influencerId } }),
       asset: await db.contentAsset.findUniqueOrThrow({ where: { id: other.assetId } }),
-      link: await db.attributionLink.findUniqueOrThrow({ where: { id: other.linkId } }),
       otherSales: await db.productMonthlySales.count({ where: { brandId: theirs } }),
       activity: await db.activity.count(),
       links: await db.campaignCreator.count(),

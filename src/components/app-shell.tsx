@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "cn";
-import { BarChart3, Clapperboard, Gift, Kanban, KeyRound, LayoutDashboard, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Settings, SlidersHorizontal, Upload, UserPen, Users, X } from "lucide-react";
+import { KeyRound, LogOut, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Search, Upload, UserPen, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import { updateProfile } from "@/actions/account";
 import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-switcher";
 import { RachnaCameo, RachnaProvider, RachnaSlot, RachnaStrip } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
-import { SidebarNav } from "@/components/nav";
+import { ADMIN_LINK, NAV_LINKS, SETTINGS_LINK, SidebarNav } from "@/components/nav";
 import { NotificationsMenu, type NoticeQueue } from "@/components/notifications-menu";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
 import { SubmitButton } from "@/components/submit-button";
@@ -17,10 +17,11 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useDismiss } from "@/components/use-dismiss";
 import type { RachnaCounts } from "@/lib/rachna";
 import { SIDEBAR_COOKIE } from "@/lib/sidebar";
 
-export type ShellUser = {
+type ShellUser = {
   id: string;
   name: string;
   email: string;
@@ -36,7 +37,7 @@ export type ShellUser = {
 };
 
 /** The two figures the frame shows on every page. */
-export type ShellStats = {
+type ShellStats = {
   /** Creators whose next step is due now, within what the person sees. */
   due: number;
   /** Messages this person logged since Monday, against the brand's weekly target. */
@@ -54,7 +55,7 @@ function initials(name: string): string {
 }
 
 /** The person's photo, or their initials on rose. */
-export function UserAvatar({ user, className }: { user: { name: string; avatarUrl: string | null }; className?: string }) {
+function UserAvatar({ user, className }: { user: { name: string; avatarUrl: string | null }; className?: string }) {
   if (user.avatarUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={user.avatarUrl} alt="" className={cn("size-8 shrink-0 rounded-full object-cover", className)} />;
@@ -96,15 +97,14 @@ export function AppShell({
 
   function toggle() {
     // From automatic, collapse on a wide window and expand on a narrow one: whichever is the change the person sees.
-    const wideNow = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+    const wideNow = window.matchMedia("(min-width: 1024px)").matches;
     const showingFull = preference === "expanded" || (preference === null && wideNow);
     const next: SidebarPreference = showingFull ? "collapsed" : "expanded";
     setPreference(next);
     document.cookie = `${SIDEBAR_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
   }
 
-  const width = preference === "collapsed" ? "md:w-[72px]" : preference === "expanded" ? "md:w-[248px]" : "md:w-[72px] lg:w-[248px]";
-  const collapsed = preference === "collapsed";
+  const width = ASIDE_WIDTH[preference ?? "auto"];
 
   return (
     <SidebarContext.Provider value={ui}>
@@ -112,7 +112,7 @@ export function AppShell({
       <div className="flex min-h-screen">
         {/* The sidebar runs the full height: the logo on top, the places, then Rachna and the week at the foot. */}
         <aside className={cn("group/side sticky top-0 hidden h-screen shrink-0 flex-col overflow-y-auto border-r bg-surface px-3.5 pt-3.5 pb-4 md:flex", width)}>
-          <SidebarHead collapsed={collapsed} onToggle={toggle} />
+          <SidebarHead onToggle={toggle} />
           <SidebarNav isAdmin={isAdmin} counts={{ "/today": stats.due, "/orders": stats.rachna.approvals }} />
           <div className="mt-auto pt-5">
             <RachnaSlot />
@@ -137,18 +137,11 @@ export function AppShell({
 }
 
 /** The top of the sidebar: the logo and its name, and the button that folds the sidebar to an icon rail. */
-function SidebarHead({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+function SidebarHead({ onToggle }: { onToggle: () => void }) {
   const ui = useSidebar();
+  const collapsed = ui.preference === "collapsed";
   const label = collapsed ? "Expand the sidebar" : "Collapse the sidebar";
-  // In the icon rail the mark and the button stack; in the full column they share a line.
-  const stack = ui.preference === "collapsed" ? "flex-col" : ui.preference === "expanded" ? "" : "flex-col lg:flex-row";
-  // In the full column the button floats at the right and shows on hover, so the name keeps its room.
-  const push =
-    ui.preference === "collapsed"
-      ? ""
-      : ui.preference === "expanded"
-        ? "absolute top-1/2 right-0 -translate-y-1/2 opacity-0 group-hover/side:opacity-100 focus-visible:opacity-100"
-        : "lg:absolute lg:top-1/2 lg:right-0 lg:-translate-y-1/2 lg:opacity-0 lg:group-hover/side:opacity-100 lg:focus-visible:opacity-100";
+  const { stack, push } = HEAD_LAYOUT[ui.preference ?? "auto"];
   return (
     <div className={cn("relative mb-3 flex items-center gap-2.5 px-1.5 pt-1 pb-2", stack)}>
       <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-3 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
@@ -166,9 +159,9 @@ function SidebarHead({ collapsed, onToggle }: { collapsed: boolean; onToggle: ()
 }
 
 /** Logo mark: four blocks on rose, like a print stamp. */
-function Mark({ className }: { className?: string }) {
+function Mark() {
   return (
-    <span aria-hidden className={cn("grid size-9 shrink-0 grid-cols-2 gap-[3px] rounded-[11px] bg-gradient-to-br from-[#c95f84] to-primary-deep p-2 shadow-[0_6px_14px_rgba(178,74,107,0.32)]", className)}>
+    <span aria-hidden className="grid size-9 shrink-0 grid-cols-2 gap-[3px] rounded-[11px] bg-gradient-to-br from-[#c95f84] to-primary-deep p-2 shadow-[0_6px_14px_rgba(178,74,107,0.32)]">
       <span className="rounded-[2px] bg-surface" />
       <span className="rounded-[2px] bg-[#f9d3e0]" />
       <span className="rounded-[2px] bg-[#f9d3e0]" />
@@ -178,6 +171,16 @@ function Mark({ className }: { className?: string }) {
 }
 
 const ICON_BUTTON = "relative flex size-[42px] shrink-0 items-center justify-center rounded-xl border bg-surface text-accent-text outline-none transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35";
+
+const ASIDE_WIDTH = { collapsed: "md:w-[72px]", expanded: "md:w-[248px]", auto: "md:w-[72px] lg:w-[248px]" };
+
+// In the icon rail the mark and the button stack; in the full column they share a line.
+// In the full column the button floats at the right and shows on hover, so the name keeps its room.
+const HEAD_LAYOUT = {
+  collapsed: { stack: "flex-col", push: "" },
+  expanded: { stack: "", push: "absolute top-1/2 right-0 -translate-y-1/2 opacity-0 group-hover/side:opacity-100 focus-visible:opacity-100" },
+  auto: { stack: "flex-col lg:flex-row", push: "lg:absolute lg:top-1/2 lg:right-0 lg:-translate-y-1/2 lg:opacity-0 lg:group-hover/side:opacity-100 lg:focus-visible:opacity-100" },
+};
 
 function TopBar({
   user,
@@ -279,23 +282,7 @@ const MENU_ITEM = "flex h-11 w-full items-center gap-2.5 rounded-md px-3 text-le
 /** The person at the right of the top bar. Clicking opens their menu: profile, password, sign out. */
 function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void }) {
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(event: MouseEvent) {
-      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const box = useDismiss(open, setOpen);
 
   return (
     <div ref={box} className="relative">
@@ -360,24 +347,15 @@ function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; l
   );
 }
 
-const BAR_LINKS = [
-  { href: "/today", label: "Home", icon: LayoutDashboard },
-  { href: "/influencers", label: "Creators", icon: Users },
-  { href: "/campaigns", label: "Pipeline", icon: Kanban },
-  { href: "/orders", label: "Gifts", icon: Gift },
-];
-const DRAWER_LINKS = [
-  { href: "/content", label: "Content", icon: Clapperboard },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/import", label: "Import", icon: Upload },
-  { href: "/settings", label: "Settings", icon: SlidersHorizontal },
-];
+// Phones: the first four places along the bottom; the rest, Import and Settings in "More".
+const BAR_LINKS = NAV_LINKS.slice(0, 4);
+const DRAWER_LINKS = [...NAV_LINKS.slice(4), { href: "/import", label: "Import", icon: Upload }, SETTINGS_LINK];
 
 /** Phones: the four main places along the bottom, and "More" for the rest and the profile. */
 function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin: boolean; logout: () => Promise<void>; onEdit: () => void }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const drawerLinks = isAdmin ? [...DRAWER_LINKS, { href: "/admin", label: "Admin", icon: Settings }] : DRAWER_LINKS;
+  const drawerLinks = isAdmin ? [...DRAWER_LINKS, ADMIN_LINK] : DRAWER_LINKS;
   const inDrawer = drawerLinks.some((link) => pathname.startsWith(link.href));
 
   useEffect(() => setOpen(false), [pathname]);

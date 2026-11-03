@@ -1,4 +1,4 @@
-import { REPLY_CLASSES, type ReplyClass } from "@/lib/replies";
+import { isReplyClass, type ReplyClass } from "@/lib/replies";
 
 /**
  * Rachna reads a creator's reply: which of the eight classes it is, how sure
@@ -26,9 +26,13 @@ export type Reading = {
   version: string;
 };
 
-export const RULES_VERSION = "rules-v1";
+const RULES_VERSION = "rules-v1";
 /** Below this she says "not sure" and leaves the choice to the person. */
 export const SURE = 0.7;
+/** What she says when she is not sure enough to pick a class. */
+export const NOT_SURE_SUMMARY = "Not sure what they mean, please pick.";
+/** The largest fee the portal records, in whole US dollars. */
+export const MAX_FEE = 1_000_000;
 export const MAX_QUESTIONS = 3;
 
 /** How warm each class is. "Other" is unknown. */
@@ -62,7 +66,7 @@ export function isReading(value: unknown): value is Reading {
   const v = value as Record<string, unknown>;
   return (
     typeof v.replyClass === "string" &&
-    (REPLY_CLASSES as readonly string[]).includes(v.replyClass) &&
+    isReplyClass(v.replyClass) &&
     typeof v.confidence === "number" &&
     v.confidence >= 0 &&
     v.confidence <= 1 &&
@@ -73,7 +77,7 @@ export function isReading(value: unknown): value is Reading {
     Array.isArray(v.questions) &&
     v.questions.length <= 5 &&
     v.questions.every((q) => typeof q === "string" && q.length <= 200) &&
-    (v.fee === null || (typeof v.fee === "number" && Number.isInteger(v.fee) && v.fee >= 0 && v.fee <= 1_000_000)) &&
+    (v.fee === null || (typeof v.fee === "number" && Number.isInteger(v.fee) && v.fee >= 0 && v.fee <= MAX_FEE)) &&
     (v.reader === "rules" || v.reader === "claude") &&
     typeof v.version === "string" &&
     v.version.length <= 40
@@ -95,7 +99,7 @@ export function feeIn(text: string): number | null {
   const match = text.match(/\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?/) ?? text.match(/\b(\d{1,3}(?:,\d{3})+|\d+)\s?(?:usd|dollars)\b/i);
   if (!match) return null;
   const value = Number(match[1].replace(/,/g, ""));
-  return Number.isFinite(value) && value >= 0 && value <= 1_000_000 ? Math.round(value) : null;
+  return Number.isFinite(value) && value >= 0 && value <= MAX_FEE ? Math.round(value) : null;
 }
 
 /** The sentences that end in a question mark, tidied, at most three. */
@@ -163,7 +167,7 @@ export function readWithRules(text: string): Reading {
     confidence,
     sure,
     warmth: sure ? WARMTH_OF[replyClass] : null,
-    summary: sure ? summaryFor(replyClass, { fee, askedProducts, questions, keen: has(SIGNALS.yes) }) : "Not sure what they mean, please pick.",
+    summary: sure ? summaryFor(replyClass, { fee, askedProducts, questions, keen: has(SIGNALS.yes) }) : NOT_SURE_SUMMARY,
     questions,
     fee,
     reader: "rules",

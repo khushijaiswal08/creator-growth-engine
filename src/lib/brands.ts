@@ -23,6 +23,11 @@ export function brandName(id: string): string {
   return BRANDS.find((brand) => brand.id === id)?.name ?? id;
 }
 
+/** A brand's name, or the words for both brands when there is no brand. Headings pass "Both brands"; sentences use the lowercase default. */
+export function brandsLabel(brandId: string | null, both = "both brands"): string {
+  return brandId ? brandName(brandId) : both;
+}
+
 /** A few letters for tight spaces, such as the narrow sidebar. */
 export function brandShortName(id: string): string {
   return BRANDS.find((brand) => brand.id === id)?.short ?? id;

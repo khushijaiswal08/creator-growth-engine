@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { scoreBatch, type ScoringProgress } from "@/lib/scoring";
 import { requireUser } from "@/lib/session";
 
-export type ScoringActionResult = { ok: true; progress: ScoringProgress } | { ok: false; error: string };
+type ScoringActionResult ={ ok: true; progress: ScoringProgress } | { ok: false; error: string };
 
 /**
  * Admin only. Scores one batch of discovered creators. The screen calls this

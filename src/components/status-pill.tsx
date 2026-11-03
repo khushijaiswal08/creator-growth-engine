@@ -9,7 +9,7 @@ import {
   type StatusTone,
 } from "@/lib/status";
 
-/** A small tinted chip in the tone's colour. The one place that decides what a tone looks like. */
+/** A small tinted chip in the tone's colour; the colours themselves come from TONE_CLASSES in lib/status. */
 export function Pill({ tone, className, children }: { tone: StatusTone; className?: string; children: React.ReactNode }) {
   return (
     <span className={cn("inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-xs font-bold whitespace-nowrap", TONE_CLASSES[tone], className)}>
@@ -25,6 +25,3 @@ export function CreatorStatusPill({ status }: { status: CreatorStatus }) {
 export function CampaignStatusPill({ status }: { status: CampaignStatus }) {
   return <Pill tone={CAMPAIGN_STATUS_TONES[status]}>{CAMPAIGN_STATUS_LABELS[status]}</Pill>;
 }
-
-/** Outlined filter chip; add aria-current to the active one. */
-export const pillClass = "chip";

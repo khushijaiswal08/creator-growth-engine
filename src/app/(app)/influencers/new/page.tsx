@@ -7,11 +7,12 @@ import { CreatorStatusPill, Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { appBaseUrl } from "@/lib/app-url";
 import { allowed, viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
+import { openCampaignIn } from "@/lib/due";
 import { formatDay } from "@/lib/format";
-import { displayHandle, parseProfileUrl, PLATFORM_LABELS } from "@/lib/profile-url";
-import { appBaseUrl } from "@/lib/selection";
+import { parseProfileUrl, profileLabel } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 import { loadSuppressions } from "@/lib/suppression";
 import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
@@ -39,7 +40,7 @@ export default async function NewInfluencerPage({
 
   const [campaigns, portalUrl] = await Promise.all([
     db.campaign.findMany({
-      where: { ...view.campaigns, status: { not: "archived" } },
+      where: openCampaignIn(view),
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -55,7 +56,7 @@ export default async function NewInfluencerPage({
     if (!parsed.ok) {
       lookup = <p className="rounded-md border border-destructive/30 bg-danger-soft px-3 py-2 text-danger-text">{parsed.error}</p>;
     } else {
-      const label = `${PLATFORM_LABELS[parsed.profile.platform]} ${displayHandle(parsed.profile.handle)}`;
+      const label = profileLabel(parsed.profile.platform, parsed.profile.handle);
       const profile = await db.socialProfile.findUnique({ where: { platform_handle: parsed.profile }, select: { influencerId: true } });
       const influencer = profile
         ? await db.influencer.findFirst({

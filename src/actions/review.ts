@@ -6,9 +6,9 @@ import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
 import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
-import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
+import { profileLabel } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
+import { CREATOR_STATUS_LABELS, REVIEW_STATUSES, statusChangeText } from "@/lib/status";
 
 export type ReviewResult = { ok: true } | { ok: false; error: string };
 
@@ -17,8 +17,6 @@ const DECISIONS = { approve: "approved", reject: "rejected", later: "review_late
   CreatorStatus
 >;
 export type ReviewDecision = keyof typeof DECISIONS;
-
-const REVIEWABLE: CreatorStatus[] = ["discovered", "scored"];
 
 /** A person's decision on a queued creator. Only people decide; the scoring job never calls this. */
 export async function decideReview(campaignCreatorId: string, decision: ReviewDecision): Promise<ReviewResult> {
@@ -31,7 +29,7 @@ export async function decideReview(campaignCreatorId: string, decision: ReviewDe
     select: { status: true, influencerId: true, campaignId: true, fitScore: true },
   });
   if (!current) return { ok: false, error: "This creator is no longer in the campaign." };
-  if (!REVIEWABLE.includes(current.status)) {
+  if (!REVIEW_STATUSES.includes(current.status)) {
     return { ok: false, error: `Already ${CREATOR_STATUS_LABELS[current.status]}; someone else got there first.` };
   }
 
@@ -42,7 +40,7 @@ export async function decideReview(campaignCreatorId: string, decision: ReviewDe
       kind: "status_change",
       campaignCreatorId,
       influencerId: current.influencerId,
-      body: `Status changed from ${CREATOR_STATUS_LABELS[current.status]} to ${CREATOR_STATUS_LABELS[status]} in the review queue${current.fitScore !== null ? ` (AI score was ${current.fitScore})` : ""}.`,
+      body: `${statusChangeText(current.status, status)} in the review queue${current.fitScore !== null ? ` (AI score was ${current.fitScore})` : ""}.`,
     });
   });
 
@@ -72,7 +70,7 @@ export async function blacklistFromReview(campaignCreatorId: string, rawReason: 
   const { influencer } = current;
   const email = influencer.email?.toLowerCase() ?? null;
   const blocked = [
-    ...influencer.profiles.map((profile) => `${PLATFORM_LABELS[profile.platform]} ${displayHandle(profile.handle)}`),
+    ...influencer.profiles.map((profile) => profileLabel(profile.platform, profile.handle)),
     ...(email ? [email] : []),
   ];
 
@@ -94,7 +92,7 @@ export async function blacklistFromReview(campaignCreatorId: string, rawReason: 
       kind: "status_change",
       campaignCreatorId,
       influencerId: influencer.id,
-      body: `Status changed from ${CREATOR_STATUS_LABELS[current.status]} to ${CREATOR_STATUS_LABELS.blacklisted}. Reason: ${reason}`,
+      body: `${statusChangeText(current.status, "blacklisted")}. Reason: ${reason}`,
     });
     await logActivity(tx, {
       userId: user.id,

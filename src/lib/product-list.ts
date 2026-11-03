@@ -8,7 +8,7 @@ import type { StatusTone } from "@/lib/status";
  * for a product in hand (offerStatus) and once as database filters
  * (OFFER_STATUS_WHERE), and a test keeps the two in step.
  */
-export type OfferStatus = "offered" | "not_offered" | "sold_out" | "nothing_to_show" | "not_live";
+type OfferStatus ="offered" | "not_offered" | "sold_out" | "nothing_to_show" | "not_live";
 
 export const OFFER_STATUSES = ["offered", "not_offered", "nothing_to_show", "sold_out", "not_live"] as const satisfies readonly OfferStatus[];
 
@@ -81,4 +81,9 @@ export function productListWhere(filter: ProductListFilter): Prisma.ProductWhere
 
 export function isFiltered(filter: ProductListFilter): boolean {
   return filter.q.trim() !== "" || isBrandId(filter.brand) || isOfferStatus(filter.view);
+}
+
+/** "Tablecloth, Sage Green, 60x90": the product as the team and creators see it. */
+export function describeProduct(product: { title: string; color: string | null; size: string | null }): string {
+  return [product.title, product.color, product.size].filter(Boolean).join(", ");
 }

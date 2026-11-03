@@ -27,11 +27,17 @@ export function bareProfile(source: DataSource, platform: Platform, handle: stri
 }
 
 const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
+const EMAIL_IN_TEXT_ALL = new RegExp(EMAIL_IN_TEXT.source, "g");
 
 /** An email address literally written in a bio or description. Never guessed. */
 export function emailInText(text: string | null | undefined): string | null {
   const match = text ? EMAIL_IN_TEXT.exec(text) : null;
   return match ? match[0].toLowerCase() : null;
+}
+
+/** The same text with every email address replaced by "[email]". */
+export function redactEmails(text: string): string {
+  return text.replace(EMAIL_IN_TEXT_ALL, "[email]");
 }
 
 /** True when the text contains any of the negative keywords as a whole phrase. */

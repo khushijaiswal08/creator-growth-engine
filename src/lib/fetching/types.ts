@@ -6,8 +6,6 @@ import type { DataSource, Platform } from "@prisma/client";
  * line for "manual".
  */
 export type Brief = {
-  campaignId?: string;
-  text?: string;
   nicheKeywords?: string[];
   negativeKeywords?: string[];
   platforms?: Platform[];
@@ -46,7 +44,7 @@ export type Candidate = ProfileData;
 export type DiscoveryStatus = "completed" | "stopped_quota" | "not_configured" | "failed";
 
 /** What the live service answered, step by step. Shape differs per source; stored on the run as JSON. */
-export type DiscoveryReport = Record<string, unknown>;
+type DiscoveryReport = Record<string, unknown>;
 
 export type DiscoveryResult = {
   candidates: Candidate[];

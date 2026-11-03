@@ -25,7 +25,7 @@ import {
   type McfPreview,
 } from "@/lib/mcf";
 
-/**
+/*
  * The gift order side of one-click Amazon MCF. A person presses the button:
  * the gift is checked, Amazon is asked what it would cost and when it would
  * arrive, and only then is the order placed. Nothing is ever ordered by the
@@ -34,9 +34,16 @@ import {
  * applyTracking the tracking import uses, so the creator moves on exactly as
  * with a pasted tracking file.
  */
+
 type GiftForAmazon = { id: string; brandId: BrandId; reference: string; address: McfAddress; items: McfItem[]; createdAt: Date; status: string; mcfSentAt: Date | null };
 
-async function loadForAmazon(giftId: string, scope: BrandScope): Promise<{ ok: true; gift: GiftForAmazon } | { ok: false; error: string }> {
+type Refused = { ok: false; error: string };
+/** What Amazon would charge and when the gift would arrive, or why not. */
+export type McfPreviewResult = { ok: true; preview: McfPreview; alreadyAtAmazon: boolean } | Refused;
+/** The order reference Amazon accepted, or why not. */
+export type McfSendResult = { ok: true; reference: string } | Refused;
+
+async function loadForAmazon(giftId: string, scope: BrandScope): Promise<{ ok: true; gift: GiftForAmazon } | Refused> {
   const gift = await db.giftOrder.findFirst({
     where: { id: giftId, ...scope.gifts },
     select: {
@@ -94,7 +101,7 @@ async function lookup(brandId: BrandId, reference: string): Promise<McfOrder | n
  * already has this order (uploaded with the file); then the gift is only
  * linked, unless Amazon stopped that order, which a person must look at.
  */
-export async function previewGiftForAmazon(giftId: string, scope: BrandScope): Promise<{ ok: true; preview: McfPreview; alreadyAtAmazon: boolean } | { ok: false; error: string }> {
+export async function previewGiftForAmazon(giftId: string, scope: BrandScope): Promise<McfPreviewResult> {
   const loaded = await loadForAmazon(giftId, scope);
   if (!loaded.ok) return loaded;
   if (loaded.gift.status !== "approved" || loaded.gift.mcfSentAt) return { ok: false, error: "Only an approved gift that has not gone to Amazon yet can be sent." };
@@ -118,7 +125,7 @@ const UNCONFIRMED = "Not confirmed with Amazon yet. The portal checks again with
  * given back only when Amazon definitely has no order under the reference;
  * when Amazon cannot say, the claim stays and the next check settles it.
  */
-export async function sendGiftToAmazon(giftId: string, scope: BrandScope, userId: string, now = new Date()): Promise<{ ok: true; reference: string } | { ok: false; error: string }> {
+export async function sendGiftToAmazon(giftId: string, scope: BrandScope, userId: string, now = new Date()): Promise<McfSendResult> {
   const loaded = await loadForAmazon(giftId, scope);
   if (!loaded.ok) return loaded;
   const { gift } = loaded;
@@ -149,7 +156,7 @@ export async function sendGiftToAmazon(giftId: string, scope: BrandScope, userId
 }
 
 /** Records an order Amazon has on the gift. When the gift was cancelled meanwhile, Amazon is asked to cancel at once. */
-async function linkOrder(giftId: string, brandId: BrandId, reference: string, status: string, userId: string, now: Date): Promise<{ ok: true; reference: string } | { ok: false; error: string }> {
+async function linkOrder(giftId: string, brandId: BrandId, reference: string, status: string, userId: string, now: Date): Promise<McfSendResult> {
   try {
     const applied = await applyTracking(giftId, { orderNumber: reference }, userId);
     if (applied.error) {
@@ -175,7 +182,7 @@ async function linkOrder(giftId: string, brandId: BrandId, reference: string, st
  * Returns what the gift's claim looked like, so the cancel can be written
  * only if nobody sent it in the meantime.
  */
-export async function cancelAtAmazon(giftId: string): Promise<{ ok: true; sentAt: Date | null } | { ok: false; error: string }> {
+export async function cancelAtAmazon(giftId: string): Promise<{ ok: true; sentAt: Date | null } | Refused> {
   const gift = await db.giftOrder.findUnique({ where: { id: giftId }, select: { id: true, status: true, mcfSentAt: true, campaignCreator: { select: { campaign: { select: { brandId: true } } } } } });
   if (!gift) return { ok: false, error: "That gift order is not available." };
   const brandId = gift.campaignCreator.campaign.brandId;
@@ -233,12 +240,13 @@ export async function syncAmazonOrders(now = new Date(), options: { brandIds?: s
   for (const gift of stale) {
     if (outOfTime()) return summary;
     const brandId = gift.campaignCreator.campaign.brandId as BrandId;
-    const order = await lookup(brandId, giftReference(gift.id));
+    const reference = giftReference(gift.id);
+    const order = await lookup(brandId, reference);
     if (order === "unknown") continue;
     if (order === null) {
       await db.giftOrder.update({ where: { id: gift.id }, data: { mcfSentAt: null, mcfError: "Amazon never received this order. It can be sent again." } });
       summary.released += 1;
-    } else if ((await linkOrder(gift.id, brandId, giftReference(gift.id), order.status, actor, now)).ok) summary.linked += 1;
+    } else if ((await linkOrder(gift.id, brandId, reference, order.status, actor, now)).ok) summary.linked += 1;
   }
 
   // 2. Orders on their way, oldest-checked first; the gift someone is looking at goes first.

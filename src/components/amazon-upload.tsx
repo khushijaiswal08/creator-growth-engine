@@ -24,13 +24,12 @@ async function readGrid(file: File): Promise<string[][]> {
   return Papa.parse<string[]>(await file.text(), { skipEmptyLines: "greedy" }).data;
 }
 
-/** "2026-09" for the month before this one, on this computer's calendar. */
+/** The month `offset` months from this one as a form value ("2026-09" for last month, offset -1), on this computer's calendar. */
 function monthValue(offset: number): string {
   const now = new Date();
   const month = new Date(now.getFullYear(), now.getMonth() + offset, 1);
   return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`;
 }
-const lastMonth = () => monthValue(-1);
 
 /** A file too big for one upload ends with this error from Next.js; anything else is a file that would not open. */
 function uploadError(error: unknown, fallback: string): string {
@@ -66,6 +65,14 @@ function FilePicker({ id, file, onFile }: { id: string; file: File | null; onFil
       <span className="min-w-0 flex-1 truncate text-sm font-semibold">{file ? file.name : "Choose the CSV or Excel file"}</span>
       <input id={id} type="file" accept=".csv,.xlsx,.txt" className="sr-only" onChange={(event) => onFile(event.target.files?.[0] ?? null)} />
     </label>
+  );
+}
+
+function ImportError({ text }: { text: string }) {
+  return (
+    <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-semibold text-danger-text">
+      {text}
+    </p>
   );
 }
 
@@ -140,9 +147,7 @@ export function AttributionUpload({ brands }: { brands: Brand[] }) {
             ) : null}
           </div>
         ) : (
-          <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-semibold text-danger-text">
-            {result.error}
-          </p>
+          <ImportError text={result.error} />
         )
       ) : null}
     </div>
@@ -154,7 +159,7 @@ export function BusinessUpload({ brands }: { brands: Brand[] }) {
   const router = useRouter();
   const [brand, setBrand] = useState(brands.length === 1 ? brands[0].id : "");
   const [file, setFile] = useState<File | null>(null);
-  const [month, setMonth] = useState(lastMonth);
+  const [month, setMonth] = useState(() => monthValue(-1));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BusinessImportResult | null>(null);
 
@@ -194,9 +199,7 @@ export function BusinessUpload({ brands }: { brands: Brand[] }) {
             {result.unmatched.length > 0 ? <p className="mt-1 text-xs text-foreground">Not in the catalogue: {result.unmatched.join(", ")}</p> : null}
           </div>
         ) : (
-          <p role="alert" className="rounded-xl bg-danger-soft px-4 py-3 text-sm font-semibold text-danger-text">
-            {result.error}
-          </p>
+          <ImportError text={result.error} />
         )
       ) : null}
     </div>

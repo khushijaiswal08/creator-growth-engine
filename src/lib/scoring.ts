@@ -1,25 +1,22 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { Prisma, type EmailStatus, type UsSignal } from "@prisma/client";
+import { Prisma, type EmailStatus, type RunStatus, type UsSignal } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { emailInText, mapLimit } from "@/lib/fetching/adapters/shared";
+import { emailInText, mapLimit, redactEmails } from "@/lib/fetching/adapters/shared";
+import { isoDay } from "@/lib/format";
 import { estimateCostUsd } from "@/lib/model-prices";
 import { PLATFORM_LABELS } from "@/lib/profile-url";
+import { SLICE_LOCK_MS, unlocked } from "@/lib/run-lock";
 import { activePromptFor, type ActivePrompt } from "@/lib/scoring-prompts";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
+import { statusChangeText } from "@/lib/status";
 
-/** The built-in prompt's version label. Brand versions are "brand:vN" (see scoring-prompts.ts). */
-export const PROMPT_VERSION = "fit-v1";
-
-export const PRIORITY_SCORE = 75;
+const PRIORITY_SCORE = 75;
 export const LOW_FIT_SCORE = 40;
 
 const DEFAULT_MODEL = "claude-opus-5-5";
 const CONCURRENCY = 3;
 /** Creators scored per slice: one round of CONCURRENCY requests, so a slice stays inside a short request limit. */
 export const BATCH_SIZE = 3;
-/** How long one slice may hold a run before another worker may take over. */
-const LOCK_MS = 90 * 1000;
 
 // Models that accept the server-side refusal fallback.
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
@@ -49,12 +46,9 @@ const outputSchema = z.object({
   reasons: z.array(z.string().min(1)).min(1).max(8),
 });
 
-type CreatorForScoring = Prisma.CampaignCreatorGetPayload<{ include: { influencer: { include: { profiles: true } } } }>;
+const CREATOR_INCLUDE = { influencer: { include: { profiles: true } } } satisfies Prisma.CampaignCreatorInclude;
+type CreatorForScoring = Prisma.CampaignCreatorGetPayload<{ include: typeof CREATOR_INCLUDE }>;
 type CampaignForScoring = { name: string; brief: string; nicheKeywords: string[]; negativeKeywords: string[] };
-
-const EMAIL_ANYWHERE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-/** Email addresses are never sent to the model; only whether one exists. */
-const redact = (text: string) => text.replace(EMAIL_ANYWHERE, "[email]");
 
 /** Found means an address is stored or literally written in a bio. Never inferred. */
 export function emailStatusFor(creator: CreatorForScoring): EmailStatus {
@@ -81,11 +75,12 @@ function creatorBlock(creator: CreatorForScoring, emailStatus: EmailStatus): str
       `Followers: ${profile.followers ?? "not known"}`,
       `Engagement rate: ${profile.engagementRate !== null ? `${profile.engagementRate}%` : "not known"}`,
       `Country reported by platform: ${profile.country ?? "not reported"}`,
-      `Last post: ${profile.lastPostAt ? profile.lastPostAt.toISOString().slice(0, 10) : "not known"}`,
+      `Last post: ${profile.lastPostAt ? isoDay(profile.lastPostAt) : "not known"}`,
       `Website: ${profile.website ?? "none"}`,
-      `Bio: ${profile.bio ? redact(profile.bio) : "none"}`,
+      // Email addresses are never sent to the model; only whether one exists.
+      `Bio: ${profile.bio ? redactEmails(profile.bio) : "none"}`,
     );
-    if (profile.recentCaptions.length > 0) lines.push("Recent captions:", ...profile.recentCaptions.slice(0, 5).map((caption) => `- ${redact(caption)}`));
+    if (profile.recentCaptions.length > 0) lines.push("Recent captions:", ...profile.recentCaptions.slice(0, 5).map((caption) => `- ${redactEmails(caption)}`));
     else lines.push("Recent captions: not available");
     if (profile.fetchNote) lines.push(`Note: ${profile.fetchNote}`);
   }
@@ -149,7 +144,7 @@ async function assess(client: Anthropic, prompt: ActivePrompt, campaign: Campaig
 
 export type ScoringProgress = {
   runId: string;
-  status: "running" | "completed" | "stopped_quota" | "not_configured" | "failed";
+  status: RunStatus;
   scoredThisBatch: number;
   failedIds: string[];
   remaining: number;
@@ -178,6 +173,11 @@ export async function startScoring(args: { campaignId: string; userId: string; e
   return run.id;
 }
 
+/** Creators found by discovery that the AI has not scored yet. */
+export function unscoredWhere(campaignId: string): Prisma.CampaignCreatorWhereInput {
+  return { campaignId, status: "discovered", assessments: { none: {} } };
+}
+
 /**
  * One slice of a scoring run: up to BATCH_SIZE discovered creators with no
  * assessment yet, CONCURRENCY at a time. The screen calls it while someone
@@ -187,11 +187,11 @@ export async function startScoring(args: { campaignId: string; userId: string; e
  */
 export async function scoringSlice(runId: string, now = new Date()): Promise<ScoringProgress> {
   const claimed = await db.scoringRun.updateMany({
-    where: { id: runId, status: "running", OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
-    data: { lockedUntil: new Date(now.getTime() + LOCK_MS) },
+    where: { id: runId, status: "running", ...unlocked(now) },
+    data: { lockedUntil: new Date(now.getTime() + SLICE_LOCK_MS) },
   });
   const run = await db.scoringRun.findUniqueOrThrow({ where: { id: runId }, include: { campaign: { select: { brandId: true, name: true, brief: true, nicheKeywords: true, negativeKeywords: true } } } });
-  const cursor = ((run.cursor as Cursor | null) ?? { failedIds: [] }) as Cursor;
+  const cursor = (run.cursor as Cursor | null) ?? { failedIds: [] };
 
   const progress = (status: ScoringProgress["status"], extra: Partial<ScoringProgress> = {}): ScoringProgress => ({
     runId: run.id,
@@ -205,7 +205,7 @@ export async function scoringSlice(runId: string, now = new Date()): Promise<Sco
     note: run.note,
     ...extra,
   });
-  if (claimed.count === 0) return progress(run.status === "running" ? "running" : (run.status as ScoringProgress["status"]));
+  if (claimed.count === 0) return progress(run.status);
 
   const finish = async (status: ScoringProgress["status"], note: string | null, extra: Partial<ScoringProgress> = {}) => {
     const updated = await db.scoringRun.update({
@@ -230,10 +230,10 @@ export async function scoringSlice(runId: string, now = new Date()): Promise<Sco
 
   if (!scoringConfigured()) return finish("not_configured", "AI scoring is not configured: ANTHROPIC_API_KEY is missing.");
 
-  const where: Prisma.CampaignCreatorWhereInput = { campaignId: run.campaignId, status: "discovered", assessments: { none: {} }, id: { notIn: cursor.failedIds } };
+  const where: Prisma.CampaignCreatorWhereInput = { ...unscoredWhere(run.campaignId), id: { notIn: cursor.failedIds } };
   const [prompt, batch] = await Promise.all([
     activePromptFor(run.campaign.brandId),
-    db.campaignCreator.findMany({ where, orderBy: { createdAt: "asc" }, take: BATCH_SIZE, include: { influencer: { include: { profiles: true } } } }),
+    db.campaignCreator.findMany({ where, orderBy: { createdAt: "asc" }, take: BATCH_SIZE, include: CREATOR_INCLUDE }),
   ]);
   if (batch.length === 0) return finish("completed", cursor.failedIds.length > 0 ? `${cursor.failedIds.length} could not be scored and stay Discovered.` : null);
 
@@ -270,7 +270,7 @@ export async function scoringSlice(runId: string, now = new Date()): Promise<Sco
             campaignCreatorId: creator.id,
             influencerId: creator.influencerId,
             kind: "status_change",
-            body: `Status changed from ${CREATOR_STATUS_LABELS.discovered} to ${CREATOR_STATUS_LABELS.scored} by AI fit scoring (score ${result.score}${tag}). A recommendation only.`,
+            body: `${statusChangeText("discovered", "scored")} by AI fit scoring (score ${result.score}${tag}). A recommendation only.`,
           },
         });
         return true;

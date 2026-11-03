@@ -1,15 +1,15 @@
-import type { ContentStatus, CreatorStatus, Platform, UsageRights } from "@prisma/client";
+import type { ContentKind, ContentStatus, CreatorStatus, Platform, UsageRights } from "@prisma/client";
 import { createId } from "@paralleldrive/cuid2";
 import { randomBytes } from "node:crypto";
+import { appBaseUrl } from "@/lib/app-url";
 import { automationUserId, refreshNextAction } from "@/lib/automation";
 import { classifyFile, MAX_FILE_BYTES, MAX_FILES_PER_UPLOAD, presignUpload, storageKeyFor, storageMode, storedSize } from "@/lib/content-storage";
 import { db } from "@/lib/db";
-import { appBaseUrl } from "@/lib/selection";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
+import { DAY_MS } from "@/lib/format";
+import { statusChangeText } from "@/lib/status";
 
 /** An upload link works for this many days after it is made or last sent, for as many files as the creator likes. */
 export const UPLOAD_LINK_DAYS = 60;
-const DAY = 24 * 60 * 60 * 1000;
 
 /** What one creator may keep in storage, so a forwarded link cannot fill the bucket. */
 export const CREATOR_LIMITS = { files: 200, bytes: 20_000_000_000, pending: 20 };
@@ -29,7 +29,7 @@ export const CONTENT_STATUS_LABELS: Record<ContentStatus, string> = {
   changes_requested: "Changes asked",
 };
 
-/** Statuses where a creator may still send files. Closed-out relationships may not; finished collaborations may. */
+/** Statuses where a creator may no longer send files: the relationship was closed out. Finished collaborations (completed, no content) still may. */
 const UPLOAD_BLOCKED: ReadonlySet<CreatorStatus> = new Set(["rejected", "not_interested", "blacklisted", "unsubscribed", "bounced", "invalid_contact", "duplicate"]);
 
 /**
@@ -41,12 +41,12 @@ const MOVES_TO_POSTED: ReadonlySet<CreatorStatus> = new Set(["product_shipped", 
 
 export const UPLOAD_LINK_INACTIVE = "This link is no longer active. Please reply to our message and we will send a new one.";
 
-export function uploadLinkExpired(creator: { uploadExpiresAt: Date | null }, now = new Date()): boolean {
+function uploadLinkExpired(creator: { uploadExpiresAt: Date | null }, now = new Date()): boolean {
   return !creator.uploadExpiresAt || creator.uploadExpiresAt.getTime() <= now.getTime();
 }
 
 /** The expiry an upload link gets when it is made, and again each time it is sent. */
-export const uploadLinkExpiry = (now = new Date()) => new Date(now.getTime() + UPLOAD_LINK_DAYS * DAY);
+export const uploadLinkExpiry = (now = new Date()) => new Date(now.getTime() + UPLOAD_LINK_DAYS * DAY_MS);
 
 /**
  * The creator's private upload link. Like the selection link the token is 192
@@ -71,16 +71,15 @@ export async function loadUploadTarget(token: string, now = new Date()) {
     select: {
       id: true,
       status: true,
-      influencerId: true,
       uploadExpiresAt: true,
-      campaign: { select: { id: true, name: true, brandId: true, status: true } },
-      influencer: { select: { name: true, archived: true, profiles: { select: { id: true, platform: true } } } },
+      campaign: { select: { brandId: true, status: true } },
+      influencer: { select: { name: true, archived: true } },
       giftOrders: { where: { status: { not: "cancelled" } }, orderBy: { createdAt: "desc" }, take: 1, select: { product: { select: { id: true, title: true, color: true, size: true } } } },
       contentAssets: {
         where: { archived: false, status: { not: "uploading" } },
         orderBy: { createdAt: "desc" },
         take: 50,
-        select: { id: true, fileName: true, kind: true, status: true, receivedAt: true },
+        select: { id: true, fileName: true, status: true },
       },
     },
   });
@@ -147,10 +146,10 @@ export async function startUpload(token: string, request: UploadRequest, now = n
   if (!usage) return { ok: false, error: "Please choose how we may use your content." };
   if (request.files.length === 0) return { ok: false, error: "Please choose at least one video or photo." };
   if (request.files.length > MAX_FILES_PER_UPLOAD) return { ok: false, error: `Please send up to ${MAX_FILES_PER_UPLOAD} files at a time.` };
-  const postUrl = request.postUrl.trim() ? cleanPostUrl(request.postUrl) : null;
+  const postUrl = cleanPostUrl(request.postUrl);
   if (request.postUrl.trim() && !postUrl) return { ok: false, error: "The post link does not look right. Paste the full address, starting with https://" };
 
-  const files: { name: string; size: number; kind: "video" | "photo" | "other"; contentType: string }[] = [];
+  const files: { name: string; size: number; kind: ContentKind; contentType: string }[] = [];
   for (const file of request.files) {
     const name = String(file.name ?? "").slice(0, 200) || "file";
     const size = Number(file.size);
@@ -209,11 +208,14 @@ export async function signUpload(token: string, assetId: string, now = new Date(
 /** The creator's profile a post link belongs to, judged by the address; the first profile when it cannot be told. */
 function profileForPost(url: string, profiles: { id: string; platform: Platform }[]): string | null {
   const host = new URL(url).hostname.replace(/^www\./, "");
-  const platform: Platform | null = host.endsWith("instagram.com") ? "instagram" : host.endsWith("tiktok.com") ? "tiktok" : host.endsWith("youtube.com") || host === "youtu.be" ? "youtube" : null;
+  let platform: Platform | null = null;
+  if (host.endsWith("instagram.com")) platform = "instagram";
+  else if (host.endsWith("tiktok.com")) platform = "tiktok";
+  else if (host.endsWith("youtube.com") || host === "youtu.be") platform = "youtube";
   return profiles.find((profile) => profile.platform === platform)?.id ?? profiles[0]?.id ?? null;
 }
 
-type Arrived = { id: string; kind: string; postUrl: string | null; postedAt: Date | null; usageRights: UsageRights };
+type Arrived = { id: string; kind: ContentKind; postUrl: string | null; postedAt: Date | null; usageRights: UsageRights };
 
 /**
  * Marks files as received and moves the collaboration on: a post link is
@@ -248,7 +250,7 @@ async function receive(creatorId: string, arrived: Arrived[], now: Date, how: st
     if (moves) {
       await tx.campaignCreator.update({ where: { id: creator.id }, data: { status: "content_posted" } });
       await tx.activity.create({
-        data: { userId: actor, automated: true, campaignCreatorId: creator.id, influencerId: creator.influencerId, kind: "status_change", body: `Status changed from ${CREATOR_STATUS_LABELS[creator.status]} to ${CREATOR_STATUS_LABELS.content_posted}: the creator sent their files.` },
+        data: { userId: actor, automated: true, campaignCreatorId: creator.id, influencerId: creator.influencerId, kind: "status_change", body: `${statusChangeText(creator.status, "content_posted")}: the creator sent their files.` },
       });
     }
     await tx.activity.create({
@@ -307,5 +309,5 @@ export async function settleStaleUploads(now = new Date()): Promise<{ received: 
   }
   for (const [creatorId, arrived] of byCreator) await receive(creatorId, arrived, now, "through their upload link (the page closed before it reported back)");
   if (missing.length > 0) await db.contentAsset.updateMany({ where: { id: { in: missing }, status: "uploading" }, data: { archived: true } });
-  return { received: [...byCreator.values()].reduce((sum, list) => sum + list.length, 0), archived: missing.length };
+  return { received: stale.length - missing.length, archived: missing.length };
 }

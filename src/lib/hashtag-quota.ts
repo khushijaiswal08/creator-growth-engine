@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
  * for free. We enforce the rule ourselves so a run can never trip it.
  */
 export const HASHTAG_LIMIT = 30;
-export const HASHTAG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const HASHTAG_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** "Home Decor!" -> "homedecor". Returns null when nothing usable is left. */
 export function toHashtag(keyword: string): string | null {
@@ -17,7 +17,7 @@ export function toHashtag(keyword: string): string | null {
   return tag.length >= 2 && tag.length <= 60 ? tag : null;
 }
 
-export type HashtagBudget = { used: number; remaining: number; activeTags: string[] };
+type HashtagBudget ={ used: number; remaining: number; activeTags: string[] };
 
 export async function hashtagBudget(now = new Date()): Promise<HashtagBudget> {
   const active = await db.hashtag.findMany({
@@ -32,7 +32,7 @@ export async function hashtagBudget(now = new Date()): Promise<HashtagBudget> {
   };
 }
 
-export type HashtagReservation = { ok: true; counted: boolean } | { ok: false; reason: string };
+type HashtagReservation ={ ok: true; counted: boolean } | { ok: false; reason: string };
 
 /**
  * Call before querying a hashtag. Refuses a tag that would be the 31st unique

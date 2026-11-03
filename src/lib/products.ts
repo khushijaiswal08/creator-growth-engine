@@ -1,13 +1,12 @@
 import type { Prisma } from "@prisma/client";
 import Papa from "papaparse";
 import { z } from "zod";
-import { categoryFor, colourSpellings, isAmazonCopy, listingKind, type AmazonListing, type ListingKind } from "@/lib/amazon-listing";
+import { AMAZON_FOUND_SKU, ASIN_RE, categoryFor, colourSpellings, isAmazonCopy, listingKind, MAX_LISTINGS, type AmazonListing, type ListingKind } from "@/lib/amazon-listing";
 import { BRANDS, brandName, isBrandId, isOwnLabel, type BrandId } from "@/lib/brands";
+import { normalizeHeader } from "@/lib/csv";
 import { db } from "@/lib/db";
 import { amazonUrlFor, tidyTitle } from "@/lib/gifts";
 import { webAddress } from "@/lib/product-image";
-
-export const PRODUCT_COLUMNS = ["sku", "asin", "title", "listing_name", "color", "size", "price", "stock", "website_url", "image_url", "giftable"] as const;
 
 export type ProductImportReport = {
   error?: string;
@@ -23,7 +22,7 @@ export type ProductImportReport = {
 } | null;
 
 /** Who uploaded and from which file, for the activity log. */
-export type ImportSource = { userId: string; fileName: string };
+type ImportSource = { userId: string; fileName: string };
 
 const HEADER_ALIASES: Record<string, string> = {
   article: "title",
@@ -59,7 +58,9 @@ type ProductValues = {
   giftable: boolean;
   archived: boolean;
 };
-type StoredProduct = ProductValues & { id: string; brandId: string; sku: string };
+type NewProduct = ProductValues & { brandId: string; sku: string };
+type ProductUpdate = ProductValues & { id: string };
+type StoredProduct = NewProduct & { id: string };
 
 const VALUE_KEYS = [
   "title", "listingName", "color", "size", "asin", "amazonUrl", "websiteUrl", "imageUrl", "price", "stock", "giftable", "archived",
@@ -90,8 +91,8 @@ async function loadProducts(): Promise<Map<string, StoredProduct>> {
  * product would take minutes on a list of this size.
  */
 async function writeChanges(
-  creates: (ProductValues & { brandId: string; sku: string })[],
-  updates: (ProductValues & { id: string })[],
+  creates: NewProduct[],
+  updates: ProductUpdate[],
   log: { userId: string; body: string },
 ) {
   const writes: Prisma.PrismaPromise<unknown>[] = [];
@@ -131,7 +132,7 @@ export async function importProducts(text: string, brandId: BrandId, source: Imp
     header: true,
     skipEmptyLines: "greedy",
     transformHeader: (header) => {
-      const key = header.trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const key = normalizeHeader(header);
       return HEADER_ALIASES[key] ?? key;
     },
   });
@@ -140,8 +141,8 @@ export async function importProducts(text: string, brandId: BrandId, source: Imp
   if (parsed.data.length > 10_000) return { error: "Import at most 10,000 products at a time." };
 
   const stored = await loadProducts();
-  const creates: (ProductValues & { brandId: string; sku: string })[] = [];
-  const updates: (ProductValues & { id: string })[] = [];
+  const creates: NewProduct[] = [];
+  const updates: ProductUpdate[] = [];
   const notes: string[] = [];
   const seen = new Set<string>();
   let skipped = 0;
@@ -273,7 +274,7 @@ const listingsSchema = z
     }),
   )
   .min(1)
-  .max(20_000);
+  .max(MAX_LISTINGS);
 
 const LEFT_OUT_WORDS: Record<Exclude<ListingKind, "live">, [string, string]> = {
   family: ["group heading", "group headings"],
@@ -315,7 +316,7 @@ export async function importAmazonListings(
     if (kind === "live") sellable.push(listing);
     else leftOut.set(kind, (leftOut.get(kind) ?? 0) + 1);
   }
-  const ownAsins = new Set(sellable.filter((l) => l.asin && !/^amazon\.found\./i.test(l.sku)).map((l) => l.asin));
+  const ownAsins = new Set(sellable.filter((l) => l.asin && !AMAZON_FOUND_SKU.test(l.sku)).map((l) => l.asin));
   const live = sellable.filter((listing) => !isAmazonCopy(listing, ownAsins));
   const amazonCopies = sellable.length - live.length;
   if (live.length === 0) return { error: "The report has no live listings shipped by Amazon, so nothing was changed." };
@@ -336,8 +337,8 @@ export async function importAmazonListings(
   // One spelling per colour, counting colours kept from before where the report gives none.
   const colourOf = (listing: AmazonListing) => listing.color || stored.get(listing.sku.toLowerCase())?.color || "";
   const spelling = colourSpellings(live.map(colourOf));
-  const creates: (ProductValues & { brandId: string; sku: string })[] = [];
-  const updates: (ProductValues & { id: string })[] = [];
+  const creates: NewProduct[] = [];
+  const updates: ProductUpdate[] = [];
   const liveSkus = new Set<string>();
   const otherLabels = new Set<string>();
   let unchanged = 0;
@@ -360,7 +361,7 @@ export async function importAmazonListings(
     }
     liveSkus.add(key);
 
-    const asin = /^[A-Z0-9]{10}$/.test(listing.asin) ? listing.asin : null;
+    const asin = ASIN_RE.test(listing.asin) ? listing.asin : null;
     const imageUrl = /^https:\/\//.test(listing.imageUrl) ? webAddress(listing.imageUrl) : null;
     const price = /^\d+(\.\d+)?$/.test(listing.price) ? Number(listing.price).toFixed(2) : null;
     const own = isOwnLabel(brandId, listing);

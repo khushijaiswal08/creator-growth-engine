@@ -8,24 +8,29 @@ import { PageHeader } from "@/components/panel";
 import { Pill } from "@/components/status-pill";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
-import { brandName } from "@/lib/brands";
+import { brandsLabel } from "@/lib/brands";
 import { presignView, storageMode } from "@/lib/content-storage";
 import { CONTENT_STATUS_LABELS, USAGE_LABELS } from "@/lib/content-upload";
 import { db } from "@/lib/db";
+import { openCampaignIn } from "@/lib/due";
 import { formatDay } from "@/lib/format";
-import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
+import { describeProduct } from "@/lib/product-list";
+import { profileLabel } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Content" };
 
-const LIMIT = 100;
+const POST_LIMIT = 100;
 const FILE_LIMIT = 60;
+
+/** Every status that counts as a file in the library (an unfinished upload is not one). */
+const LIBRARY_STATUSES = ["received", "approved", "changes_requested"] as const satisfies readonly ContentStatus[];
 
 const FILE_FILTERS = [
   { key: "review", label: "To review", statuses: ["received"] },
   { key: "approved", label: "Approved", statuses: ["approved"] },
   { key: "changes", label: "Changes asked", statuses: ["changes_requested"] },
-  { key: "all", label: "All files", statuses: ["received", "approved", "changes_requested"] },
+  { key: "all", label: "All files", statuses: LIBRARY_STATUSES },
 ] as const satisfies readonly { key: string; label: string; statuses: readonly ContentStatus[] }[];
 
 const megabytes = (bytes: number) => (bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(0.1, bytes / 1e6).toFixed(1)} MB`);
@@ -42,11 +47,13 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   const view = viewed(user);
   const params = await searchParams;
 
-  const campaigns = await db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }, orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const campaigns = await db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
   const chosen = campaigns.find((campaign) => campaign.id === params.campaign) ?? null;
   const tab = params.tab === "posts" ? "posts" : "files";
   const filter = FILE_FILTERS.find((option) => option.key === params.files) ?? FILE_FILTERS[0];
-  const inScope: Prisma.ContentAssetWhereInput = { archived: false, campaignCreator: { ...view.creators, ...(chosen ? { campaignId: chosen.id } : {}) } };
+  const creatorScope: Prisma.CampaignCreatorWhereInput = { ...view.creators, ...(chosen ? { campaignId: chosen.id } : {}) };
+  const inScope: Prisma.ContentAssetWhereInput = { archived: false, campaignCreator: creatorScope };
+  const postsWhere: Prisma.PostWhereInput = { campaignCreator: creatorScope };
   const link = (next: { tab?: string; files?: string; campaign?: string | null }) => {
     const query = new URLSearchParams();
     const nextTab = next.tab ?? tab;
@@ -85,9 +92,9 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
         })
       : Promise.resolve([]),
     db.post.findMany({
-      where: { campaignCreator: { ...view.creators, ...(chosen ? { campaignId: chosen.id } : {}) } },
+      where: postsWhere,
       orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
-      take: LIMIT,
+      take: POST_LIMIT,
       select: {
         id: true,
         url: true,
@@ -102,10 +109,10 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
         campaignCreator: { select: { campaign: { select: { id: true, name: true } }, influencer: { select: { id: true, name: true } } } },
       },
     }),
-    db.post.count({ where: { campaignCreator: { ...view.creators, ...(chosen ? { campaignId: chosen.id } : {}) } } }),
+    db.post.count({ where: postsWhere }),
   ]);
   const countOf = (statuses: readonly ContentStatus[]) => fileCounts.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
-  const files = countOf(FILE_FILTERS[3].statuses);
+  const files = countOf(LIBRARY_STATUSES);
 
   // Signed addresses are made here, on the server, only for files this person may see; they expire within the hour.
   const cards: ContentCardData[] = await Promise.all(
@@ -122,7 +129,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
       downloadUrl: await presignView(asset.storageKey, asset.contentType, asset.fileName),
       creator: asset.campaignCreator.influencer,
       campaign: asset.campaignCreator.campaign.name,
-      product: asset.product ? [asset.product.title, asset.product.color, asset.product.size].filter(Boolean).join(", ") : null,
+      product: asset.product ? describeProduct(asset.product) : null,
       postUrl: asset.postUrl,
       receivedLabel: asset.receivedAt ? formatDay(asset.receivedAt) : "",
       creatorNote: asset.creatorNote,
@@ -135,7 +142,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title="Content"
-        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${files} ${files === 1 ? "file" : "files"}, ${countOf(["received"])} to review · ${total} ${total === 1 ? "post" : "posts"}${chosen ? ` in ${chosen.name}` : ""}`}
+        meta={`${brandsLabel(view.brandId, "Both brands")} ·${files} ${files === 1 ? "file" : "files"}, ${countOf(["received"])} to review · ${total} ${total === 1 ? "post" : "posts"}${chosen ? ` in ${chosen.name}` : ""}`}
       />
 
       <nav aria-label="Content" className="tabs mb-5">
@@ -220,7 +227,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
                   </TableCell>
                   <TableCell>{post.format ? (FORMAT_LABELS[post.format] ?? post.format) : "Post"}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {PLATFORM_LABELS[post.socialProfile.platform]} {displayHandle(post.socialProfile.handle)}
+                    {profileLabel(post.socialProfile.platform, post.socialProfile.handle)}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{formatDay(post.postedAt ?? post.createdAt)}</TableCell>
                   <TableCell>

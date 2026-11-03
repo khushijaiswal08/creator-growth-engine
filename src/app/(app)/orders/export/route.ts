@@ -1,7 +1,9 @@
 import { openAddress } from "@/lib/address-crypto";
 import { allowed } from "@/lib/brand-scope";
 import { BRANDS, isBrandId } from "@/lib/brands";
+import { csvLine, csvResponse } from "@/lib/csv-out";
 import { db } from "@/lib/db";
+import { isoDay } from "@/lib/format";
 import { giftReference } from "@/lib/gifts";
 import { requireUser } from "@/lib/session";
 
@@ -29,12 +31,6 @@ const COLUMNS = [
 
 const COUNTRY_CODES: Record<string, string> = { "United States": "US", Canada: "CA", "United Kingdom": "GB" };
 
-function cell(value: string | number | null): string {
-  let text = value === null ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 /**
  * Every approved gift order of ONE brand that has not been placed yet, one row each.
  * Each brand ships from its own Amazon account, so a file never mixes brands.
@@ -59,7 +55,7 @@ export async function GET(request: Request) {
     })
   ).map(openAddress);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = isoDay(new Date());
   const lines = [COLUMNS.join(",")];
   for (const order of orders) {
     const reference = giftReference(order.id);
@@ -81,14 +77,8 @@ export async function GET(request: Request) {
       AddressPostalCode: order.postalCode,
       AddressPhoneNumber: order.phone,
     };
-    lines.push(COLUMNS.map((column) => cell(row[column])).join(","));
+    lines.push(csvLine(COLUMNS.map((column) => row[column])));
   }
 
-  return new Response(`﻿${lines.join("\r\n")}\r\n`, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="amazon-gift-orders-${asked}-${today}.csv"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  return csvResponse(lines, `amazon-gift-orders-${asked}-${today}.csv`);
 }

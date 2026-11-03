@@ -3,17 +3,15 @@ import { cookies } from "next/headers";
 import { logout } from "@/actions/auth";
 import { AppShell } from "@/components/app-shell";
 import type { SidebarPreference } from "@/components/sidebar-context";
-import { viewed } from "@/lib/brand-scope";
-import { BRANDS, brandName, brandShortName } from "@/lib/brands";
+import { brandsIn, viewed } from "@/lib/brand-scope";
+import { brandName, brandShortName, DEFAULT_BRAND } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { DUE_STATUSES, QUEUES, dueWhere } from "@/lib/due";
-import { startOfDayInZone, startOfWeekInZone } from "@/lib/format";
+import { DAY_MS, startOfDayInZone, startOfWeekInZone } from "@/lib/format";
 import { brandTargets } from "@/lib/outreach-stats";
 import { RACHNA_INTRO_COOKIE, type RachnaCounts } from "@/lib/rachna";
 import { requireUser } from "@/lib/session";
 import { SIDEBAR_COOKIE } from "@/lib/sidebar";
-
-const DAY = 24 * 60 * 60 * 1000;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
@@ -33,20 +31,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     db.campaignCreator.groupBy({ by: ["status"], where: dueNow, _count: { _all: true } }),
     db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfWeekInZone(now) } } }),
     db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfDayInZone(now) } } }),
-    brandTargets(BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id)),
+    brandTargets(brandsIn(view).map((brand) => brand.id)),
     db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
     db.campaignCreator.findFirst({ where: dueNow, orderBy: { nextActionDueAt: "asc" }, select: { nextActionDueAt: true } }),
     db.campaignCreator.count({ where: { ...dueNow, replyWarmth: "hot" } }),
   ]);
   const countOf = (statuses: CreatorStatus[]) => dueByStatus.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
+  // Rachna's reply and parcel counts come from the same queues her quests link to, so the bell, the quests and the task list cannot drift apart.
+  const queueCount = (key: string) => countOf(QUEUES.find((queue) => queue.key === key)?.statuses ?? []);
   const due = countOf(DUE_STATUSES);
-  const target = targets.get(view.brandId ?? BRANDS[0].id);
+  const target = targets.get(view.brandId ?? DEFAULT_BRAND);
   const weekTarget = target?.weekly ?? 0;
   const rachna: RachnaCounts = {
     due,
-    lateMax: oldest?.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - oldest.nextActionDueAt.getTime()) / DAY)) : 0,
-    replies: countOf(["replied", "negotiating"]),
-    parcels: countOf(["product_shipped"]),
+    lateMax: oldest?.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - oldest.nextActionDueAt.getTime()) / DAY_MS)) : 0,
+    replies: queueCount("replies"),
+    parcels: queueCount("delivery"),
     approvals,
     todaySent,
     dailyTarget: target?.daily ?? 0,

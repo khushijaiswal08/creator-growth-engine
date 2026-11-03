@@ -1,16 +1,16 @@
 "use server";
 
-import { randomBytes } from "node:crypto";
-import { Prisma, TemplatePurpose, type Platform } from "@prisma/client";
+import { TemplatePurpose, type Platform } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
-import { brandName, isBrandId } from "@/lib/brands";
+import { brandsLabel, isBrandId } from "@/lib/brands";
 import { isEmail } from "@/lib/csv";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
-import { displayHandle, normalizeHandle, parsePlatform, PLATFORM_LABELS } from "@/lib/profile-url";
+import { normalizeHandle, parsePlatform, profileLabel } from "@/lib/profile-url";
 import { requireAdmin, requireUser, type SessionUser } from "@/lib/session";
+import { temporaryPassword, temporaryPasswordExpiry } from "@/lib/temporary-password";
 
 const NOT_ADMIN = { error: "Only an admin can do this." };
 
@@ -18,9 +18,6 @@ async function adminOrNull(): Promise<SessionUser | null> {
   const user = await requireUser();
   return user.role === "admin" ? user : null;
 }
-
-const isUniqueViolation = (error: unknown) =>
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 
 /* ------------------------------------------------------------------ templates */
 
@@ -102,7 +99,7 @@ export async function addSuppression(_prev: FormState, formData: FormData): Prom
     const handle = normalizeHandle(platform, rawHandle);
     if (!handle) return { error: "That handle is not valid for the platform." };
     data = { platform, handle, reason };
-    label = `${PLATFORM_LABELS[platform]} ${displayHandle(handle)}`;
+    label = profileLabel(platform, handle);
   }
 
   try {
@@ -133,7 +130,7 @@ export async function removeSuppression(_prev: FormState, formData: FormData): P
 
   const row = await db.suppression.findUnique({ where: { id } });
   if (!row) return { error: "That entry was already removed." };
-  const label = row.email ?? `${PLATFORM_LABELS[row.platform!]} ${displayHandle(row.handle!)}`;
+  const label = row.email ?? profileLabel(row.platform!, row.handle!);
 
   // The row itself goes; the Activity log keeps who removed it, when and why.
   await db.$transaction(async (tx) => {
@@ -153,15 +150,6 @@ export async function removeSuppression(_prev: FormState, formData: FormData): P
 
 export type UserFormState = { error?: string; message?: string; temporaryPassword?: string } | null;
 
-/** How long a temporary password works before the user needs a new one. */
-const TEMP_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000;
-
-function temporaryPassword(): string {
-  return randomBytes(9).toString("base64url");
-}
-
-const temporaryPasswordExpiry = () => new Date(Date.now() + TEMP_PASSWORD_TTL_MS);
-
 /**
  * The brand chosen for a user on the form: one brand, or null for both.
  * An admin runs the whole portal, so an admin always has both.
@@ -172,12 +160,8 @@ function chosenBrand(formData: FormData, role: string): { brandId: string | null
   return { brandId: role === "admin" || raw === "" ? null : raw };
 }
 
-const seesLabel = (brandId: string | null) => (brandId ? brandName(brandId) : "both brands");
-
-export async function createUser(_prev: UserFormState, formData: FormData): Promise<UserFormState> {
-  const admin = await adminOrNull();
-  if (!admin) return NOT_ADMIN;
-
+/** The name, email, role and brand typed on a user form, checked the same way for a new and an existing user. */
+function userFields(formData: FormData): { name: string; email: string; role: "admin" | "marketer"; brandId: string | null } | { error: string } {
   const name = field(formData, "name");
   const email = field(formData, "email").toLowerCase();
   const role = field(formData, "role");
@@ -186,6 +170,16 @@ export async function createUser(_prev: UserFormState, formData: FormData): Prom
   if (role !== "admin" && role !== "marketer") return { error: "Choose a role." };
   const brand = chosenBrand(formData, role);
   if ("error" in brand) return brand;
+  return { name, email, role, brandId: brand.brandId };
+}
+
+export async function createUser(_prev: UserFormState, formData: FormData): Promise<UserFormState> {
+  const admin = await adminOrNull();
+  if (!admin) return NOT_ADMIN;
+
+  const fields = userFields(formData);
+  if ("error" in fields) return fields;
+  const { name, email, role, brandId } = fields;
 
   const password = temporaryPassword();
   try {
@@ -195,7 +189,7 @@ export async function createUser(_prev: UserFormState, formData: FormData): Prom
           name,
           email,
           role,
-          brandId: brand.brandId,
+          brandId,
           passwordHash: await bcrypt.hash(password, 12),
           mustChangePassword: true,
           tempPasswordExpiresAt: temporaryPasswordExpiry(),
@@ -204,7 +198,7 @@ export async function createUser(_prev: UserFormState, formData: FormData): Prom
       await logActivity(tx, {
         userId: admin.id,
         kind: "user_admin",
-        body: `Created user ${name} (${email}) as ${role}, working on ${seesLabel(brand.brandId)}.`,
+        body: `Created user ${name} (${email}) as ${role}, working on ${brandsLabel(brandId)}.`,
       });
     });
   } catch (error) {
@@ -221,14 +215,9 @@ export async function updateUser(_prev: UserFormState, formData: FormData): Prom
   if (!admin) return NOT_ADMIN;
 
   const id = field(formData, "id");
-  const name = field(formData, "name");
-  const email = field(formData, "email").toLowerCase();
-  const role = field(formData, "role");
-  if (name.length < 2 || name.length > 80) return { error: "Enter the person's name." };
-  if (!isEmail(email)) return { error: "Enter a valid email." };
-  if (role !== "admin" && role !== "marketer") return { error: "Choose a role." };
-  const brand = chosenBrand(formData, role);
-  if ("error" in brand) return brand;
+  const fields = userFields(formData);
+  if ("error" in fields) return fields;
+  const { name, email, role, brandId } = fields;
 
   const current = await db.user.findUnique({ where: { id } });
   if (!current) return { error: "That user no longer exists." };
@@ -238,13 +227,13 @@ export async function updateUser(_prev: UserFormState, formData: FormData): Prom
     current.name !== name && `name to ${name}`,
     current.email !== email && `email to ${email}`,
     current.role !== role && `role to ${role}`,
-    current.brandId !== brand.brandId && `brand to ${seesLabel(brand.brandId)}`,
+    current.brandId !== brandId && `brand to ${brandsLabel(brandId)}`,
   ].filter(Boolean);
   if (changes.length === 0) return { message: "No changes to save." };
 
   try {
     await db.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { name, email, role, brandId: brand.brandId } });
+      await tx.user.update({ where: { id }, data: { name, email, role, brandId } });
       await logActivity(tx, {
         userId: admin.id,
         kind: "user_admin",

@@ -14,7 +14,7 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, Di
 import { WarmthChip } from "@/components/warmth-chip";
 import type { Grade } from "@/lib/creator-card";
 import type { CardPost, CreatorCard } from "@/lib/creator-card-data";
-import { formatCount, formatDay } from "@/lib/format";
+import { capitalize, formatCount, formatDay, formatDollars, plural } from "@/lib/format";
 import { profileUrl } from "@/lib/profile-url";
 import { isWarmth } from "@/lib/reply-reader";
 import { TONE_CLASSES, type StatusTone } from "@/lib/status";
@@ -27,10 +27,8 @@ import { TONE_CLASSES, type StatusTone } from "@/lib/status";
  * Every number is something the portal recorded; the card invents nothing.
  */
 
-const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
-
 /** A creator's name that opens their card. Middle-click or Ctrl-click still opens the profile page. */
-export function CreatorName({ id, name, className, children }: { id: string; name: string; className?: string; children?: React.ReactNode }) {
+export function CreatorName({ id, name, className }: { id: string; name: string; className?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -45,7 +43,7 @@ export function CreatorName({ id, name, className, children }: { id: string; nam
           setOpen(true);
         }}
       >
-        <span className="truncate">{children ?? name}</span>
+        <span className="truncate">{name}</span>
         {/* The little card: the cue that a tap opens their history. */}
         <IdCard aria-hidden className="size-3.5 shrink-0 text-primary/70 group-hover/name:text-primary" strokeWidth={2} />
       </a>
@@ -54,7 +52,7 @@ export function CreatorName({ id, name, className, children }: { id: string; nam
   );
 }
 
-export function CreatorCardDialog({ id, name, open, onOpenChange }: { id: string; name: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+function CreatorCardDialog({ id, name, open, onOpenChange }: { id: string; name: string; open: boolean; onOpenChange: (open: boolean) => void }) {
   const [card, setCard] = useState<CreatorCard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -112,7 +110,8 @@ const GRADE_ICON: Record<Grade, React.ReactNode> = {
   new: <Sparkles className="size-3.5" strokeWidth={2.4} />,
 };
 
-type CardTab = "overview" | "history" | "numbers";
+const CARD_TABS = ["overview", "history", "numbers"] as const;
+type CardTab = (typeof CARD_TABS)[number];
 
 function CardBody({ card }: { card: CreatorCard }) {
   const { influencer, stats, verdict, figures, campaigns, months, message } = card;
@@ -124,6 +123,7 @@ function CardBody({ card }: { card: CreatorCard }) {
   const collab = campaigns.map((link) => link.collaborationType).find((value) => value !== null) ?? null;
   const posts = campaigns.flatMap((link) => link.posts).sort((a, b) => a.at.getTime() - b.at.getTime());
   const hasNumbers = posts.some((post) => post.views !== null || post.clicks !== null || post.salesUsd !== null);
+  const reachBars = posts.map((post) => ({ label: formatDay(post.at), value: post.views ?? 0, hint: `${post.format ?? "post"} · ${post.views !== null ? `${post.views.toLocaleString("en-US")} views` : "no views logged"}${post.salesUsd ? ` · ${formatDollars(post.salesUsd)}` : ""}` }));
   const profile = card.profiles[0] ?? null;
   const style = VERDICT_STYLE[verdict.tone];
   // "Solid creator. 1 collaboration from 1 gift." -> the first sentence in bold.
@@ -179,7 +179,7 @@ function CardBody({ card }: { card: CreatorCard }) {
       </div>
 
       <nav aria-label="Card sections" className="tabs mt-4 px-[14px]">
-        {(["overview", "history", "numbers"] as const).map((key) => (
+        {CARD_TABS.map((key) => (
           <button key={key} type="button" className="tab capitalize" aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)}>
             {key}
             {key === "history" ? <span className="count-pill">{campaigns.length}</span> : null}
@@ -191,7 +191,7 @@ function CardBody({ card }: { card: CreatorCard }) {
         {tab === "overview" ? (
           <>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <StatTile icon={<Gift className="size-3.5" strokeWidth={2.3} />} label="Gifts given" value={String(stats.gifts)} note={stats.giftValueUsd > 0 ? `${money(stats.giftValueUsd)} in products` : stats.gifts > 0 ? "value not on file" : "none yet"} />
+              <StatTile icon={<Gift className="size-3.5" strokeWidth={2.3} />} label="Gifts given" value={String(stats.gifts)} note={stats.giftValueUsd > 0 ? `${formatDollars(stats.giftValueUsd)} in products` : stats.gifts > 0 ? "value not on file" : "none yet"} />
               <StatTile
                 icon={<Clapperboard className="size-3.5" strokeWidth={2.3} />}
                 label="Content"
@@ -209,7 +209,7 @@ function CardBody({ card }: { card: CreatorCard }) {
               <StatTile
                 icon={<DollarSign className="size-3.5" strokeWidth={2.3} />}
                 label="Sales"
-                value={stats.salesUsd > 0 ? money(stats.salesUsd) : "–"}
+                value={stats.salesUsd > 0 ? formatDollars(stats.salesUsd) : "–"}
                 note={
                   card.fromLinks
                     ? `${card.fromLinks.purchases} Amazon ${card.fromLinks.purchases === 1 ? "order" : "orders"} from our link${stats.giftValueUsd > 0 && stats.salesUsd > 0 ? `, ${(stats.salesUsd / stats.giftValueUsd).toFixed(1)}× the gift` : ""}`
@@ -229,17 +229,17 @@ function CardBody({ card }: { card: CreatorCard }) {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1.4fr_1fr_1fr]">
               <Term label="Affiliate quote" value={influencer.affiliateQuote} empty="Not on file" />
-              <Term label="Fee asked" value={fee !== null ? money(fee) : null} empty="None, gifted" />
-              <Term label="Collaboration" value={collab ? collab[0].toUpperCase() + collab.slice(1) : null} empty="Not agreed yet" />
+              <Term label="Fee asked" value={fee !== null ? formatDollars(fee) : null} empty="None, gifted" />
+              <Term label="Collaboration" value={collab ? capitalize(collab) : null} empty="Not agreed yet" />
             </div>
             {influencer.amazonTier ? (
               <div className="rounded-2xl border border-[#fde3b0] bg-warning-soft/60 px-4 py-3.5 text-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="font-extrabold text-foreground">Amazon Creator Connections · <span className="capitalize">{influencer.amazonTier}</span></p>
-                  {influencer.amazonMonthlyGmvUsd !== null ? <p className="font-semibold text-muted-foreground">{money(influencer.amazonMonthlyGmvUsd)} a month on Amazon</p> : null}
+                  {influencer.amazonMonthlyGmvUsd !== null ? <p className="font-semibold text-muted-foreground">{formatDollars(influencer.amazonMonthlyGmvUsd)} a month on Amazon</p> : null}
                 </div>
                 <p className="mt-1 font-medium text-muted-foreground">
-                  For us: {stats.clicks > 0 ? `${formatCount(stats.clicks)} clicks` : "no clicks logged"}, {stats.salesUsd > 0 ? `${money(stats.salesUsd)} in sales` : "no sales logged"}.
+                  For us: {stats.clicks > 0 ? `${formatCount(stats.clicks)} clicks` : "no clicks logged"}, {stats.salesUsd > 0 ? `${formatDollars(stats.salesUsd)} in sales` : "no sales logged"}.
                 </p>
               </div>
             ) : null}
@@ -247,10 +247,10 @@ function CardBody({ card }: { card: CreatorCard }) {
               <div className="mb-2 flex items-center">
                 <h3>Reach per post</h3>
                 <span className="flex-1" />
-                <span className="text-[12.5px] font-semibold text-muted-foreground">{posts.length} {posts.length === 1 ? "post" : "posts"}</span>
+                <span className="text-[12.5px] font-semibold text-muted-foreground">{plural(posts.length, "post")}</span>
               </div>
               {hasNumbers ? (
-                <Bars data={posts.map((post) => ({ label: formatDay(post.at), value: post.views ?? 0, hint: `${post.format ?? "post"} · ${post.views !== null ? `${post.views.toLocaleString("en-US")} views` : "no views logged"}${post.salesUsd ? ` · ${money(post.salesUsd)}` : ""}` }))} color="var(--primary)" />
+                <Bars data={reachBars} color="var(--primary)" />
               ) : (
                 <p className="rounded-2xl border border-dashed px-4 py-6 text-center text-sm font-medium text-muted-foreground">No numbers yet. Log them on each post in the profile&apos;s Content tab.</p>
               )}
@@ -282,7 +282,7 @@ function CardBody({ card }: { card: CreatorCard }) {
                           <span>
                             {gift.quantity > 1 ? `${gift.quantity} × ` : ""}
                             {gift.product}
-                            {gift.priceUsd !== null ? ` (${money(gift.priceUsd * gift.quantity)})` : ""}
+                            {gift.priceUsd !== null ? ` (${formatDollars(gift.priceUsd * gift.quantity)})` : ""}
                           </span>
                           <span>· {gift.delivered ? "delivered" : gift.status.replace(/_/g, " ")}</span>
                           <span>· {formatDay(gift.at)}</span>
@@ -292,7 +292,7 @@ function CardBody({ card }: { card: CreatorCard }) {
                         <li key={post.id} className="flex flex-wrap items-center gap-x-2 text-muted-foreground">
                           <span aria-hidden className="size-2 rounded-full bg-[#22c55e]" />
                           <a href={post.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-bold text-foreground hover:text-primary">
-                            {post.format ? post.format[0].toUpperCase() + post.format.slice(1) : "Post"}
+                            {post.format ? capitalize(post.format) : "Post"}
                             <ExternalLink className="size-3" />
                           </a>
                           <span>· {formatDay(post.at)}</span>
@@ -312,7 +312,7 @@ function CardBody({ card }: { card: CreatorCard }) {
             <section className="rounded-2xl border p-4">
               <h3 className="mb-1">Reach per post</h3>
               {hasNumbers ? (
-                <Bars data={posts.map((post) => ({ label: formatDay(post.at), value: post.views ?? 0, hint: `${post.format ?? "post"} · ${post.views !== null ? `${post.views.toLocaleString("en-US")} views` : "no views logged"}${post.salesUsd ? ` · ${money(post.salesUsd)}` : ""}` }))} color="var(--primary)" />
+                <Bars data={reachBars} color="var(--primary)" />
               ) : (
                 <p className="py-6 text-center text-sm font-medium text-muted-foreground">No numbers logged yet.</p>
               )}
@@ -381,7 +381,7 @@ function PostNumbers({ post }: { post: CardPost }) {
     post.likes !== null ? `${formatCount(post.likes)} likes` : null,
     post.comments !== null ? `${formatCount(post.comments)} comments` : null,
     post.clicks !== null ? `${formatCount(post.clicks)} clicks` : null,
-    post.salesUsd !== null ? `${money(post.salesUsd)} sales` : null,
+    post.salesUsd !== null ? `${formatDollars(post.salesUsd)} sales` : null,
   ].filter(Boolean);
   if (parts.length === 0) return <span>· no numbers yet</span>;
   return <span>· {parts.join(", ")}</span>;
@@ -436,7 +436,7 @@ function MonthBars({ months }: { months: CreatorCard["months"] }) {
           const postH = Math.round((point.posts / max) * height);
           return (
             <g key={point.month}>
-              <title>{`${point.label}: ${point.gifts} gifts, ${point.posts} posts${point.reach ? `, ${point.reach.toLocaleString("en-US")} views` : ""}${point.salesUsd ? `, ${money(point.salesUsd)} sales` : ""}`}</title>
+              <title>{`${point.label}: ${point.gifts} gifts, ${point.posts} posts${point.reach ? `, ${point.reach.toLocaleString("en-US")} views` : ""}${point.salesUsd ? `, ${formatDollars(point.salesUsd)} sales` : ""}`}</title>
               <rect x={x - bar - 1} y={height - giftH} width={bar} height={giftH} rx={3} fill="#d97706" opacity={0.85} />
               <rect x={x + 1} y={height - postH} width={bar} height={postH} rx={3} fill="#16a34a" opacity={0.85} />
               {maxSales > 0 && point.salesUsd > 0 ? <circle cx={x} cy={height - Math.round((point.salesUsd / maxSales) * (height - 10)) - 5} r={4} fill="var(--primary)" /> : null}

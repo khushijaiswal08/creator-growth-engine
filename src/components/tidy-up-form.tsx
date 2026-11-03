@@ -5,13 +5,15 @@ import { Sparkles, Undo2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { applyTidyUp, undoTidy } from "@/actions/tidy-up";
+import { NoticeText, type Notice } from "@/components/notice-text";
 import { useRachna } from "@/components/rachna/rachna";
 import { Button } from "@/components/ui/button";
+import { toggled } from "@/lib/form";
 import { formatShortDay } from "@/lib/format";
 import type { TidyHistoryEntry } from "@/lib/tidy-up";
 import { TIDY_ACTIONS, TIDY_CHUNK, type TidyAction, type TidyGroupKey } from "@/lib/tidy-up-rules";
 
-export type TidyGroupView = {
+type TidyGroupView = {
   key: TidyGroupKey;
   title: string;
   about: string;
@@ -33,10 +35,18 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
   const [choice, setChoice] = useState<Record<string, TidyAction>>(() => Object.fromEntries(groups.map((group) => [group.key, group.actions[0]])));
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
 
   const planned = groups.filter((group) => group.rows.length > 0 && choice[group.key] !== "leave");
   const total = planned.reduce((sum, group) => sum + group.rows.length, 0);
+
+  /** After an Apply or Undo run, whatever happened: the progress text goes, and the counts on Home are read again. */
+  function settle() {
+    setProgress(null);
+    // The queues shrank by housekeeping, not by work: today's quests start again from the new counts.
+    rachna?.restartQuests();
+    router.refresh();
+  }
 
   function apply() {
     const lines = planned.map((group) => `${group.rows.length} × ${TIDY_ACTIONS[choice[group.key]].label.toLowerCase()} (${group.title.toLowerCase()})`);
@@ -68,10 +78,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
       } catch (error) {
         setNotice({ text: `Stopped after ${changed} changes: ${error instanceof Error ? error.message : "the connection dropped"}. What was done is listed below and can be undone.`, refused: true });
       } finally {
-        setProgress(null);
-        // The queues shrank by housekeeping, not by work: today's quests start again from the new counts.
-        rachna?.restartQuests();
-        router.refresh();
+        settle();
       }
     });
   }
@@ -95,10 +102,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
       } catch (error) {
         setNotice({ text: `Undo stopped after ${restored}: ${error instanceof Error ? error.message : "the connection dropped"}. Press Undo again to finish.`, refused: true });
       } finally {
-        setProgress(null);
-        // The queues shrank by housekeeping, not by work: today's quests start again from the new counts.
-        rachna?.restartQuests();
-        router.refresh();
+        settle();
       }
     });
   }
@@ -145,14 +149,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
                 <button
                   type="button"
                   className="link w-full border-t px-5 py-2.5 text-left text-xs font-semibold"
-                  onClick={() =>
-                    setOpen((current) => {
-                      const next = new Set(current);
-                      if (next.has(group.key)) next.delete(group.key);
-                      else next.add(group.key);
-                      return next;
-                    })
-                  }
+                  onClick={() => setOpen((current) => toggled(current, group.key))}
                 >
                   {expanded ? "Show fewer" : `Show all ${group.rows.length}`}
                 </button>
@@ -172,11 +169,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
         </div>
       ) : null}
 
-      {notice ? (
-        <p role={notice.refused ? "alert" : "status"} className={cn("text-sm", notice.refused ? "font-semibold text-danger-text" : "text-success-text")}>
-          {notice.text}
-        </p>
-      ) : null}
+      {notice ? <NoticeText notice={notice} as="p" className="text-sm" /> : null}
 
       {history.length > 0 ? (
         <section className="card overflow-hidden">

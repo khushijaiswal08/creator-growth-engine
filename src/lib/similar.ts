@@ -4,7 +4,7 @@ export function normaliseForMatch(handle: string): string {
 }
 
 /** Levenshtein distance, giving up (returning max + 1) as soon as it must exceed `max`. */
-export function editDistance(a: string, b: string, max: number): number {
+function editDistance(a: string, b: string, max: number): number {
   if (Math.abs(a.length - b.length) > max) return max + 1;
   let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
   for (let i = 1; i <= a.length; i++) {

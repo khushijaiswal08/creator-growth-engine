@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
+import { creatorSearchWhere } from "@/lib/creator-search";
 import { db } from "@/lib/db";
+import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Creators" };
@@ -33,16 +35,7 @@ export default async function InfluencersPage({
     // Only people who are in a campaign of this person's brand (everyone, for someone looking at both).
     ...view.influencers,
     archived: showArchived,
-    ...(q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" } },
-            { email: { contains: q, mode: "insensitive" } },
-            { location: { contains: q, mode: "insensitive" } },
-            { profiles: { some: { handle: { contains: q.replace(/^@/, "").toLowerCase() } } } },
-          ],
-        }
-      : {}),
+    ...(q ? creatorSearchWhere(q) : {}),
   };
 
   const [influencers, total] = await Promise.all([
@@ -60,14 +53,7 @@ export default async function InfluencersPage({
     db.influencer.count({ where }),
   ]);
 
-  const pageHref = (target: number) => {
-    const query = new URLSearchParams();
-    if (q) query.set("q", q);
-    if (showArchived) query.set("archived", "1");
-    if (target > 1) query.set("page", String(target));
-    const text = query.toString();
-    return text ? `/influencers?${text}` : "/influencers";
-  };
+  const pageHref = (target: number) => withQuery("/influencers", { q, archived: showArchived ? "1" : undefined, page: target > 1 ? String(target) : undefined });
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (

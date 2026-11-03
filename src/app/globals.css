@@ -31,16 +31,10 @@
   --primary-text: #9a3558;
   --accent-text: #475569;
 
-  /* The sidebar is white like the cards; the names stay for the few places that use them. */
-  --sidebar: #ffffff;
-  --sidebar-text: #111827;
-  --sidebar-muted: #6b7280;
-  --sidebar-active: #fdf2f6;
-
   --input: #dde1e8;
 }
 
-/* Status hues, radius and the one soft shadow. */
+/* Status hues and the two shadows: the card's and the lift on hover. */
 :root {
   /* Light tints with strong text: each pair clears 4.5:1. Violet is the "they said yes" stage. */
   --info-soft: #eef4ff;
@@ -54,7 +48,6 @@
   --violet-soft: #f5f3ff;
   --violet-text: #6d28d9;
 
-  --radius: 12px;
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.035);
   --shadow-lift: 0 10px 24px rgba(15, 23, 42, 0.1);
 }
@@ -75,11 +68,6 @@
   --color-primary-text: var(--primary-text);
   --color-accent-text: var(--accent-text);
 
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-text: var(--sidebar-text);
-  --color-sidebar-muted: var(--sidebar-muted);
-  --color-sidebar-active: var(--sidebar-active);
-
   --color-info-soft: var(--info-soft);
   --color-info-text: var(--info-text);
   --color-success-soft: var(--success-soft);
@@ -96,15 +84,7 @@
   --color-input: var(--input);
   --color-ring: var(--primary);
 
-  /* Names the shadcn/ui components expect, pointed at the palette. */
-  --color-card: var(--surface);
-  --color-card-foreground: var(--text);
-  --color-popover: var(--surface);
-  --color-popover-foreground: var(--text);
-  --color-primary-foreground: var(--on-primary);
-  --color-secondary: var(--surface-2);
-  --color-secondary-foreground: var(--text);
-  --color-muted: var(--surface-2);
+  /* The one shadcn/ui name the components still use, pointed at the palette. */
   --color-destructive: var(--danger-text);
 
   --radius-sm: 8px;
@@ -313,12 +293,6 @@
       opacity: 1;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .rachna-in,
-    .rachna-float {
-      animation: none;
-    }
-  }
   /* Confetti across her whole slot when she cheers. */
   .rachna-burst span {
     position: absolute;
@@ -350,11 +324,11 @@
       opacity: 0;
     }
   }
-  .rachna-quest-ring {
-    transform: rotate(-90deg);
-    transition: stroke-dashoffset 400ms ease-out;
-  }
   @media (prefers-reduced-motion: reduce) {
+    .rachna-in,
+    .rachna-float {
+      animation: none;
+    }
     .rachna-burst span {
       animation: none;
       opacity: 0;

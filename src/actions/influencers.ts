@@ -1,15 +1,15 @@
 "use server";
 
-import { Prisma, type Platform } from "@prisma/client";
+import type { Platform, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { logActivity } from "@/lib/activity";
 import { allowed } from "@/lib/brand-scope";
 import { isEmail } from "@/lib/csv";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { getCreatorSource, NotImplementedError, type ProfileData } from "@/lib/fetching";
 import { field, optionalField, type FormState } from "@/lib/form";
-import { displayHandle, parseProfileUrl, PLATFORM_LABELS } from "@/lib/profile-url";
+import { parseProfileUrl, profileLabel } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
 
 /** Asks the configured creator source for profile data; stub adapters fall back to manual entry. */
@@ -41,10 +41,6 @@ function profileFields(data: ProfileData) {
     // Only a source that actually fetched something gets credit for the row.
     source: data.fetchedAt ? data.source : ("manual" as const),
   };
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 /** Adds the influencer to the campaign unless already there. Returns true when a row was created. */
@@ -122,7 +118,7 @@ export async function addInfluencerByUrl(_prev: FormState, formData: FormData): 
     }
   } else {
     const data = await enrich(platform, handle);
-    const label = `${PLATFORM_LABELS[platform]} ${displayHandle(handle)}`;
+    const label = profileLabel(platform, handle);
     try {
       influencerId = await db.$transaction(async (tx) => {
         const influencer = await tx.influencer.create({
@@ -167,7 +163,7 @@ export async function addProfileToInfluencer(_prev: FormState, formData: FormDat
   const parsed = parseProfileUrl(field(formData, "url"));
   if (!parsed.ok) return { error: parsed.error };
   const { platform, handle } = parsed.profile;
-  const label = `${PLATFORM_LABELS[platform]} ${displayHandle(handle)}`;
+  const label = profileLabel(platform, handle);
 
   const scope = allowed(user);
   const influencer = await db.influencer.findFirst({ where: { id: influencerId, ...scope.influencers }, select: { id: true } });

@@ -3,18 +3,22 @@
 Internal portal for the marketing team to find, qualify, contact and track US creators on
 Instagram, TikTok and YouTube. It replaces the Excel sheet.
 
-Built so far (Phase 0 + Phase 1): login, campaigns, influencers, CSV import, one-click message,
-status tracking, the activity log, creator discovery (YouTube, Instagram hashtags), AI fit
-scoring, the human review queue and the admin screens.
+Built so far: login, campaigns, creators, CSV import, one-click messages (DM, Amazon Creator
+Connections, email), status tracking, the activity log, creator discovery (YouTube, Instagram
+hashtags), AI fit scoring, the human review queue, the automated journey (follow-ups, product
+selection links, gift rules and auto-approval, Amazon order files and one-click MCF orders,
+tracking, the content clock), the content library, Amazon attribution and sales reports, the
+outreach and performance reports, Rachna the guide and her reply reader, Invite back, Tidy up
+and the admin screens. Each later phase has its own section below.
 
-Not built: automated outreach, email sending, auto-approval, agreements and shipping, post and
-performance tracking, feedback and recommendations. Their tables exist in the schema but
-nothing writes to them yet.
+Not built: sending messages or email to creators from the portal (a person always sends them),
+reading replies automatically, agreements, feedback and recommendations. The `Agreement` and
+`Feedback` tables exist in the schema but nothing writes to them yet.
 
 ## Stack
 
 Next.js 15 (App Router, Server Actions), TypeScript, Tailwind v4, shadcn/ui, Prisma 6,
-PostgreSQL (Neon), Auth.js credentials login, pnpm. Deploys to Vercel.
+PostgreSQL (Neon), Auth.js credentials login, pnpm. Deploys to Netlify.
 
 ## Setup
 
@@ -43,7 +47,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-The seed creates the admin user, 4 message templates, 2 sample campaigns and 10 sample influencers
+The seed creates the admin user, 12 message templates, 2 sample campaigns and 10 sample influencers
 (handles ending in `.sample`). It is safe to run again: existing rows are left alone and
 existing users keep their password.
 
@@ -54,10 +58,10 @@ existing users keep their password.
 | `DATABASE_URL` | yes | Neon pooled connection string (host contains `-pooler`). Used by the app. End it with `&connect_timeout=15&pool_timeout=20` (see below). |
 | `DIRECT_URL` | yes | Neon direct connection string. Used by `prisma migrate`. End it with `&connect_timeout=15`. |
 | `AUTH_SECRET` | yes | Signs the session cookie. Any long random string; see `.env.example` for a command that makes one. |
-| `AUTH_TRUST_HOST` | outside Vercel | Set to `true` when running `pnpm start` on your own host. |
-| `CREATOR_SOURCE` | no | Creator-fetching adapter: `csv`, `manual`, `meta_free` or `vendor`. Default `manual`. |
-| `APP_URL` | on Vercel | Public address of the site, used in creators' product-selection links. |
-| `CRON_SECRET` | on Vercel | Secret for the daily automation endpoint. |
+| `AUTH_TRUST_HOST` | on Netlify, and outside Vercel | Set to `true` on Netlify and when running `pnpm start` on your own host. |
+| `CREATOR_SOURCE` | no | Creator-fetching adapter: `csv`, `manual`, `meta_free`, `youtube` or `vendor`. Default `manual`. |
+| `APP_URL` | in production | Public address of the site, used in creators' selection and upload links and by the scheduled functions to reach the app. |
+| `CRON_SECRET` | in production | Secret the scheduled functions send to `/api/cron/*` (daily run, job tick, weekly summary); `/api/cron/check` asks for it too. |
 | `APP_TIME_ZONE` | no | IANA zone for timestamps, e.g. `America/New_York`. Default `UTC`. |
 | `LEGAL_CONTACT_EMAIL` | recommended | Address shown on `/privacy` and `/terms`. |
 | `SEED_USER_PASSWORD` | for seeding | Password given to seed users. At least 10 characters. |
@@ -65,7 +69,7 @@ existing users keep their password.
 | `META_ACCESS_TOKEN` | for Instagram discovery | Long-lived Graph API user token. |
 | `IG_BUSINESS_ID` | for Instagram discovery | Id of your Instagram business account. |
 | `META_GRAPH_VERSION` | no | Pin a Graph API version, e.g. `v23.0`. |
-| `ANTHROPIC_API_KEY` | for AI scoring | Anthropic API key. |
+| `ANTHROPIC_API_KEY` | for AI scoring and the reply reader | Anthropic API key. Without it the built-in rules read replies. |
 | `ANTHROPIC_MODEL` | no | Scoring model. Default `claude-opus-5-5`. |
 | `CONTENT_S3_ENDPOINT` | for the content library | S3-compatible endpoint for creators' files. For Cloudflare R2: `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`. |
 | `CONTENT_S3_BUCKET` | for the content library | The private bucket, e.g. `creator-content`. |
@@ -94,21 +98,20 @@ All keys are read only in server code. Never give them a `NEXT_PUBLIC_` prefix.
 | `pnpm db:migrate:dev` | Creates a new migration after a schema change. |
 | `pnpm db:seed` | Runs `prisma/seed.ts`. |
 | `pnpm db:studio` | Prisma Studio. |
-| `pnpm db:backup` | Writes every table to a JSON file in `data/backups/`. |
+| `pnpm db:backup` | Writes the core tables to a JSON file in `data/backups/`. |
 | `pnpm test` | Guard tests (see "Guard tests"). |
 
 Server-side scripts, for when nobody is signed in (all take `--env-file=.env`):
 
 | Command | What it does |
 | --- | --- |
-| `pnpm exec tsx --env-file=.env scripts/create-user.ts "<name>" <email> [admin\|marketer] [ridhi\|cotton-print-club\|both] --out <file>` | Creates a team member with a 24-hour temporary password, written to the file. |
+| `pnpm exec tsx --env-file=.env scripts/create-user.ts "<name>" <email> [admin\|marketer] [ridhi\|cotton-print-club\|both] [--out <file>]` | Creates a team member with a 24-hour temporary password, written to the file with `--out`, otherwise shown once. |
 | `pnpm exec tsx --env-file=.env scripts/reset-password.ts <email> --out <file>` | Issues a new temporary password for an existing person and clears their sign-in lockout. |
 | `pnpm test:isolation` (after `pnpm build`) | Proves the brand boundaries against the built app; see Security. |
-| `YOUTUBE_API_KEY`, `META_ACCESS_TOKEN` + `IG_BUSINESS_ID`, `ANTHROPIC_API_KEY` | Switch on YouTube discovery, Instagram discovery and AI scoring (see Phase 2). Set in `.env` locally and in Netlify. |
 | `pnpm exec tsx --env-file=.env scripts/import-creators.ts "<campaign>" <file.csv> [--check]` | The CSV import of creators, into the named campaign. `--check` reports without writing. |
 | `pnpm exec tsx --env-file=.env scripts/import-amazon-listing.ts <brand> <report.xlsx> [--check]` | The Amazon listing report import (see "Products"). |
 
-A real run of a script is logged in the activity log under the Automation account, with the file name marked "(loaded from the server)".
+A real run of either import script is logged in the activity log under the Automation account, with the file name marked "(loaded from the server)". `create-user.ts` and `reset-password.ts` log under the account they change.
 
 ### Deploying to Netlify
 
@@ -131,9 +134,11 @@ between. Accounts should be in the company's name, not a person's.
    `SEED_USER_PASSWORD`. Deploy.
 4. **Domain and HTTPS.** Domain management > add your domain; Netlify issues the certificate.
    HTTPS only: `netlify.toml` refuses plain HTTP and the app sends HSTS.
-5. **Schedules.** `netlify/functions/daily-automations.mts` runs the timers every night and
-   `weekly-summary.mts` emails the admin every Monday. Both call the app's own `/api/cron/*`
-   routes with `CRON_SECRET`; nothing else can.
+5. **Schedules.** `netlify/functions/daily-automations.mts` runs the timers every night,
+   `job-tick.mts` carries on discovery and scoring runs every ten minutes in working hours (and
+   reads back one-click Amazon orders once an hour), and `weekly-summary.mts` emails the admin
+   every Monday. All three call the app's own `/api/cron/*` routes with `CRON_SECRET`; nothing
+   else can.
 6. **Check.** Open `https://<your site>/health` (expect `{"status":"ok","database":true}`),
    sign in, open Creators > Add creator and drag the bookmark to your bookmarks bar, and send
    yourself a product-selection link from a test creator to see the public page.
@@ -154,8 +159,9 @@ CSV, Amazon's listing report) can exceed it on a slow database; the server-side 
   `__Secure-` prefix. Sessions last 7 days.
 - **Admin routes** are checked on the server three times: the admin layout, every admin page,
   and every admin Server Action. Hiding the Admin link is cosmetic only.
-- **Public pages:** only `/login`, `/privacy`, `/terms`, `/health` and the creators' selection
-  links. `/health` returns up or down and nothing else.
+- **Public pages:** only `/login`, `/privacy`, `/terms`, `/health`, and the creators' selection
+  and upload links (`/select/<token>`, `/upload/<token>`). The `/api/cron/*` endpoints answer
+  only to `CRON_SECRET`. `/health` returns up or down and nothing else.
 - **Selection links** (`src/lib/selection.ts`, `src/lib/selection-flow.ts`): a 192-bit random
   token per creator, valid for 14 days, dropped the moment a choice is submitted, and reissued
   fresh when a new link is needed. The page shows only the creator's first name and the
@@ -179,7 +185,7 @@ CSV, Amazon's listing report) can exceed it on a slow database; the server-side 
 - **A sleeping database is not a wrong password.** Neon puts an unused database to sleep and
   waking it can take longer than Prisma's default 5-second connection limit, so the first
   request after a quiet spell (usually a sign-in) used to fail. The connection strings therefore
-  carry `connect_timeout=15` (and `pool_timeout=20` on the pooled one); set the same on Vercel.
+  carry `connect_timeout=15` (and `pool_timeout=20` on the pooled one); set the same in Netlify's environment variables.
   If the check still cannot run, sign-in tries once more and then says so plainly
   (`src/lib/sign-in-errors.ts`) instead of "Email or password is incorrect", and nothing is
   counted towards the lockout.
@@ -191,8 +197,8 @@ CSV, Amazon's listing report) can exceed it on a slow database; the server-side 
 
 ## Guard tests
 
-`pnpm test` runs fourteen tests against an in-memory Postgres and local stand-ins for the Meta
-and Anthropic APIs:
+`pnpm test` runs forty tests against an in-memory Postgres and local stand-ins for the Meta,
+YouTube, Anthropic and Amazon (SP-API) services. The first fourteen are the original guards:
 
 1. The 30-hashtags-in-7-days rule refuses an over-limit discovery run and makes no call to
    Meta for the refused tags.
@@ -232,7 +238,12 @@ and Anthropic APIs:
     posts and no-shows per brand.
 14. A tracking number opens the right carrier's page, and is always encoded.
 
-These prove our own rules hold. They do not show that YouTube, Meta or Anthropic work; that
+The other twenty-six cover the later phases (discovery quotas and slices, outreach and
+performance figures, Creator Connections, Rachna, the reply reader, the creator card, the
+content library, Amazon reports, one-click orders, Invite back and Tidy up); each test's name
+says what it proves.
+
+These prove our own rules hold. They do not show that YouTube, Meta, Anthropic or Amazon work; that
 needs real keys.
 
 ## Backups
@@ -245,7 +256,7 @@ Neon is the primary backup:
 - **Point-in-time restore:** Neon console > Branches > production > Restore lets you roll the
   branch back to a moment within your plan's history window.
 
-A second copy you hold yourself: `pnpm db:backup` writes every table to
+A second copy you hold yourself: `pnpm db:backup` writes the core tables to
 `data/backups/backup-<time>.json`. The folder is git-ignored; the file contains personal data
 and password hashes, so store it somewhere private. Restoring from it means loading the rows
 back in the order they appear in the file.
@@ -270,7 +281,7 @@ back in the order they appear in the file.
   transaction as the change (`src/lib/activity.ts`). Creation, edits, imports and archiving are
   logged too.
 - **No hard deletes.** Influencers are archived, not deleted; foreign keys are `RESTRICT`.
-- **Message button.** Pick a template, fill `{name} {handle} {platform} {sender} {product}`,
+- **Message button.** Pick a template, fill `{name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link} {amazon_link}`,
   and the app copies the text and opens `https://ig.me/m/<handle>` for Instagram or the
   profile page for TikTok and YouTube. Nothing is sent automatically. It logs a `Message` and
   an `Activity`, and moves the status to `contacted` only from `discovered`, `scored`,
@@ -281,8 +292,9 @@ back in the order they appear in the file.
   archived, `blacklisted` or `unsubscribed` show "Do not contact" instead of the button.
   Admins manage the list at `/admin/suppression`; blacklisting someone in the review queue
   adds them automatically. Additions and removals are logged with a reason.
-- **Roles.** Admins can run discovery and AI scoring and open the Admin screens (templates,
-  do-not-contact list, users, sample data). Marketers can do everything else, including
+- **Roles.** Admins can run discovery and AI scoring and open the Admin screens (message
+  templates, do-not-contact list, users, products, scoring calibration, tidy up, sample data)
+  and change the scoring prompt in Settings. Marketers can do everything else, including
   reviewing creators. There is no self sign-up: an admin creates users, who get a temporary
   password and must change it at first sign-in.
 
@@ -331,12 +343,13 @@ no calling code changes.
 | `meta_free` | `adapters/meta-free.ts` | Instagram hashtag chain. Implemented; see the caveat below. |
 | `vendor` | `adapters/vendor.ts` | Stub. Throws `NotImplementedError`. |
 
-`CREATOR_SOURCE` sets the default used by "Add influencer" (`enrichProfile`). "Run discovery"
+`CREATOR_SOURCE` sets the default used by "Add creator" (`enrichProfile`). "Run discovery"
 lets the admin pick the source per run. The CSV import page always reads the uploaded file.
 
 Sources with quotas also implement an optional `discover(brief)`, which returns the candidates
 together with how the run ended (completed, quota reached, not configured, failed).
-`fetchCandidates` is unchanged.
+`fetchCandidates` is unchanged. YouTube and Instagram also implement `discoverStep(brief, cursor)`,
+the resumable form the discovery slices call (see "Long jobs run in slices" in Phase 2).
 
 To implement a stub, replace the two methods in its file, read any API key from
 `process.env` inside that file only, and return `fetchedAt: new Date()` so the profile
@@ -384,12 +397,12 @@ How the work used to go by hand, and where each step now lives:
 | Check the sheet to see if someone already contacted this person. | **Add or check a creator** (`/influencers/new`): paste the profile link, or click the bookmark on the profile itself, and the portal says whether anyone here knows them, in which campaigns, with what outcome, and whether they ever took a gift without posting. |
 | Send the first message; note it in the sheet. | **Message** button: pick a template, the text is copied and the DM window opened; the portal logs it and moves the creator to Contacted. Follow-ups come due by themselves. |
 | Send the product list; the creator picks; note the address. | **Selection link** in the message: the creator picks from live, in-stock products with photos and enters their address; the gift order is approved by the rules or waits for a person. |
-| Place the MCF order on Amazon and copy the details across. | **Gift orders > Amazon order file**: one file per brand with every approved order, uploaded to Seller Central as it is. |
+| Place the MCF order on Amazon and copy the details across. | **Gifts > Amazon file**: one file per brand with every approved order, uploaded to Seller Central as it is (or **Send to Amazon** per gift once the brand's SP-API keys are set; Phase 3I). |
 | Find the tracking number, search the carrier site, update the sheet. | Upload Amazon's **Fulfilled Shipments report** under "Update tracking in bulk" (or paste rows): order numbers and tracking fill in for every order at once. Each order has **Track parcel** and **Mark delivered today**. The work queue lists "Deliveries to check". |
 | Follow up for content; most creators never post. | The content clock starts at delivery: reminder due, then overdue, in the work queue. After the campaign's grace period the creator is closed as **No content delivered** by itself, which shows as a warning on their page, in the review queue and on the check screen the next time anyone considers them. |
 | Keep the whole record in Excel. | Every campaign has **Export CSV**; the dashboard shows gifts versus content for the brand. |
 
-The bookmark and the selection links only work for the team from their own computers once the portal is online (see "Deploying to Vercel").
+The bookmark and the selection links only work for the team from their own computers once the portal is online (see "Deploying to Netlify").
 
 ## The automated journey
 
@@ -401,7 +414,7 @@ Every open creator always has a **next action** with a date (`src/lib/next-actio
 | Outreach | After the campaign's wait with no reply, the creator becomes "Follow-up due"; after the last follow-up and another wait, "No reply". | Clicks Message (DMs cannot be sent by a tool). |
 | Reply | Status, collaboration type and next step follow from the reply class. | Picks what the creator said. |
 | Product | The creator opens their private link (`/select/<token>`), picks from in-stock giftable products of the brand, best-stocked first, and enters their address. | Nothing. |
-| Approval | Approved automatically when it is a US address, one item, no other gift in 90 days, and no unapproved fee. | Approves only the exceptions. |
+| Approval | Approved automatically when it is a US address, one item, a product of $100 or less, no other gift in 90 days, and no unapproved fee (`config/gift-rules.json`). | Approves only the exceptions. |
 | Order | Approved orders are collected into one Amazon bulk file. | Uploads the file to Seller Central. |
 | Shipping | Order number, tracking and delivery date move the creator on. | Pastes Amazon's tracking rows in bulk. |
 | Content | The content clock starts at the **delivery** date: reminder due, then overdue. After the campaign's grace period (30 days by default) with still nothing, the creator is closed as "No content delivered". | Sends the reminder; records the post. |
@@ -409,17 +422,18 @@ Every open creator always has a **next action** with a date (`src/lib/next-actio
 What the automation may and may not do:
 
 - It only changes a status on a timer (Contacted to Follow-up due, Contacted to No reply,
-  Content expected to No content delivered) or when a creator acts (product chosen). It never
-  contacts anyone and never approves a creator.
+  Content expected to No content delivered) or when a creator or Amazon acts (product chosen,
+  files sent through the upload link, Amazon's shipping and delivery for one-click orders). It
+  never contacts anyone and never approves a creator.
 - Every automatic change is logged with `automated = true` under a built-in "Automation"
   account that cannot sign in, so a manager can tell it from a person's action.
 - Creators imported without a "last contacted" date are never timed out: the portal does not
   guess when they were messaged.
-- Waiting periods are per campaign (admin, "Automation settings" on the campaign page).
+- Waiting periods are per campaign (on Settings, or on the campaign's Settings tab for admins).
 
-It runs once a day through Vercel Cron (`vercel.json` calls `/api/cron/automations`, guarded by
-`CRON_SECRET`), whenever someone opens Today and it has not run for six
-hours, and on "Refresh now".
+It runs once a day through a Netlify scheduled function (`netlify/functions/daily-automations.mts`
+calls `/api/cron/automations`, guarded by `CRON_SECRET`), whenever someone opens Home (`/today`)
+and it has not run for six hours, and on "Refresh" on Home.
 
 **Products.** Admin > Products holds both brands' catalogues, matched on SKU. Three kinds of
 file can be uploaded there:
@@ -456,7 +470,7 @@ then size; where several listings share all three (plain, ruffled and scalloped 
 cover), the creator picks between them, so none is ever chosen for them. Photos are the
 listing photos on Amazon's image server, requested at thumbnail size.
 
-**Amazon orders.** Gift orders > "Amazon order file" lists every approved order of one brand
+**Amazon orders.** Gifts > "Amazon file" lists every approved order of one brand not yet placed
 with our reference (`CGE-...`) as the order id. There is one file per brand
 (`/orders/export?brand=<id>`) because each brand ships from its own Amazon account; a file
 never mixes the two. The column names follow Amazon's Multi-Channel
@@ -470,9 +484,9 @@ posted). Those orders carry the line "Address not recorded" instead of an addres
 tracking number: the sheet had neither. "Mark delivered today" or the Amazon Fulfilled
 Shipments report completes them. The note on each creator says which sheet the gift came from.
 
-**Not built yet:** sending email, reading replies automatically, AI reply sorting, Shopify
-sync, carrier tracking feeds, comment queues, sales attribution and ROI, repeat-collaboration
-scoring.
+**Not built yet:** sending email to creators, reading replies automatically (they are pasted in;
+see Phase 3E), Shopify sync, comment queues and ROI. AI reply sorting, sales attribution, Amazon's
+own tracking and repeat collaborations came later: see Phases 3E, 3H, 3I and 3J.
 
 ## Phase 2: discovery and scoring with real keys, targets, reports, phones
 
@@ -518,8 +532,8 @@ Monday email adds "vs target" per person and the week's scoring cost. One module
 figure (`src/lib/outreach-stats.ts`): reply rate is replies divided by the distinct creators the
 person messaged, everywhere.
 
-**Phones.** Below 768px the sidebar becomes a bar along the bottom (Today, Creators, Campaigns,
-Gifts, More) with Import, Reports, Settings, Admin and the profile in the More drawer; Today and
+**Phones.** Below 768px the sidebar becomes a bar along the bottom (Home, Creators, Pipeline,
+Gifts, More) with Content, Reports, Import, Settings, Admin and the profile in the More drawer; Today and
 the check screen show cards instead of table rows; buttons and fields are thumb-sized; the Message
 and profile dialogs fill the screen. Bookmarklets cannot be dragged to a bar on a phone, so Today
 has a "Check a profile" box to paste a link into, and the portal is installable: on Android
@@ -535,7 +549,7 @@ One period at a time: this or last week, month or quarter, or custom dates, per 
 campaign. Figures count what happened inside the period (creators added, messages, replies,
 contacted, agreed, gifts chosen, shipped, delivered, content posted, completed, no content, and
 the content rate), each beside the same figure for the period just before, plus a week-by-week or
-month-by-month table. "Attributed orders" is a placeholder until the Amazon Attribution import.
+month-by-month table. Amazon orders, sales and link clicks come from the imported Attribution reports (Phase 3H).
 Definitions live in `src/lib/performance-stats.ts`; period boundaries follow `APP_TIME_ZONE`.
 
 **Creator ranking** (Creators > Ranking, `/influencers/ranking`). Every creator in view sorted by
@@ -544,7 +558,7 @@ collaboration or newest added (the added date shows under the last collaboration
 switch (`dir=asc`) for oldest or fewest first; filters for worked-with-before, US based, Amazon
 tier, minimum followers and a search. Amazon Creator Connections creators carry their tier and average monthly sales as fields
 (`Influencer.amazonTier`, `amazonMonthlyGmvUsd`, `amazonGmvDetail`), filled from the imported
-notes; attributed sales from Amazon Attribution join the table in Phase 3B.
+notes; attributed sales from Amazon Attribution joined the table in Phase 3H (the sort "Most sales from our links").
 
 **After delivery.** Once a gift is marked delivered, Today asks for four touches in order, each
 with its own approved template preselected in the Message dialog and each waiting until a message
@@ -604,7 +618,7 @@ workspace"). Nothing in the data model changed; every page keeps its data and ac
   period table, and "Email to my manager", which opens the mail app with the figures.
 - **Second pass, same day, to match the mockups exactly.** Nav words are Home, Creators,
   Pipeline (the campaigns list and boards), Gifts, Content (`/content`, every recorded
-  post; the file library comes in Phase C), Reports, then Settings and Admin; Import moved
+  post; the file library came in Phase 3G), Reports, then Settings and Admin; Import moved
   to the Creators header and the Admin tabs. Home has "Check a profile" (a dialog),
   "Add creator" and "New message" (a creator picker, `src/actions/find-creators.ts`,
   that opens the composer), a flat task list with checkboxes and a copy action
@@ -750,7 +764,8 @@ Ctrl-click still opens the profile page.
 - Numbers per post: `PostNumbersForm` on the profile's Content tab logs views, likes,
   comments, shares, clicks and sales as a new `Metric` reading (`clicks` and
   `salesUsd` are new columns); the card and Reports use the latest. These are typed in
-  from the creator's screenshots or Amazon Attribution until those reports are imported.
+  from the creator's screenshots; where Amazon Attribution reports have been imported
+  (Phase 3H), Amazon's numbers take over campaign by campaign.
 - `Influencer.affiliateQuote` (new column) is the creator's own quote, editable under
   Edit on the profile and shown on the About card and the creator card.
 - The ranking's Record column became "Rachna says", her grade per creator, with the
@@ -979,8 +994,9 @@ stats. Requirements: a Meta app approved for "Instagram Public Content Access",
 
 - **Caveat.** Since 3 November 2025 Meta's oEmbed response no longer contains
   `author_name`. The adapter reads it when present and otherwise looks for the handle in the
-  embed HTML. Posts whose author cannot be read are counted as skipped and the run note says
-  so. This adapter has only been tested against recorded example responses, not live.
+  embed HTML. Posts whose author cannot be read wait in the review queue under "Posts that
+  need a handle" (see Phase 2), and the run note says how many. This adapter has only been
+  tested against recorded example responses, not live.
 - An account that is not a professional (business or creator) account is recorded without
   stats and marked "Not a professional account".
 - An expired token is reported as a failed run with a note, not a crash.
@@ -1007,8 +1023,9 @@ every creator in the campaign who is `discovered` and has no assessment yet.
   profile the platform, followers, engagement rate, country, last post date, website, bio and
   recent captions, plus the location on file and whether an email exists. Names, handles and
   email addresses are not sent; addresses inside a bio are replaced with `[email]`.
-- **Weights:** relevance 30, US audience or location 20, engagement 15, content quality 15,
-  contact availability 10, brand safety 10.
+- **Weights:** by default relevance 30, US audience or location 20, engagement 15, content
+  quality 15, contact availability 10, brand safety 10; each brand can change them, with the
+  prompt, under Settings > AI scoring prompt (see Phase 2).
 - **Output:** strict JSON `{score, usSignal, reasons[]}`, validated before saving. The reasons
   are stored verbatim in `FitAssessment` with the model and prompt version.
 - **Email status** (`found` / `not_found`) is set by the app, never by the model: found means
@@ -1016,13 +1033,15 @@ every creator in the campaign who is `discovered` and has no assessment yet.
 - **Rules:** every scored creator moves from `discovered` to `scored`. A score of 75 or more
   also sets `priorityReview`. A score under 40 is shown with a "Low fit" tag. The job never
   sets any status past `scored` and never approves anyone.
-- **How it runs:** 12 creators per batch, 3 at a time; the SDK retries rate limits and server
-  errors with backoff; an invalid answer is asked for once more. A creator that still fails
-  stays `discovered`.
-- **Usage:** each run is a `ScoringRun` with creators scored, failures, requests and input and
-  output tokens. Multiply the tokens by Anthropic's current prices for the cost.
-- **Model:** `ANTHROPIC_MODEL`, default `claude-opus-5-5`. Change `PROMPT_VERSION` in
-  `src/lib/scoring.ts` whenever the prompt changes.
+- **How it runs:** in slices of 3 creators, all 3 at once, so each slice fits Netlify's 10-second
+  limit (see "Long jobs run in slices"); the SDK retries rate limits and server errors with
+  backoff; an invalid answer is asked for once more. A creator that still fails stays
+  `discovered`.
+- **Usage:** each run is a `ScoringRun` with creators scored, failures, requests, input and
+  output tokens, and an estimated cost from `src/lib/model-prices.ts`.
+- **Model:** `ANTHROPIC_MODEL`, default `claude-opus-5-5`. Each run records the prompt version
+  it used: the brand's active prompt saved in Settings ("ridhi:v3"), or "fit-v1" for the
+  built-in one (`src/lib/scoring-prompts.ts`).
 
 ### Review queue
 
@@ -1037,14 +1056,19 @@ filters.
 ## Project layout
 
 ```
-prisma/            schema, migration, seed
+prisma/            schema, migrations, seed
+config/            gift-rules.json (the auto-approval rules)
+netlify/functions/ the scheduled functions (daily run, job tick, weekly summary)
+scripts/           server-side scripts run by hand (see "Scripts")
+tests/             guard tests and the brand-isolation test
+public/            app icons, the install manifest, the service worker, Rachna's art
 src/auth.ts        Auth.js with the credentials provider
 src/auth.config.ts edge-safe half of the config, used by the middleware
 src/middleware.ts  redirects signed-out visitors to /login
 src/actions/       Server Actions (all mutations)
-src/app/           routes: login, campaigns, influencers, import
-src/components/    screens' components; ui/ holds shadcn/ui
-src/lib/           status rules, URL parsing, templates, CSV parsing, activity log
+src/app/           routes: the signed-in portal under (app), login, the legal pages, the public selection and upload pages, and the scheduler endpoints under api/cron
+src/components/    screens' components; ui/ holds shadcn/ui, rachna/ holds the guide
+src/lib/           the rules behind every screen: statuses, the journey, gifts, brands, imports, reports, Amazon
 src/lib/fetching/  the creator-fetching interface and its adapters
 src/lib/discovery.ts, scoring.ts, review-queue.ts, hashtag-quota.ts   Phase 1 logic
 ```

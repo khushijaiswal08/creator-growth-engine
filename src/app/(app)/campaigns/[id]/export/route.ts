@@ -1,6 +1,7 @@
 import { allowed } from "@/lib/brand-scope";
-import { csvCell, csvResponse, fileSlug } from "@/lib/csv-out";
+import { csvLine, csvResponse, fileSlug } from "@/lib/csv-out";
 import { db } from "@/lib/db";
+import { isoDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS } from "@/lib/gifts";
 import { profileUrl } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
@@ -83,9 +84,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         latest_post: creator.posts[0]?.url ?? null,
         notes: creator.influencer.notes,
       };
-      lines.push(COLUMNS.map((column) => csvCell(row[column])).join(","));
+      lines.push(csvLine(COLUMNS.map((column) => row[column])));
     }
   }
 
-  return csvResponse(lines, `${fileSlug(campaign.name)}-${new Date().toISOString().slice(0, 10)}.csv`);
+  return csvResponse(lines, `${fileSlug(campaign.name)}-${isoDay(new Date())}.csv`);
 }

@@ -13,13 +13,11 @@
  * Passwords are stored as one-way hashes: the old one cannot be read back by
  * anyone, which is why this resets rather than reveals.
  */
-import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-
-const TEMP_PASSWORD_TTL_MS = 24 * 60 * 60 * 1000;
+import { temporaryPassword, temporaryPasswordExpiry } from "../src/lib/temporary-password";
 
 const db = new PrismaClient();
 
@@ -36,10 +34,10 @@ async function main() {
   const user = await db.user.findUnique({ where: { email }, select: { id: true, name: true, isSystem: true } });
   if (!user || user.isSystem) throw new Error(`No user with the email ${email}.`);
 
-  const password = randomBytes(9).toString("base64url");
+  const password = temporaryPassword();
   const passwordHash = await bcrypt.hash(password, 12);
   if (!(await bcrypt.compare(password, passwordHash))) throw new Error("The new password did not verify; nothing was changed.");
-  const expiresAt = new Date(Date.now() + TEMP_PASSWORD_TTL_MS);
+  const expiresAt = temporaryPasswordExpiry();
   const timeZone = process.env.APP_TIME_ZONE?.trim() || "UTC";
   // Worked out before anything is changed, so nothing after the reset can fail and hide the new password.
   const expires = `${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone }).format(expiresAt)} (${timeZone} time)`;

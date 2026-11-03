@@ -10,7 +10,9 @@ import { CreatorName } from "@/components/creator-card";
 import { MessageButton } from "@/components/message-button";
 import { CreatorStatusPill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
-import { formatCount, formatDay } from "@/lib/format";
+import { reachLabel } from "@/lib/channels";
+import { toggled } from "@/lib/form";
+import { daysLateText, formatCount, formatDay } from "@/lib/format";
 import { WARMTH_LABELS, type Warmth } from "@/lib/reply-reader";
 
 export type TaskRow = {
@@ -64,15 +66,6 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
   const chosen = rows.filter((row) => selected.has(row.id));
   const selecting = selected.size > 0;
 
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
   async function copyHandles() {
     const text = chosen.map((row) => `${row.name}\t${row.handle ?? ""}\t${row.nextAction}`).join("\n");
     try {
@@ -118,7 +111,7 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
             ) : null}
             <span className="inline-flex items-center gap-1">
               <Clock className="size-3.5" strokeWidth={2.3} />
-              {row.lateDays === 0 ? "Due today" : row.lateDays === 1 ? "1 day late" : `${row.lateDays} days late`}
+              {row.lateDays === 0 ? "Due today" : daysLateText(row.lateDays)}
             </span>
           </span>
         );
@@ -140,14 +133,14 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
                   type="checkbox"
                   aria-label={`Select ${row.name}`}
                   checked={ticked}
-                  onChange={() => toggle(row.id)}
+                  onChange={() => setSelected((current) => toggled(current, row.id))}
                   className={cn("absolute inset-0 m-auto size-[18px] cursor-pointer accent-[var(--primary)] transition-opacity", selecting || ticked ? "opacity-100" : "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100")}
                 />
               </label>
               <div className="min-w-0">
                 <CreatorName id={row.influencerId} name={row.name} className="text-[14.5px] font-bold text-foreground hover:text-primary" />
                 <div className="truncate text-[12.5px] font-medium text-muted-foreground">
-                  {row.handle ?? (row.amazonCreator ? "Amazon Creator Connections" : (row.email ?? "No profile"))}
+                  {reachLabel(row)}
                   {row.followers !== null ? ` · ${formatCount(row.followers)}` : ""}
                 </div>
                 {/* A narrow card: stage, step and lateness under the name. */}

@@ -1,14 +1,16 @@
-import { Prisma, type CampaignStatus, type CreatorStatus, type Platform } from "@prisma/client";
+import type { CampaignStatus, CreatorStatus, Platform } from "@prisma/client";
 import { logActivity } from "@/lib/activity";
 import { attributionByInfluencer } from "@/lib/amazon-stats";
 import { refreshNextAction } from "@/lib/automation";
 import { withinBrand, type BrandScope } from "@/lib/brand-scope";
-import { contentCount, contentRate, gradeCreator } from "@/lib/creator-card";
-import { db } from "@/lib/db";
+import { contentCount, contentRate, gradeFromRecord } from "@/lib/creator-card";
+import { db, isUniqueViolation } from "@/lib/db";
+import { DAY_MS, latestDate } from "@/lib/format";
 import { REPEAT_GIFT_DAYS } from "@/lib/gifts";
+import { topFollowers } from "@/lib/profile-url";
 import { CREATOR_STATUS_LABELS, SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
-import { trackRecordFor } from "@/lib/track-record";
+import { LATEST_POST_AND_GIFT, trackRecordFor } from "@/lib/track-record";
 
 /**
  * The Invite back list: creators who already delivered content for us and
@@ -37,8 +39,6 @@ const BUSY_STATUSES: ReadonlySet<CreatorStatus> = new Set([
   "product_shipped",
   "content_expected",
 ]);
-
-const DAY = 24 * 60 * 60 * 1000;
 
 export type InviteBackRow = {
   id: string;
@@ -94,8 +94,7 @@ export async function inviteBackList(viewer: BrandScope, campaign: { id: string;
           campaignId: true,
           status: true,
           campaign: { select: { name: true } },
-          posts: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
-          giftOrders: { where: { status: { not: "cancelled" } }, select: { shippedAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 },
+          ...LATEST_POST_AND_GIFT,
         },
       },
     },
@@ -128,18 +127,18 @@ export async function inviteBackList(viewer: BrandScope, campaign: { id: string;
   const rows: InviteBackRow[] = [];
   for (const row of influencers) {
     const record = records.get(row.id);
-    const followers = Math.max(0, ...row.profiles.map((profile) => profile.followers ?? 0));
-    const lastPost = row.campaigns.flatMap((link) => link.posts.map((post) => post.createdAt)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-    const lastGift = row.campaigns.flatMap((link) => link.giftOrders.map((gift) => gift.shippedAt ?? gift.createdAt)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+    const followers = topFollowers(row.profiles);
+    const lastPost = latestDate(row.campaigns.flatMap((link) => link.posts.map((post) => post.createdAt)));
+    const lastGift = latestDate(row.campaigns.flatMap((link) => link.giftOrders.map((gift) => gift.shippedAt ?? gift.createdAt)));
     const stats = { posts: record?.posts ?? 0, delivered: record?.delivered ?? 0, noContent: record?.noContent ?? 0 };
-    const grade = gradeCreator({ firstName: "", gifts: record?.gifts ?? 0, giftValueUsd: 0, ...stats, pending: record?.pending ?? 0, reach: 0, engagements: 0, clicks: 0, salesUsd: 0, followers, fitScore: null, lastGiftAt: lastGift, lastPostAt: lastPost, amazonTier: row.amazonTier });
+    const grade = gradeFromRecord(record, { followers, lastGiftAt: lastGift, amazonTier: row.amazonTier });
     if (grade !== "star" && grade !== "good") continue;
 
     const suppressed = suppressions.reasonFor({ email: row.email, profiles: row.profiles });
     const busy = row.campaigns.find((link) => link.campaignId !== campaignId && BUSY_STATUSES.has(link.status));
     const here = campaignId ? row.campaigns.find((link) => link.campaignId === campaignId) : undefined;
     const lastAnyBrand = lastGiftAnyBrand.get(row.id) ?? null;
-    const giftAgain = lastAnyBrand ? new Date(lastAnyBrand.getTime() + REPEAT_GIFT_DAYS * DAY) : null;
+    const giftAgain = lastAnyBrand ? new Date(lastAnyBrand.getTime() + REPEAT_GIFT_DAYS * DAY_MS) : null;
     const blocked = suppressed ? `On the do-not-contact list: ${suppressed}` : blockedIds.has(row.id) ? "Do not contact." : null;
     rows.push({
       id: row.id,
@@ -154,7 +153,7 @@ export async function inviteBackList(viewer: BrandScope, campaign: { id: string;
       gifts: record?.gifts ?? 0,
       linkOrders: fromLinks.get(row.id)?.purchases ?? 0,
       linkSales: fromLinks.get(row.id)?.productSales ?? 0,
-      lastCollaboration: [lastPost, lastGift].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+      lastCollaboration: latestDate([lastPost, lastGift]),
       giftAgainFrom: giftAgain && giftAgain > now ? giftAgain : null,
       blocked,
       busyIn: busy ? `${busy.campaign.name} (${CREATOR_STATUS_LABELS[busy.status]})` : null,
@@ -225,7 +224,7 @@ export async function inviteBack(input: { campaignId: string; influencerIds: str
       created.push(link.id);
     } catch (error) {
       // Someone added them a moment ago.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") skipped.push({ name: row.name, reason: "already in this campaign" });
+      if (isUniqueViolation(error)) skipped.push({ name: row.name, reason: "already in this campaign" });
       else throw error;
     }
   }

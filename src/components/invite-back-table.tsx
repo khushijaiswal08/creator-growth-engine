@@ -7,11 +7,13 @@ import { useState, useTransition } from "react";
 import { inviteBackToCampaign } from "@/actions/invite-back";
 import { Avatar } from "@/components/avatar";
 import { CreatorName } from "@/components/creator-card";
+import { NoticeText, type Notice } from "@/components/notice-text";
 import { ProfileLinks } from "@/components/profile-links";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { GRADES } from "@/lib/creator-card";
-import { formatCount, formatShortDay } from "@/lib/format";
+import { toggled } from "@/lib/form";
+import { formatCount, formatDollars, formatShortDay } from "@/lib/format";
 import type { InviteBackRow } from "@/lib/invite-back";
 
 /**
@@ -22,18 +24,9 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, startTransition] = useTransition();
-  const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const open = rows.filter((row) => row.invitable);
   const chosen = open.filter((row) => selected.has(row.id));
-
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   function invite() {
     if (!campaign || chosen.length === 0) return;
@@ -77,11 +70,7 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
             {rows.length} proven {rows.length === 1 ? "creator" : "creators"} · {open.length} can be invited
           </span>
         )}
-        {notice ? (
-          <span role={notice.refused ? "alert" : "status"} className={cn("text-xs", notice.refused ? "font-semibold text-danger-text" : "text-success-text")}>
-            {notice.text}
-          </span>
-        ) : null}
+        {notice ? <NoticeText notice={notice} className="text-xs" /> : null}
       </div>
 
       <div className="overflow-x-auto">
@@ -118,7 +107,7 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
                 return (
                   <tr key={row.id} className={cn("border-t border-[#f1f3f6]", selected.has(row.id) && can && "bg-primary-faint", !can && "text-muted-foreground")}>
                     <td className="py-3.5 pr-1 pl-5">
-                      <input type="checkbox" aria-label={`Select ${row.name}`} disabled={!can} checked={can && selected.has(row.id)} onChange={() => toggle(row.id)} />
+                      <input type="checkbox" aria-label={`Select ${row.name}`} disabled={!can} checked={can && selected.has(row.id)} onChange={() => setSelected((current) => toggled(current, row.id))} />
                     </td>
                     <td className="px-3 py-3.5">
                       <div className="flex items-center gap-3">
@@ -128,7 +117,7 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
                           <ProfileLinks profiles={row.profiles} inline />
                           {row.linkOrders > 0 || row.linkSales > 0 ? (
                             <div className="text-xs font-semibold text-primary-text">
-                              Our links: {row.linkOrders} {row.linkOrders === 1 ? "order" : "orders"} · ${Math.round(row.linkSales).toLocaleString("en-US")}
+                              Our links: {row.linkOrders} {row.linkOrders === 1 ? "order" : "orders"} · {formatDollars(row.linkSales)}
                             </div>
                           ) : null}
                         </div>

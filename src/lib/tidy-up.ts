@@ -5,8 +5,8 @@ import type { BrandScope } from "@/lib/brand-scope";
 import { CSV_IMPORT_MARK, IMPORTED_NOTE } from "@/lib/creator-import";
 import { db } from "@/lib/db";
 import { openCampaignIn } from "@/lib/due";
-import { formatDay } from "@/lib/format";
-import { nextActionFor } from "@/lib/next-action";
+import { DAY_MS, formatDay, latestDate } from "@/lib/format";
+import { CAMPAIGN_TIMINGS_SELECT, nextActionFor } from "@/lib/next-action";
 import { CREATOR_STATUS_LABELS } from "@/lib/status";
 import { ASSUMED_DELIVERY_DAYS, MIN_LINK_AGE_DAYS, TIDY_ACTIONS, TIDY_CHUNK, TIDY_DAYS, TIDY_GROUPS, TIDY_NOTE, type TidyAction, type TidyGroupKey } from "@/lib/tidy-up-rules";
 
@@ -22,23 +22,11 @@ import { ASSUMED_DELIVERY_DAYS, MIN_LINK_AGE_DAYS, TIDY_ACTIONS, TIDY_CHUNK, TID
  * nothing is sent. Each call keeps to a time budget and says what is left.
  */
 
-const DAY = 24 * 60 * 60 * 1000;
 /** Server calls stop starting new work after this long; the page sends the rest again. */
 const BUDGET_MS = 5_000;
 /** Lines the import writes (also under the importing person's name); they say when a row was loaded, not that anyone worked on it. */
 const IMPORT_KINDS = ["csv_import", "influencer_created", "influencer_updated", "profile_added"];
 const NOT_A_TOUCH: Prisma.ActivityWhereInput[] = [{ body: { startsWith: TIDY_NOTE } }, { body: { startsWith: IMPORTED_NOTE } }, { body: { contains: CSV_IMPORT_MARK } }];
-const TIMINGS = {
-  followUpAfterDays: true,
-  maxFollowUps: true,
-  closeAfterDays: true,
-  arrivalCheckDays: true,
-  selectionWaitDays: true,
-  deliveryWaitDays: true,
-  contentReminderDays: true,
-  contentDueDays: true,
-  noContentAfterDays: true,
-} as const;
 /** What the next step and Undo need to know about a creator. */
 const CREATOR_FIELDS = {
   id: true,
@@ -52,14 +40,13 @@ const CREATOR_FIELDS = {
   followUpsSent: true,
   selectionSentAt: true,
   reengageAfter: true,
-  campaign: { select: TIMINGS },
+  campaign: { select: CAMPAIGN_TIMINGS_SELECT },
 } as const;
 
-export type TidyRow = { id: string; name: string; campaign: string; status: CreatorStatus; lastTouch: Date | null; giftIds: string[] };
+type TidyRow = { id: string; name: string; campaign: string; status: CreatorStatus; lastTouch: Date | null; giftIds: string[] };
 type GiftWritten = { id: string; deliveredAt: string; trackingStatus: string | null };
 
 const groupOf = (status: CreatorStatus) => TIDY_GROUPS.find((group) => group.statuses.includes(status)) ?? null;
-const latest = (...dates: (Date | null | undefined)[]) => dates.filter((date): date is Date => Boolean(date)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
 /**
  * The last time someone worked on each creator: a message logged, a reply
@@ -89,7 +76,7 @@ async function lastTouches(links: { id: string; lastContactedAt: Date | null; re
   ]);
   const sent = new Map(messages.map((row) => [row.campaignCreatorId, row._max.sentAt]));
   const acted = new Map(activity.map((row) => [row.campaignCreatorId, row._max.createdAt]));
-  return new Map(links.map((link) => [link.id, latest(link.lastContactedAt, link.repliedAt, sent.get(link.id), acted.get(link.id))]));
+  return new Map(links.map((link) => [link.id, latestDate([link.lastContactedAt, link.repliedAt, sent.get(link.id), acted.get(link.id)])]));
 }
 
 /**
@@ -101,14 +88,14 @@ async function lastTouches(links: { id: string; lastContactedAt: Date | null; re
  * the person saw.
  */
 export async function tidyCandidates(scope: BrandScope, days: number, now = new Date(), onlyIds?: string[]): Promise<Map<TidyGroupKey, TidyRow[]>> {
-  const cutoff = new Date(now.getTime() - days * DAY);
+  const cutoff = new Date(now.getTime() - days * DAY_MS);
   const links = await db.campaignCreator.findMany({
     where: {
       status: { in: TIDY_GROUPS.flatMap((group) => group.statuses) },
       campaign: openCampaignIn(scope),
       influencer: { archived: false },
       nextActionDueAt: { lte: now },
-      createdAt: { lt: new Date(now.getTime() - MIN_LINK_AGE_DAYS * DAY) },
+      createdAt: { lt: new Date(now.getTime() - MIN_LINK_AGE_DAYS * DAY_MS) },
       ...(onlyIds ? { id: { in: onlyIds } } : {}),
     },
     select: {
@@ -191,7 +178,7 @@ export async function applyTidyChunk(
         const written: GiftWritten[] = [];
         for (const gift of gifts) {
           if (!gift.shippedAt) continue;
-          const deliveredAt = new Date(Math.min(gift.shippedAt.getTime() + ASSUMED_DELIVERY_DAYS * DAY, now.getTime()));
+          const deliveredAt = new Date(Math.min(gift.shippedAt.getTime() + ASSUMED_DELIVERY_DAYS * DAY_MS, now.getTime()));
           const updated = await tx.giftOrder.updateMany({ where: { id: gift.id, status: "shipped", trackingNumber: null }, data: { status: "delivered", deliveredAt, trackingStatus: "Delivered" } });
           if (updated.count === 1) written.push({ id: gift.id, deliveredAt: deliveredAt.toISOString(), trackingStatus: gift.trackingStatus });
         }
@@ -201,7 +188,7 @@ export async function applyTidyChunk(
         // the campaign's full no-content wait to chase it.
         const newest = await tx.giftOrder.findFirst({ where: { campaignCreatorId: row.id, status: { not: "cancelled" } }, orderBy: { createdAt: "desc" }, select: { status: true, shippedAt: true, deliveredAt: true } });
         const deliveredAt = newest?.deliveredAt ?? new Date(written[0].deliveredAt);
-        const contentDueAt = new Date(Math.max(deliveredAt.getTime() + creator.campaign.contentDueDays * DAY, now.getTime()));
+        const contentDueAt = new Date(Math.max(deliveredAt.getTime() + creator.campaign.contentDueDays * DAY_MS, now.getTime()));
         const next = nextActionFor({ ...creator, status: "content_expected", contentDueAt, gift: newest }, creator.campaign, now);
         await tx.campaignCreator.update({ where: { id: row.id }, data: { status: "content_expected", contentDueAt, nextAction: next.action, nextActionDueAt: next.dueAt, waitingOn: next.waitingOn } });
         await tx.tidyChange.create({
@@ -361,6 +348,8 @@ const DONE_WORDS: Record<TidyGroupKey, string> = {
   parcels: "parcels marked delivered",
   posted: "posts marked completed",
 };
+/** A group's place in the order the page shows the groups. */
+const groupOrder = (group: string) => TIDY_GROUPS.findIndex((entry) => entry.key === group);
 
 export type TidyHistoryEntry = { id: string; createdAt: Date; by: string; days: number; changes: number; undone: boolean; summary: string };
 
@@ -370,9 +359,7 @@ export async function tidyHistory(limit = 6): Promise<TidyHistoryEntry[]> {
   if (runs.length === 0) return [];
   const counts = await db.tidyChange.groupBy({ by: ["tidyUpId", "group", "toStatus"], where: { tidyUpId: { in: runs.map((run) => run.id) } }, _count: true });
   return runs.map((run) => {
-    // In the order the page shows the groups.
-    const order = (group: string) => TIDY_GROUPS.findIndex((entry) => entry.key === group);
-    const mine = counts.filter((row) => row.tidyUpId === run.id).sort((a, b) => order(a.group) - order(b.group) || a.toStatus.localeCompare(b.toStatus));
+    const mine = counts.filter((row) => row.tidyUpId === run.id).sort((a, b) => groupOrder(a.group) - groupOrder(b.group) || a.toStatus.localeCompare(b.toStatus));
     const summary = mine
       .map((row) => (row.group === "followups" ? `${row._count} follow-ups ${row.toStatus === "no_reply" ? "closed" : "parked"}` : `${row._count} ${DONE_WORDS[row.group as TidyGroupKey] ?? row.group}`))
       .join(" · ");

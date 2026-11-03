@@ -1,4 +1,4 @@
-import type { CampaignStatus, CreatorStatus } from "@prisma/client";
+import type { CampaignStatus, ContentStatus, CreatorStatus, UsageRights, UsSignal } from "@prisma/client";
 
 // Keyed by the Prisma enum so a new status fails the type check until it is labelled here.
 export const CREATOR_STATUS_LABELS: Record<CreatorStatus, string> = {
@@ -32,6 +32,11 @@ export const CREATOR_STATUS_LABELS: Record<CreatorStatus, string> = {
 
 export const CREATOR_STATUSES = Object.keys(CREATOR_STATUS_LABELS) as CreatorStatus[];
 
+/** "Status changed from Replied to Agreed". The outreach and performance reports count moves by this wording, so it must stay exactly as it is. */
+export function statusChangeText(from: CreatorStatus, to: CreatorStatus): string {
+  return `Status changed from ${CREATOR_STATUS_LABELS[from]} to ${CREATOR_STATUS_LABELS[to]}`;
+}
+
 /** Statuses that count as "earlier than contacted": logging a message moves these to contacted. */
 export const PRE_CONTACT_STATUSES: ReadonlySet<CreatorStatus> = new Set([
   "discovered",
@@ -46,6 +51,26 @@ export const SEND_BLOCKED_STATUSES: ReadonlySet<CreatorStatus> = new Set([
   "blacklisted",
   "unsubscribed",
 ]);
+
+/** The collaboration ended with content: a post is on file or it was marked complete. */
+export const DELIVERED_STATUSES: ReadonlySet<CreatorStatus> = new Set(["content_posted", "completed"]);
+
+/** A gift is on its way or has landed, and the content is still awaited. */
+export const GIFT_IN_PROGRESS_STATUSES: ReadonlySet<CreatorStatus> = new Set(["address_collected", "product_shipped", "content_expected"]);
+
+/** Statuses that sit in the review queue waiting for a person to decide. */
+export const REVIEW_STATUSES: CreatorStatus[] = ["discovered", "scored"];
+
+/**
+ * Why the Message button is greyed out for a creator, or null when they may be
+ * messaged. Archived wins over the do-not-contact list, which wins over a
+ * closed status. The server action still enforces the rule; this only explains it.
+ */
+export function sendBlockedReason(status: CreatorStatus, suppressed: string | null, archived = false): string | null {
+  if (archived) return "This creator is archived.";
+  if (suppressed) return `On the do-not-contact list: ${suppressed}`;
+  return SEND_BLOCKED_STATUSES.has(status) ? `Marked ${CREATOR_STATUS_LABELS[status]}.` : null;
+}
 
 export function parseCreatorStatus(raw: string): CreatorStatus | null {
   const key = raw.trim().toLowerCase().replace(/[\s-]+/g, "_");
@@ -62,9 +87,13 @@ export const CAMPAIGN_STATUS_LABELS: Record<CampaignStatus, string> = {
 
 export const CAMPAIGN_STATUSES = Object.keys(CAMPAIGN_STATUS_LABELS) as CampaignStatus[];
 
-export function parseCampaignStatus(raw: string): CampaignStatus | null {
-  return raw in CAMPAIGN_STATUS_LABELS ? (raw as CampaignStatus) : null;
-}
+export const US_SIGNAL_LABELS: Record<UsSignal, string> = {
+  confirmed: "US confirmed",
+  likely: "US likely",
+  unknown: "US unknown",
+  unlikely: "US unlikely",
+};
+export const US_SIGNALS = Object.keys(US_SIGNAL_LABELS) as UsSignal[];
 
 /**
  * Visual grouping of statuses, used for chips and the Move menu. One meaning
@@ -110,6 +139,10 @@ export const CAMPAIGN_STATUS_TONES: Record<CampaignStatus, StatusTone> = {
   archived: "neutral",
 };
 
+/** The content library's chips: where a creator's file stands, and what the creator allows us to do with it. */
+export const CONTENT_STATUS_TONES: Record<ContentStatus, StatusTone> = { uploading: "warning", received: "warning", approved: "success", changes_requested: "danger" };
+export const USAGE_TONES: Record<UsageRights, StatusTone> = { paid: "success", organic: "info", none: "neutral" };
+
 /** Tinted background with darker text of the same hue. Every pair passes WCAG AA. */
 export const TONE_CLASSES: Record<StatusTone, string> = {
   neutral: "bg-surface-2 text-accent-text",
@@ -130,17 +163,6 @@ export const TONE_TEXT: Record<StatusTone, string> = {
   success: "text-success-text",
   danger: "text-danger-text",
   violet: "text-violet-text",
-};
-
-/** The small dot that stands for a tone. */
-export const TONE_DOT: Record<StatusTone, string> = {
-  neutral: "bg-input",
-  primary: "bg-primary",
-  info: "bg-info-text",
-  warning: "bg-warning-text",
-  success: "bg-success-text",
-  danger: "bg-danger-text",
-  violet: "bg-violet-text",
 };
 
 /**

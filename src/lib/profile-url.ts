@@ -8,6 +8,9 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 
 export const PLATFORMS = Object.keys(PLATFORM_LABELS) as Platform[];
 
+/** Two-letter badges for the platform, for tight table cells and chips. */
+export const PLATFORM_SHORT: Record<Platform, string> = { instagram: "IG", tiktok: "TT", youtube: "YT" };
+
 const PLATFORM_ALIASES: Record<string, Platform> = {
   instagram: "instagram",
   insta: "instagram",
@@ -23,8 +26,8 @@ export function parsePlatform(raw: string): Platform | null {
   return PLATFORM_ALIASES[raw.trim().toLowerCase()] ?? null;
 }
 
-export type ParsedProfile = { platform: Platform; handle: string };
-export type ParseResult =
+type ParsedProfile = { platform: Platform; handle: string };
+type ParseResult =
   | { ok: true; profile: ParsedProfile }
   | { ok: false; error: string };
 
@@ -149,4 +152,14 @@ export function messageUrl(platform: Platform, handle: string): string {
 
 export function displayHandle(handle: string): string {
   return handle.includes("/") ? handle : `@${handle}`;
+}
+
+/** "Instagram @maya.torres": how a profile is named in notices, messages and the activity log. */
+export function profileLabel(platform: Platform, handle: string): string {
+  return `${PLATFORM_LABELS[platform]} ${displayHandle(handle)}`;
+}
+
+/** The largest follower count across a creator's profiles; 0 when none is known. */
+export function topFollowers(profiles: readonly { followers: number | null }[]): number {
+  return Math.max(0, ...profiles.map((profile) => profile.followers ?? 0));
 }

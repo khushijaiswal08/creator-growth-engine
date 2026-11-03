@@ -23,6 +23,7 @@ export default async function AdminPage() {
     hashtagBudget(),
     db.scoringRun.findFirst({ orderBy: { startedAt: "desc" } }),
   ]);
+  const sampleRemaining = sampleCreators + sampleCampaigns;
 
   const services = [
     { name: "YouTube discovery", ready: Boolean(process.env.YOUTUBE_API_KEY?.trim()), setting: "YOUTUBE_API_KEY" },
@@ -35,6 +36,7 @@ export default async function AdminPage() {
     { name: "Content library storage (Cloudflare R2)", ready: storageMode() === "s3", setting: "CONTENT_S3_ENDPOINT, CONTENT_S3_BUCKET, CONTENT_S3_ACCESS_KEY_ID and CONTENT_S3_SECRET_ACCESS_KEY" },
     ...BRANDS.map((brand) => ({ name: `One-click Amazon orders, ${brand.name}`, ready: mcfConfigured(brand.id), setting: `SPAPI_LWA_CLIENT_ID, SPAPI_LWA_CLIENT_SECRET and SPAPI_REFRESH_TOKEN_${brand.id.toUpperCase().replace(/-/g, "_")}` })),
   ];
+  const emailReady = emailConfigured();
 
   return (
     <>
@@ -82,22 +84,22 @@ export default async function AdminPage() {
         <Panel title="Weekly summary email">
           <div className="grid gap-3 p-4">
             <p>
-              {emailConfigured()
+              {emailReady
                 ? `Every Monday, last week's messages, replies, gifts shipped and content posted go to ${process.env.SUMMARY_EMAIL_TO?.trim()}.`
                 : "Not configured: set SMTP_URL, SUMMARY_EMAIL_FROM and SUMMARY_EMAIL_TO in the server environment."}
             </p>
-            <SendSummaryButton configured={emailConfigured()} />
+            <SendSummaryButton configured={emailReady} />
           </div>
         </Panel>
 
         <Panel title="Sample data">
           <div className="grid gap-3 p-4">
             <p>
-              {sampleCreators + sampleCampaigns === 0
+              {sampleRemaining === 0
                 ? "All sample creators and campaigns are archived."
                 : `${sampleCreators} sample creators and ${sampleCampaigns} sample campaigns are still visible.`}
             </p>
-            <ArchiveSampleButton remaining={sampleCreators + sampleCampaigns} />
+            <ArchiveSampleButton remaining={sampleRemaining} />
           </div>
         </Panel>
       </div>

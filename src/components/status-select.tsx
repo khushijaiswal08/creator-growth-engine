@@ -8,6 +8,9 @@ import { useRachna } from "@/components/rachna/rachna";
 import { NativeSelect } from "@/components/native-select";
 import { CREATOR_STATUS_LABELS, CREATOR_STATUS_TONES, CREATOR_STATUSES, NEXT_STATUS_SUGGESTIONS, TONE_TEXT } from "@/lib/status";
 
+// Options open on the page background, whatever tint the closed menu has.
+const OPTION_CLASS = "bg-surface text-foreground";
+
 /**
  * The "Move to" menu. The likely next steps come first; every status is still
  * there below them. Looks like plain text with a small arrow, not a tinted box.
@@ -50,13 +53,13 @@ export function StatusSelect({
         disabled={pending}
         className={cn("h-7 w-auto max-w-48 rounded-full border-border-strong bg-transparent px-2.5 text-xs font-medium", TONE_TEXT[CREATOR_STATUS_TONES[shown]])}
       >
-        <option value={shown} className="bg-surface text-foreground">
+        <option value={shown} className={OPTION_CLASS}>
           {CREATOR_STATUS_LABELS[shown]}
         </option>
         {likely.length > 0 ? (
           <optgroup label="Move to">
             {likely.map((value) => (
-              <option key={value} value={value} className="bg-surface text-foreground">
+              <option key={value} value={value} className={OPTION_CLASS}>
                 {CREATOR_STATUS_LABELS[value]}
               </option>
             ))}
@@ -64,7 +67,7 @@ export function StatusSelect({
         ) : null}
         <optgroup label="Any status">
           {CREATOR_STATUSES.filter((value) => value !== shown && !likely.includes(value)).map((value) => (
-            <option key={value} value={value} className="bg-surface text-foreground">
+            <option key={value} value={value} className={OPTION_CLASS}>
               {CREATOR_STATUS_LABELS[value]}
             </option>
           ))}

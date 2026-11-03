@@ -6,9 +6,9 @@ import { refreshNextAction } from "@/lib/automation";
 import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS, parseCreatorStatus } from "@/lib/status";
+import { parseCreatorStatus, statusChangeText } from "@/lib/status";
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+type ActionResult = { ok: true } | { ok: false; error: string };
 
 /** Changes a creator's status in a campaign and records the change in the Activity log. */
 export async function updateCreatorStatus(
@@ -41,7 +41,7 @@ export async function updateCreatorStatus(
       kind: "status_change",
       campaignCreatorId,
       influencerId: current.influencerId,
-      body: `Status changed from ${CREATOR_STATUS_LABELS[current.status]} to ${CREATOR_STATUS_LABELS[status]}.`,
+      body: `${statusChangeText(current.status, status)}.`,
     });
   });
 

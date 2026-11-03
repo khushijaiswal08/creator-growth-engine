@@ -1,12 +1,16 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { refreshNextAction } from "@/lib/automation";
 import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
-export type ContentDecision = "approve" | "changes";
+type ContentDecision = "approve" | "changes";
+
+/** What both decisions need from the file: its name for the activity line and whose it is. */
+const ASSET_SELECT = { id: true, fileName: true, campaignCreatorId: true, campaignCreator: { select: { influencerId: true } } } satisfies Prisma.ContentAssetSelect;
 
 /**
  * Someone on the team approves a creator's file, or asks for changes with a
@@ -21,7 +25,7 @@ export async function reviewContent(assetId: string, decision: ContentDecision, 
 
   const asset = await db.contentAsset.findFirst({
     where: { id: assetId, archived: false, status: { not: "uploading" }, campaignCreator: allowed(user).creators },
-    select: { id: true, fileName: true, campaignCreatorId: true, campaignCreator: { select: { influencerId: true } } },
+    select: ASSET_SELECT,
   });
   if (!asset) return { ok: false, error: "That file is not available." };
 
@@ -51,7 +55,7 @@ export async function archiveContent(assetId: string): Promise<{ ok: true } | { 
   const user = await requireUser();
   const asset = await db.contentAsset.findFirst({
     where: { id: assetId, archived: false, campaignCreator: allowed(user).creators },
-    select: { id: true, fileName: true, campaignCreatorId: true, campaignCreator: { select: { influencerId: true } } },
+    select: ASSET_SELECT,
   });
   if (!asset) return { ok: false, error: "That file is not available." };
   await db.$transaction([

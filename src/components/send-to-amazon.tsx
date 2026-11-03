@@ -7,7 +7,7 @@ import { checkAmazonNow, previewForAmazon, sendToAmazon } from "@/actions/mcf";
 import { Button } from "@/components/ui/button";
 import type { McfPreview } from "@/lib/mcf";
 
-const day = (value: string | null) => (value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
+const day = (value: string | Date | null) => (value ?new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null);
 
 /** Amazon's order statuses in plain words. */
 const STATUS_WORDS: Record<string, string> = {
@@ -22,7 +22,7 @@ const STATUS_WORDS: Record<string, string> = {
   Cancelled: "cancelled at Amazon",
 };
 
-export type AmazonGift = { id: string; reference: string; giftStatus: string; sentAt: Date | null; amazonStatus: string | null; error: string | null };
+type AmazonGift ={ id: string; reference: string; giftStatus: string; sentAt: Date | null; amazonStatus: string | null; error: string | null };
 
 /**
  * One-click Amazon MCF in the gift drawer: first ask Amazon what it would
@@ -43,7 +43,7 @@ export function SendToAmazon({ gift }: { gift: AmazonGift }) {
           <PackageCheck className="size-4 text-success-text" /> Sent to Amazon as {gift.reference}
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {new Date(gift.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          {day(gift.sentAt)}
           {gift.amazonStatus ? ` · ${STATUS_WORDS[gift.amazonStatus] ?? gift.amazonStatus}` : ""} · tracking and delivery update by themselves
         </p>
         {gift.error ? <p className="mt-1 text-xs font-semibold text-danger-text">{gift.error}</p> : null}
@@ -99,6 +99,8 @@ export function SendToAmazon({ gift }: { gift: AmazonGift }) {
     });
   }
 
+  const arrives = preview ? { from: day(preview.earliestArrival), to: day(preview.latestArrival) } : null;
+
   return (
     <div className="rounded-xl border px-4 py-3">
       <p className="label mb-1.5">Amazon</p>
@@ -109,7 +111,7 @@ export function SendToAmazon({ gift }: { gift: AmazonGift }) {
           ) : preview.fulfillable ? (
             <p>
               Amazon can ship it
-              {preview.earliestArrival ? `, arriving ${day(preview.earliestArrival)}${preview.latestArrival && day(preview.latestArrival) !== day(preview.earliestArrival) ? ` to ${day(preview.latestArrival)}` : ""}` : ""}
+              {arrives?.from ? `, arriving ${arrives.from}${arrives.to && arrives.to !== arrives.from ? ` to ${arrives.to}` : ""}` : ""}
               {preview.feesUsd !== null ? `, for about $${preview.feesUsd.toFixed(2)} in fees` : ""}.
             </p>
           ) : (

@@ -4,7 +4,7 @@
  *   pnpm test
  *
  * They run against a throwaway in-memory Postgres and local stand-ins for the
- * Meta and Anthropic APIs. That is the right tool here: the rules under test
+ * Meta, YouTube, Anthropic and Amazon (MCF) APIs. That is the right tool here: the rules under test
  * are our own code (what we refuse to call, what we refuse to write), so the
  * outside service is deliberately replaced by one that misbehaves on demand.
  * These tests say nothing about whether the real services work.
@@ -12,8 +12,10 @@
 import assert from "node:assert/strict";
 import { exec } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
+import path from "node:path";
 import { after, before, test } from "node:test";
 import { promisify } from "node:util";
 import { PGlite } from "@electric-sql/pglite";
@@ -23,6 +25,7 @@ import type { CreatorStatus, PrismaClient } from "@prisma/client";
 const DB_PORT = 54331;
 const STUB_PORT = 4011;
 const DB_URL = `postgresql://postgres:postgres@127.0.0.1:${DB_PORT}/postgres?sslmode=disable&connection_limit=1&pgbouncer=true`;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 let pglite: PGlite;
 let socket: PGLiteSocketServer;
@@ -37,7 +40,6 @@ let anthropicRequests = 0;
 /** The stand-in Amazon MCF: orders it has taken, and how it should behave next. */
 const spapi = {
   orders: new Map<string, { status: string; tracking: string | null; packageStatus: string; body: Record<string, unknown>; pkg?: number }>(),
-  fulfillable: true,
   /** after-store: Amazon took it but the answer is lost; after-store-down: and then Amazon cannot be reached at all. */
   createFails: "" as "" | "after-store" | "after-store-down" | "reject",
   /** Amazon cannot be reached for order lookups. */
@@ -185,10 +187,10 @@ before(async () => {
               fulfillmentPreviews: [
                 {
                   shippingSpeedCategory: "Standard",
-                  isFulfillable: spapi.fulfillable,
+                  isFulfillable: true,
                   estimatedFees: [{ name: "FBAPerUnitFulfillmentFee", amount: { currencyCode: "USD", value: "5.10" } }, { name: "FBATransportationFee", amount: { currencyCode: "USD", value: "0.40" } }],
                   fulfillmentPreviewShipments: [{ earliestArrivalDate: "2026-11-04T00:00:00Z", latestArrivalDate: "2026-11-06T00:00:00Z" }],
-                  unfulfillablePreviewItems: spapi.fulfillable ? [] : [{ itemUnfulfillableReasons: ["InventoryUnavailable"] }],
+                  unfulfillablePreviewItems: [],
                 },
               ],
             },
@@ -289,7 +291,7 @@ test("the 30-hashtags-in-7-days rule refuses an over-limit run", async () => {
   assert.equal(await db.campaignCreator.count({ where: { campaignId: campaign.id } }), 0);
 
   // The window rolls: once the old tags are 7 days old, a new tag is accepted again.
-  const later = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000 + 1000);
+  const later = new Date(now.getTime() + 7 * DAY_MS + 1000);
   assert.deepEqual(await reserveHashtag("thirtyfirst", later), { ok: true, counted: true });
 });
 
@@ -417,14 +419,21 @@ test("a sign-in that could not be checked is never reported as a wrong password"
  * The automated creator journey: timers, product selection, delivery.
  * ------------------------------------------------------------------------ */
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 async function makeCreator(campaignId: string, handle: string, data: Record<string, unknown> = {}) {
   const influencer = await db.influencer.create({
     data: { name: `Person ${handle}`, profiles: { create: { platform: "instagram", handle } } },
   });
   return db.campaignCreator.create({ data: { campaignId, influencerId: influencer.id, ...data } });
 }
+/** A creator who said yes and holds a selection link that is good for 14 days. */
+const makeCreatorWithLink = (campaignId: string, handle: string, token: string, data: Record<string, unknown> = {}) =>
+  makeCreator(campaignId, handle, { status: "interested", selectionToken: token, selectionExpiresAt: new Date(Date.now() + 14 * DAY_MS), ...data });
+const readCreator = (id: string) => db.campaignCreator.findUniqueOrThrow({ where: { id } });
+/** A US shipping address; each test changes only what it needs to. */
+const usAddress = (over: Record<string, string> = {}) => ({
+  shipName: "Jane Example", address1: "1 Main St", address2: "", city: "Austin", state: "TX",
+  postalCode: "78701", country: "United States", phone: "", note: "", ...over,
+});
 
 test("the daily run schedules follow-ups, closes silent creators and leaves everyone else alone", async () => {
   const { runAutomations } = await import("@/lib/automation");
@@ -446,29 +455,27 @@ test("the daily run schedules follow-ups, closes silent creators and leaves ever
   assert.equal(summary.followUpsDue, 1);
   assert.equal(summary.closedNoReply, 1);
 
-  const read = async (id: string) => db.campaignCreator.findUniqueOrThrow({ where: { id } });
-
-  const dueNow = await read(due.id);
+  const dueNow = await readCreator(due.id);
   assert.equal(dueNow.status, "follow_up_due");
   assert.equal(dueNow.nextAction, "Send follow-up 1");
   assert.equal(dueNow.waitingOn, "team");
 
-  const freshNow = await read(fresh.id);
+  const freshNow = await readCreator(fresh.id);
   assert.equal(freshNow.status, "contacted", "one day of silence is not enough");
   assert.equal(freshNow.waitingOn, "creator");
   assert.equal(freshNow.nextActionDueAt?.getTime(), ago(1).getTime() + 4 * DAY_MS);
 
-  assert.equal((await read(silent.id)).status, "no_reply");
-  assert.equal((await read(silent.id)).nextAction, null, "a closed creator has no next action");
-  assert.equal((await read(recentFinal.id)).status, "contacted", "the final wait has not run out yet");
+  assert.equal((await readCreator(silent.id)).status, "no_reply");
+  assert.equal((await readCreator(silent.id)).nextAction, null, "a closed creator has no next action");
+  assert.equal((await readCreator(recentFinal.id)).status, "contacted", "the final wait has not run out yet");
 
   // Imported creators have no "last contacted" date: the portal must not guess.
-  assert.equal((await read(legacy.id)).status, "contacted");
+  assert.equal((await readCreator(legacy.id)).status, "contacted");
 
-  assert.equal((await read(replied.id)).nextAction, "Answer the creator");
-  assert.equal((await read(done.id)).nextAction, null);
-  assert.equal((await read(blocked.id)).status, "blacklisted");
-  assert.equal((await read(blocked.id)).nextAction, null);
+  assert.equal((await readCreator(replied.id)).nextAction, "Answer the creator");
+  assert.equal((await readCreator(done.id)).nextAction, null);
+  assert.equal((await readCreator(blocked.id)).status, "blacklisted");
+  assert.equal((await readCreator(blocked.id)).nextAction, null);
 
   // Every automatic change is logged as automatic, under the Automation account.
   const logs = await db.activity.findMany({
@@ -500,12 +507,8 @@ test("a creator can choose only what the campaign offers, and only in-rule order
   const notLive = await db.product.create({ data: { brandId: "test", sku: "T-GONE", title: "Runner", stock: 5, archived: true, amazonUrl } });
   const nothingToShow = await db.product.create({ data: { brandId: "test", sku: "T-BLIND", title: "Runner", stock: 5 } });
 
-  const address = {
-    shipName: "Jane Example", address1: "1 Main St", address2: "", city: "Austin", state: "TX",
-    postalCode: "78701", country: "usa", phone: "512-555-0100", note: "",
-  };
-  const withToken = (handle: string, token: string, data: Record<string, unknown> = {}) =>
-    makeCreator(campaign.id, handle, { status: "interested", selectionToken: token, selectionExpiresAt: new Date(Date.now() + 14 * 86_400_000), ...data });
+  const address = usAddress({ country: "usa", phone: "512-555-0100" });
+  const withToken = (handle: string, token: string, data: Record<string, unknown> = {}) => makeCreatorWithLink(campaign.id, handle, token, data);
 
   const us = await withToken("sel_us", "token-us");
 
@@ -525,7 +528,7 @@ test("a creator can choose only what the campaign offers, and only in-rule order
   assert.equal(order.status, "approved");
   assert.equal(order.country, "United States");
   assert.equal(order.approvedBy?.isSystem, true, "approved by the Automation account, and recorded as such");
-  const usNow = await db.campaignCreator.findUniqueOrThrow({ where: { id: us.id } });
+  const usNow = await readCreator(us.id);
   assert.equal(usNow.status, "address_collected");
   assert.equal(usNow.nextAction, "Place the Amazon order");
   assert.equal(usNow.selectionToken, null, "the link is spent once a choice is in");
@@ -545,7 +548,7 @@ test("a creator can choose only what the campaign offers, and only in-rule order
   const foreignOrder = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } });
   assert.equal(foreignOrder.status, "needs_approval");
   assert.match(foreignOrder.approvalNote ?? "", /not in the allowed list/);
-  assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: abroad.id } })).nextAction, "Approve the gift order");
+  assert.equal((await readCreator(abroad.id)).nextAction, "Approve the gift order");
 
   // A paid collaboration with no approved fee also waits for a person.
   const paid = await withToken("sel_paid", "token-paid", { collaborationType: "paid", requestedFee: 300 });
@@ -567,13 +570,10 @@ test("the content clock starts at delivery, and tracking moves the creator forwa
   const product = await db.product.create({
     data: { brandId: "test", sku: "D-1", title: "Runner", stock: 3, amazonUrl: "https://www.amazon.com/dp/B0TESTTEST" },
   });
-  const creator = await makeCreator(campaign.id, "delivery_one", { status: "interested", selectionToken: "token-delivery", selectionExpiresAt: new Date(Date.now() + 14 * 86_400_000) });
-  await recordSelection("token-delivery", product.id, {
-    shipName: "Sam Example", address1: "2 Oak Ave", address2: "", city: "Reno", state: "NV",
-    postalCode: "89501", country: "United States", phone: "", note: "",
-  });
+  const creator = await makeCreatorWithLink(campaign.id, "delivery_one", "token-delivery");
+  await recordSelection("token-delivery", product.id, usAddress({ shipName: "Sam Example", address1: "2 Oak Ave", city: "Reno", state: "NV", postalCode: "89501" }));
   const gift = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: creator.id } });
-  const read = () => db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+  const read = () => readCreator(creator.id);
 
   await applyTracking(gift.id, { orderNumber: "S01-1111111-2222222" }, user.id);
   assert.equal((await db.giftOrder.findUniqueOrThrow({ where: { id: gift.id } })).status, "ordered");
@@ -764,11 +764,8 @@ test("Amazon's listing report: only what can be shipped becomes a product, and n
   const campaign = await db.campaign.create({
     data: { name: "catalogue gifts", brandId: BRAND, brief: "Gift table linens.", nicheKeywords: ["home decor"], negativeKeywords: [] },
   });
-  await makeCreator(campaign.id, "catalogue_one", { status: "interested", selectionToken: "token-catalogue", selectionExpiresAt: new Date(Date.now() + 14 * 86_400_000) });
-  const address = {
-    shipName: "Ana Example", address1: "3 Elm St", address2: "", city: "Boise", state: "ID",
-    postalCode: "83702", country: "United States", phone: "", note: "",
-  };
+  await makeCreatorWithLink(campaign.id, "catalogue_one", "token-catalogue");
+  const address = usAddress({ shipName: "Ana Example", address1: "3 Elm St", city: "Boise", state: "ID", postalCode: "83702" });
   for (const sku of ["PLR-1", "CPC-NEW", "CPC-GONE", "CPC-OLD-OFF"]) {
     const refused = await recordSelection("token-catalogue", (await product(sku)).id, address);
     assert.equal(refused.ok, false, `${sku} must not be selectable`);
@@ -933,7 +930,7 @@ test("someone who works on one brand can find only that brand's campaigns, creat
   const item = {
     campaignCreatorId: onlyA.id, influencerId: onlyA.influencerId, name: "Person scope_only_a", email: null, location: null,
     status: "discovered" as const, priorityReview: false, score: null, lowFit: false, usSignal: null, emailStatus: "not_found" as const,
-    reasons: [], model: null, latestPostUrl: null, latestPostAt: null,
+    reasons: [], latestPostUrl: null, latestPostAt: null,
     profiles: [{ id: "p", platform: "instagram" as const, handle: "scope_only_a", followers: null, bio: null, source: "manual" as const, fetchNote: null }],
   };
   assert.equal((await findPossibleDuplicates([item], scopeA.influencers)).size, 0);
@@ -1021,11 +1018,10 @@ test("a gift whose content never came is closed as No content delivered, after t
 
   const summary = await runAutomations("manual", now);
   assert.equal(summary.closedNoContent, 1);
-  const read = (id: string) => db.campaignCreator.findUniqueOrThrow({ where: { id } });
-  assert.equal((await read(silent.id)).status, "no_content");
-  assert.equal((await read(silent.id)).nextAction, null, "a closed creator has no next action");
-  assert.equal((await read(recent.id)).status, "content_expected", "ten days overdue is not long enough");
-  assert.equal((await read(posted.id)).status, "content_posted");
+  assert.equal((await readCreator(silent.id)).status, "no_content");
+  assert.equal((await readCreator(silent.id)).nextAction, null, "a closed creator has no next action");
+  assert.equal((await readCreator(recent.id)).status, "content_expected", "ten days overdue is not long enough");
+  assert.equal((await readCreator(posted.id)).status, "content_posted");
   const log = await db.activity.findFirstOrThrow({ where: { campaignCreatorId: silent.id, kind: "status_change" }, include: { user: true } });
   assert.equal(log.automated, true);
   assert.equal(log.user.isSystem, true);
@@ -1057,9 +1053,6 @@ test("a tracking number opens the right carrier's page", async () => {
 });
 
 test("no page or action opens a brand's record by its id alone", async () => {
-  const { readdirSync, readFileSync } = await import("node:fs");
-  const path = await import("node:path");
-
   // A lookup by id cannot carry a brand filter. Pages and actions must use findFirst with the
   // person's scope spread into it (see src/lib/brand-scope.ts), so the other brand's record is not found.
   const byIdAlone = /\bdb\.(campaign|campaignCreator|influencer|giftOrder)\.findUnique(OrThrow)?\(/;
@@ -1077,17 +1070,12 @@ test("no page or action opens a brand's record by its id alone", async () => {
   assert.deepEqual(offenders, [], "these lookups are not limited to the signed-in person's brand");
 });
 
-const ONE_DAY = 86_400_000;
-
 test("a selection link is random, lasts 14 days, works once, and is replaced when reissued", async () => {
   const { ensureSelectionUrl, newSelectionToken, selectionLinkExpired, SELECTION_LINK_DAYS } = await import("@/lib/selection");
   const { recordSelection } = await import("@/lib/selection-flow");
   const { campaign } = await makeUserAndCampaign("links", ["home decor"]);
   const product = await db.product.create({ data: { brandId: "test", sku: "L-1", title: "Runner", stock: 3, amazonUrl: "https://www.amazon.com/dp/B0LINKTEST" } });
-  const address = {
-    shipName: "Lena Example", address1: "2 Oak St", address2: "", city: "Denver", state: "CO",
-    postalCode: "80201", country: "United States", phone: "", note: "",
-  };
+  const address = usAddress({ shipName: "Lena Example", address1: "2 Oak St", city: "Denver", state: "CO", postalCode: "80201" });
 
   // 24 random bytes: 192 bits, never the same twice.
   assert.ok(Buffer.from(newSelectionToken(), "base64url").length >= 16);
@@ -1096,9 +1084,9 @@ test("a selection link is random, lasts 14 days, works once, and is replaced whe
   // Issued: valid for 14 days from now, and the same link while it is valid.
   const fresh = await makeCreator(campaign.id, "link_fresh", { status: "interested" });
   const url = await ensureSelectionUrl(fresh.id);
-  const issued = await db.campaignCreator.findUniqueOrThrow({ where: { id: fresh.id } });
+  const issued = await readCreator(fresh.id);
   assert.ok(url.endsWith(`/select/${issued.selectionToken}`));
-  const days = (issued.selectionExpiresAt!.getTime() - Date.now()) / ONE_DAY;
+  const days = (issued.selectionExpiresAt!.getTime() - Date.now()) / DAY_MS;
   assert.ok(days > SELECTION_LINK_DAYS - 0.01 && days <= SELECTION_LINK_DAYS, `expires in ${days} days`);
   assert.equal(await ensureSelectionUrl(fresh.id), url);
 
@@ -1110,9 +1098,9 @@ test("a selection link is random, lasts 14 days, works once, and is replaced whe
   assert.notEqual(reissued, url);
 
   // Used: the token is dropped, so the same address answers nothing afterwards.
-  const current = await db.campaignCreator.findUniqueOrThrow({ where: { id: fresh.id } });
+  const current = await readCreator(fresh.id);
   assert.equal((await recordSelection(current.selectionToken!, product.id, address)).ok, true);
-  const after = await db.campaignCreator.findUniqueOrThrow({ where: { id: fresh.id } });
+  const after = await readCreator(fresh.id);
   assert.equal(after.selectionToken, null);
   assert.ok(after.selectionUsedAt);
   assert.equal(selectionLinkExpired(after), true);
@@ -1151,7 +1139,7 @@ test("the gift rules come from config/gift-rules.json and every decision names t
 
   const pricey = checkGiftRules({ ...base, productPriceUsd: (GIFT_RULES.maxProductPriceUsd ?? 0) + 1 });
   assert.equal(pricey.find((check) => check.rule === "maxProductPriceUsd")?.passed, false);
-  const repeat = checkGiftRules({ ...base, lastGiftAt: new Date(now.getTime() - ONE_DAY) });
+  const repeat = checkGiftRules({ ...base, lastGiftAt: new Date(now.getTime() - DAY_MS) });
   assert.match(describeRuleChecks(repeat), /^Held for a person\. Failed: no other gift within the repeat window/);
   const many = checkGiftRules({ ...base, quantity: GIFT_RULES.maxQuantity + 1 });
   assert.equal(many.find((check) => check.rule === "maxQuantity")?.passed, false);
@@ -1375,7 +1363,7 @@ test("after delivery the touches come in order, each waiting until a message was
   const { nextActionFor, deliverySteps, suggestedTemplate } = await import("@/lib/next-action");
   const timings = { followUpAfterDays: 4, maxFollowUps: 2, closeAfterDays: 7, arrivalCheckDays: 3, selectionWaitDays: 5, deliveryWaitDays: 10, contentReminderDays: 7, contentDueDays: 14, noContentAfterDays: 30 };
   const delivered = new Date("2026-10-01T12:00:00Z");
-  const day = (days: number) => new Date(delivered.getTime() + days * ONE_DAY);
+  const day = (days: number) => new Date(delivered.getTime() + days * DAY_MS);
   const base = { status: "content_expected" as const, followUpsSent: 0, selectionSentAt: null, contentDueAt: day(14), reengageAfter: null, gift: { status: "delivered" as const, shippedAt: day(-5), deliveredAt: delivered } };
 
   assert.deepEqual(deliverySteps(delivered, timings).map((step) => [step.action, step.purpose]), [
@@ -1678,12 +1666,12 @@ test("Rachna reads a reply with the built-in rules: class, warmth, fee and quest
 test("the creator card grades a creator from their history and Rachna's verdict follows the figures", async () => {
   const { gradeCreator, rachnaVerdict, contentRate, reachMultiple, engagementRate, monthlySeries, PATIENCE_DAYS } = await import("@/lib/creator-card");
   const now = new Date("2026-10-26T10:00:00Z");
-  const days = (n: number) => new Date(now.getTime() - n * 86_400_000);
-  const base = { firstName: "Priya", gifts: 0, giftValueUsd: 0, posts: 0, delivered: 0, noContent: 0, pending: 0, reach: 0, engagements: 0, clicks: 0, salesUsd: 0, followers: 20_000, fitScore: null, lastGiftAt: null, lastPostAt: null, amazonTier: null };
+  const days = (n: number) => new Date(now.getTime() - n * DAY_MS);
+  const base = { gifts: 0, giftValueUsd: 0, posts: 0, delivered: 0, noContent: 0, pending: 0, reach: 0, engagements: 0, clicks: 0, salesUsd: 0, followers: 20_000, fitScore: null, lastGiftAt: null, amazonTier: null };
 
   // Nobody we have gifted is "new"; a star needs two posts and 80% delivered.
   assert.equal(gradeCreator(base), "new");
-  const star = { ...base, gifts: 2, posts: 3, delivered: 2, reach: 90_000, engagements: 4_500, salesUsd: 240, lastGiftAt: days(40), lastPostAt: days(5) };
+  const star = { ...base, gifts: 2, posts: 3, delivered: 2, reach: 90_000, engagements: 4_500, salesUsd: 240, lastGiftAt: days(40) };
   assert.equal(gradeCreator(star), "star");
   assert.equal(gradeCreator({ ...base, gifts: 1, posts: 1, delivered: 1 }), "good");
   assert.equal(gradeCreator({ ...base, gifts: 3, posts: 1, delivered: 1, noContent: 2 }), "mixed");
@@ -1778,7 +1766,6 @@ test("content storage only signs what it means to: exact file types, safe names,
   assert.ok(odd.searchParams.get("dl"));
 
   // The local store serves files as files: no sniffing, a sandbox, and an arrived file is never replaced.
-  const { rm } = await import("node:fs/promises");
   const route = await import("@/app/api/content-store/[...key]/route");
   const key2 = `content/test/route-${Date.now()}/a1/clip.mp4`;
   const put = await presignUpload(key2, "video/mp4", 4);
@@ -1803,8 +1790,6 @@ test("content storage only signs what it means to: exact file types, safe names,
 });
 
 test("a creator's upload link takes their files, checks what arrived, and hands the review to a person", async () => {
-  const { mkdir, writeFile, rm } = await import("node:fs/promises");
-  const path = await import("node:path");
   const { ensureUploadUrl, startUpload, signUpload, finishUpload, loadUploadTarget, settleStaleUploads, samePostKey, UPLOAD_LINK_DAYS, UPLOAD_LINK_INACTIVE, CREATOR_LIMITS } = await import("@/lib/content-upload");
   const { localPathFor } = await import("@/lib/content-storage");
   const { refreshNextAction } = await import("@/lib/automation");
@@ -1816,7 +1801,7 @@ test("a creator's upload link takes their files, checks what arrived, and hands 
   assert.match(url, /^http:\/\/portal\.test\/upload\/[A-Za-z0-9_-]{32}$/);
   assert.equal(await ensureUploadUrl(creator.id), url);
   const token = url.split("/upload/")[1];
-  const link = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+  const link = await readCreator(creator.id);
   assert.ok(Math.abs(link.uploadExpiresAt!.getTime() - Date.now() - UPLOAD_LINK_DAYS * DAY_MS) < 60_000);
   assert.equal(await loadUploadTarget("x".repeat(32)), null, "an unknown token finds nobody");
 
@@ -1875,7 +1860,7 @@ test("a creator's upload link takes their files, checks what arrived, and hands 
     assert.deepEqual(after.map((asset) => asset.status), ["received", "uploading"]);
 
     // The content came in: Posts to check, a person is asked to look, the move is logged, and the post is not recorded twice.
-    const moved = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+    const moved = await readCreator(creator.id);
     assert.equal(moved.status, "content_posted");
     assert.equal(moved.nextAction, "Review the creator's files");
     assert.equal(await db.post.count({ where: { campaignCreatorId: creator.id } }), 1);
@@ -1891,10 +1876,10 @@ test("a creator's upload link takes their files, checks what arrived, and hands 
     // Asking for changes puts "tell the creator" on the list until someone writes to them.
     await db.contentAsset.updateMany({ where: { campaignCreatorId: creator.id, status: "received" }, data: { status: "changes_requested", reviewedAt: new Date(), reviewNote: "Brighter, please" } });
     await refreshNextAction(creator.id);
-    assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } })).nextAction, "Tell the creator what to change");
+    assert.equal((await readCreator(creator.id)).nextAction, "Tell the creator what to change");
     await db.campaignCreator.update({ where: { id: creator.id }, data: { lastContactedAt: new Date(Date.now() + 1000) } });
     await refreshNextAction(creator.id);
-    assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } })).nextAction, "Check the post and mark completed");
+    assert.equal((await readCreator(creator.id)).nextAction, "Check the post and mark completed");
 
     // The daily tidy-up: a file that arrived in full but was never reported is received after all; a missing one is archived.
     await db.campaignCreator.update({ where: { id: creator.id }, data: { status: "completed" } });
@@ -1906,7 +1891,7 @@ test("a creator's upload link takes their files, checks what arrived, and hands 
     assert.equal((await db.contentAsset.findUniqueOrThrow({ where: { id: byName["flatlay.jpg"].id } })).status, "received");
     assert.equal((await db.contentAsset.findUniqueOrThrow({ where: { id: lost.id } })).archived, true);
     // New files reopen a completed collaboration, so they never sit unseen.
-    const reopened = await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } });
+    const reopened = await readCreator(creator.id);
     assert.equal(reopened.status, "content_posted");
     assert.equal(reopened.nextAction, "Review the creator's files");
 
@@ -2357,7 +2342,6 @@ test("the Invite back list offers only proven creators, and inviting one adds th
   const cpc = await db.campaign.create({ data: { name: "invite-cpc", brandId: "cotton-print-club", brief: "CPC.", nicheKeywords: [], negativeKeywords: [], status: "active" } });
   const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-INV-01", title: "Runner", stock: 5 } });
   const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
-  const DAY = 24 * 60 * 60 * 1000;
 
   // A past collaboration: the outcome, and as many post links as given.
   const worked = async (handle: string, status: "completed" | "no_content", posts = 1) => {
@@ -2378,7 +2362,7 @@ test("the Invite back list offers only proven creators, and inviting one adds th
   const busy = await worked("inv_busy", "completed", 2);
   await db.campaignCreator.create({ data: { campaignId: other.id, influencerId: busy.influencerId, status: "contacted" } });
   // The star had a gift ten days ago: inviting is fine, a new gift waits for a person until the repeat window ends.
-  const giftedAt = new Date(Date.now() - 10 * DAY);
+  const giftedAt = new Date(Date.now() - 10 * DAY_MS);
   await db.giftOrder.create({ data: { campaignCreatorId: star.id, productId: product.id, status: "delivered", createdAt: giftedAt, ...sealAddress({ shipName: "Star", address1: "1 Main St", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null }) } });
 
   // Proven only with the other brand: never offered for this brand's campaign, even to someone who sees both.
@@ -2406,7 +2390,7 @@ test("the Invite back list offers only proven creators, and inviting one adds th
   assert.match(byId.get(busy.influencerId)!.busyIn ?? "", /invite-other-live \(Contacted\)/);
   assert.deepEqual(mine.filter((row) => row.invitable).map((row) => row.id), [star.influencerId, good.influencerId]);
   const giftAgain = byId.get(star.influencerId)!.giftAgainFrom!;
-  assert.equal(Math.round((giftAgain.getTime() - giftedAt.getTime()) / DAY), 90);
+  assert.equal(Math.round((giftAgain.getTime() - giftedAt.getTime()) / DAY_MS), 90);
   assert.equal(byId.get(good.influencerId)!.giftAgainFrom, null);
 
   // Inviting: the proven ones join as Approved, the rest are skipped with the reason. Nothing is sent.
@@ -2465,11 +2449,10 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   const shelved = await db.campaign.create({ data: { name: "tidy-archived", brandId: "ridhi", brief: "Old.", nicheKeywords: [], negativeKeywords: [], status: "archived" } });
   const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-TIDY-01", title: "Quilt", stock: 3 } });
   const automation = await automationUserId();
-  const DAY = 24 * 60 * 60 * 1000;
   const now = new Date();
-  const ago = (days: number) => new Date(now.getTime() - days * DAY);
+  const ago = (days: number) => new Date(now.getTime() - days * DAY_MS);
   const scope = allowed({ id: user.id, brandId: null, viewBrand: null });
-  const status = async (id: string) => (await db.campaignCreator.findUniqueOrThrow({ where: { id } })).status;
+  const status = async (id: string) => (await readCreator(id)).status;
   // On Home: an open link whose next step is due, in the campaign for 60 days.
   const due = (campaignId: string, handle: string, state: string, data: Record<string, unknown> = {}) =>
     makeCreator(campaignId, handle, { status: state, createdAt: ago(60), nextActionDueAt: ago(1), nextAction: "Answer the creator", waitingOn: "team", ...data });
@@ -2498,7 +2481,7 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   const addedByPerson = await due(campaign.id, "tidy_added", "replied", { createdAt: ago(20) });
   await line(addedByPerson.id, "added_to_campaign", "Added to campaign.", 20);
   const brandNew = await due(campaign.id, "tidy_new", "replied", { createdAt: ago(5) });
-  const notDue = await due(campaign.id, "tidy_notdue", "replied", { nextActionDueAt: new Date(now.getTime() + DAY) });
+  const notDue = await due(campaign.id, "tidy_notdue", "replied", { nextActionDueAt: new Date(now.getTime() + DAY_MS) });
   const archivedCampaign = await due(shelved.id, "tidy_shelved", "replied");
   const otherBrand = await due(cpc.id, "tidy_cpc", "replied");
   const oldFollow = await due(campaign.id, "tidy_follow", "follow_up_due", { nextAction: "Send follow-up 1" });
@@ -2551,14 +2534,14 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   assert.ok(parked.ok && parked.tidyUpId);
   if (!parked.ok || !parked.tidyUpId) return;
   assert.deepEqual([parked.changed, parked.skipped, parked.pending], [3, 1, []]);
-  let row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldReply.id } });
+  let row = await readCreator(oldReply.id);
   assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt], ["on_hold", "On hold: decide when to re-engage", null]);
   assert.equal(await status(messaged.id), "replied", "the messaged creator is untouched");
   assert.match((await db.activity.findFirstOrThrow({ where: { campaignCreatorId: oldReply.id, body: { startsWith: "Tidy-up" } } })).body, /^Tidy-up: status changed from Replied to On hold \(not touched since it was imported\)\.$/);
   const batch = { ...base, tidyUpId: parked.tidyUpId };
   assert.match((await applyTidyChunk({ ...batch, userId: other.id, group: "followups", action: "close", ids: [oldFollow.id] }, now) as { error: string }).error, /closed/);
   assert.ok((await applyTidyChunk({ ...batch, group: "followups", action: "close", ids: [oldFollow.id] }, now)).ok);
-  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldFollow.id } });
+  row = await readCreator(oldFollow.id);
   assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt], ["no_reply", null, null]);
   assert.ok((await applyTidyChunk({ ...batch, group: "selection", action: "park", ids: [linkWaiting.id] }, now)).ok);
   // A call out of time hands back what it did not reach.
@@ -2569,16 +2552,16 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   // Both parcels of the shipment are delivered a week after shipping, but the content is due today at the earliest.
   for (const gift of [parcelA, parcelB]) {
     const after = await db.giftOrder.findUniqueOrThrow({ where: { id: gift.id } });
-    assert.deepEqual([after.status, after.deliveredAt?.getTime()], ["delivered", ago(40).getTime() + 7 * DAY]);
+    assert.deepEqual([after.status, after.deliveredAt?.getTime()], ["delivered", ago(40).getTime() + 7 * DAY_MS]);
   }
-  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldParcel.id } });
+  row = await readCreator(oldParcel.id);
   assert.deepEqual([row.status, row.contentDueAt?.getTime()], ["content_expected", now.getTime()], "an assumed delivery never starts a clock that has run out");
   assert.notEqual(row.nextAction, "Waiting for delivery");
   assert.ok((await applyTidyChunk({ ...batch, group: "posted", action: "complete", ids: [oldPosted.id] }, now)).ok);
   assert.equal(await status(oldPosted.id), "completed");
   assert.match((await tidyHistory())[0].summary, /^3 replies parked · 1 follow-ups closed · 1 said-yes parked · 1 parcels marked delivered · 1 posts marked completed$/);
   // Housekeeping is not an event in the reports.
-  assert.equal((await figuresFor({ from: ago(1), to: new Date(now.getTime() + DAY) }, { id: campaign.id })).completed, 0);
+  assert.equal((await figuresFor({ from: ago(1), to: new Date(now.getTime() + DAY_MS) }, { id: campaign.id })).completed, 0);
 
   // Since then: someone moves one creator on, someone writes to a closed one, the daily run closes the parcel as No content.
   await db.campaignCreator.update({ where: { id: automationOnly.id }, data: { status: "contacted" } });
@@ -2589,14 +2572,14 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   // Undo keeps to its time budget, puts back only what nobody worked on, and brings back the original due dates.
   assert.deepEqual(await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now, -1), { ok: true, restored: 0, kept: 0, left: 7 });
   assert.deepEqual(await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now), { ok: true, restored: 5, kept: 2, left: 0 });
-  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldReply.id } });
+  row = await readCreator(oldReply.id);
   assert.deepEqual([row.status, row.nextAction, row.nextActionDueAt?.getTime()], ["replied", "Answer the creator", ago(1).getTime()], "exactly as late as before");
   assert.equal(await status(automationOnly.id), "contacted");
   assert.equal(await status(oldFollow.id), "no_reply", "someone wrote to them since: left as it is");
   assert.equal(await status(linkWaiting.id), "interested");
   assert.equal(await status(oldPosted.id), "content_posted");
   for (const gift of [parcelA, parcelB]) assert.deepEqual(Object.values(await db.giftOrder.findUniqueOrThrow({ where: { id: gift.id }, select: { status: true, deliveredAt: true } })), ["shipped", null]);
-  row = await db.campaignCreator.findUniqueOrThrow({ where: { id: oldParcel.id } });
+  row = await readCreator(oldParcel.id);
   assert.deepEqual([row.status, row.contentDueAt, row.nextAction, row.nextActionDueAt?.getTime()], ["product_shipped", null, "Waiting for delivery", ago(30).getTime()], "the automation's No content is undone with it");
   assert.match((await undoTidyUp({ tidyUpId: parked.tidyUpId, userId: user.id }, now) as { error: string }).error, /already undone/);
   assert.equal((await tidyHistory())[0].undone, true);

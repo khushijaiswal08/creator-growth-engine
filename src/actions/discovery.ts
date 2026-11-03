@@ -15,7 +15,7 @@ import {
 } from "@/lib/discovery";
 import { requireUser } from "@/lib/session";
 
-export type DiscoveryActionResult = { ok: true; summary: DiscoverySummary } | { ok: false; error: string };
+type DiscoveryActionResult ={ ok: true; summary: DiscoverySummary } | { ok: false; error: string };
 
 /** Admin only. Starts a discovery for the campaign and does its first slice. */
 export async function startDiscoveryAction(campaignId: string, source: string): Promise<DiscoveryActionResult> {
@@ -41,7 +41,7 @@ export async function startDiscoveryAction(campaignId: string, source: string): 
 export async function continueDiscoveryAction(runId: string): Promise<DiscoveryActionResult> {
   const user = await requireUser();
   if (user.role !== "admin") return { ok: false, error: "Only an admin can run discovery." };
-  const run = await db.discoveryRun.findFirst({ where: { id: runId, campaign: allowed(user).campaigns }, select: { campaignId: true } });
+  const run = await visibleRun(user, runId);
   if (!run) return { ok: false, error: "That discovery run does not exist." };
 
   const summary = await discoverySlice(runId);
@@ -52,16 +52,17 @@ export async function continueDiscoveryAction(runId: string): Promise<DiscoveryA
 /** A reviewer names the account behind an Instagram post Meta would not attribute. */
 export async function attributePostAction(runId: string, permalink: string, handle: string): Promise<AttributeOutcome> {
   const user = await requireUser();
-  const run = await db.discoveryRun.findFirst({ where: { id: runId, campaign: allowed(user).campaigns }, select: { campaignId: true } });
+  const run = await visibleRun(user, runId);
   if (!run) return { ok: false, error: "That discovery run does not exist." };
   const result = await attributePost({ runId, permalink, handle, userId: user.id, userName: user.name });
   if (result.ok) revalidateCampaign(run.campaignId);
   return result;
 }
 
+/** A reviewer drops a waiting Instagram post from the queue without naming its author. */
 export async function dismissPostAction(runId: string, permalink: string): Promise<{ ok: boolean }> {
   const user = await requireUser();
-  const run = await db.discoveryRun.findFirst({ where: { id: runId, campaign: allowed(user).campaigns }, select: { campaignId: true } });
+  const run = await visibleRun(user, runId);
   if (!run) return { ok: false };
   const ok = await dismissPost({ runId, permalink });
   if (ok) revalidatePath(`/campaigns/${run.campaignId}/review`);
@@ -72,4 +73,9 @@ function revalidateCampaign(campaignId: string) {
   revalidatePath(`/campaigns/${campaignId}`);
   revalidatePath(`/campaigns/${campaignId}/review`);
   revalidatePath("/influencers");
+}
+
+/** The run, only if it belongs to a brand this user may see. */
+function visibleRun(user: Parameters<typeof allowed>[0], runId: string) {
+  return db.discoveryRun.findFirst({ where: { id: runId, campaign: allowed(user).campaigns }, select: { campaignId: true } });
 }

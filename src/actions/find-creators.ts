@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { openCampaignIn } from "@/lib/due";
 import { suggestedTemplate } from "@/lib/next-action";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS, SEND_BLOCKED_STATUSES } from "@/lib/status";
+import { CREATOR_STATUS_LABELS, sendBlockedReason } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
 
 export type CreatorToMessage = {
@@ -66,7 +66,7 @@ export async function findCreatorsToMessage(rawQuery: string): Promise<CreatorTo
       profiles: row.influencer.profiles,
       email: row.influencer.email,
       amazonCreator: row.influencer.amazonTier !== null,
-      blockedReason: suppressed ? `On the do-not-contact list: ${suppressed}` : SEND_BLOCKED_STATUSES.has(row.status) ? `Marked ${CREATOR_STATUS_LABELS[row.status]}.` : null,
+      blockedReason: sendBlockedReason(row.status, suppressed),
       purpose: suggestedTemplate(row.status, row.nextAction),
     };
   });

@@ -9,7 +9,7 @@ import { CREATOR_STATUS_LABELS } from "@/lib/status";
 
 export type ImportOutcome = "added" | "updated" | "skipped";
 
-export type ImportDetail = {
+type ImportDetail = {
   row: number;
   platform: string;
   handle: string;
@@ -31,7 +31,7 @@ export type ImportReport =
       campaignIds: string[];
     };
 
-export type ImportOptions = {
+type ImportOptions = {
   /** Who the import is recorded under in the activity log. */
   userId: string;
   /** Which campaigns may be named in the file or chosen on the form. */
@@ -312,7 +312,7 @@ export async function importCreators(text: string, options: ImportOptions): Prom
         const noteKey = `${linkId}|${unplacedNote}`;
         if (!notedAlready.has(noteKey)) {
           notedAlready.add(noteKey);
-          activities.push({ userId, kind: "note", body: unplacedNote, influencerId: influencer.id, campaignCreatorId: linkId });
+          log("note", unplacedNote, { influencerId: influencer.id, campaignCreatorId: linkId });
           notes.push("The note from the file was kept in the activity, because the person already had a different note.");
           if (outcome === "skipped") outcome = "updated";
         }

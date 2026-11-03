@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { dayValueInZone, parseDayInZone, startOfDayInZone, startOfMonthInZone, startOfQuarterInZone, startOfWeekInZone } from "@/lib/format";
+import { DAY_MS, dayValueInZone, parseDayInZone, startOfMonthInZone, startOfQuarterInZone, startOfWeekInZone, wholePercent } from "@/lib/format";
 import { TIDY_NOTE } from "@/lib/tidy-up-rules";
 
 /**
@@ -10,12 +10,11 @@ import { TIDY_NOTE } from "@/lib/tidy-up-rules";
  * change, a shipment, a post), so a creator contacted in March and posting in
  * May counts once in each month, which is what a monthly report should show.
  */
-const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type Period = { from: Date; to: Date; label: string; key: string };
+type Period = { from: Date; to: Date; label: string; key: string };
 
 export const PERIOD_KEYS = ["this-week", "last-week", "this-month", "last-month", "this-quarter", "last-quarter", "custom"] as const;
-export type PeriodKey = (typeof PERIOD_KEYS)[number];
+type PeriodKey = (typeof PERIOD_KEYS)[number];
 
 export const PERIOD_LABELS: Record<PeriodKey, string> = {
   "this-week": "This week",
@@ -39,6 +38,7 @@ export function resolvePeriod(key: string | undefined, from: string | undefined,
   const thisWeek = startOfWeekInZone(now);
   const thisMonth = startOfMonthInZone(now);
   const thisQuarter = startOfQuarterInZone(now);
+  const thisWeekPeriod: Period = { key: "this-week", label: PERIOD_LABELS["this-week"], from: thisWeek, to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
   switch (chosen) {
     case "last-week":
       return { key: chosen, label: PERIOD_LABELS[chosen], from: new Date(thisWeek.getTime() - 7 * DAY_MS), to: thisWeek };
@@ -58,10 +58,10 @@ export function resolvePeriod(key: string | undefined, from: string | undefined,
       const start = parseDayInZone(from);
       const end = parseDayInZone(to);
       if (start && end && end >= start) return { key: chosen, label: `${from} to ${to}`, from: start, to: new Date(end.getTime() + DAY_MS) };
-      return { key: "this-week", label: PERIOD_LABELS["this-week"], from: thisWeek, to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
+      return thisWeekPeriod;
     }
     default:
-      return { key: "this-week", label: PERIOD_LABELS["this-week"], from: thisWeek, to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
+      return thisWeekPeriod;
   }
 }
 
@@ -115,11 +115,11 @@ export async function figuresFor(range: { from: Date; to: Date }, campaign: Pris
     moved("No content delivered"),
   ]);
   const finished = posted + noContent;
-  return { creatorsAdded, messages, replies, contacted, agreed, giftsOrdered, giftsShipped, giftsDelivered, posted, completed, noContent, contentRate: finished > 0 ? Math.round((posted / finished) * 100) : null };
+  return { creatorsAdded, messages, replies, contacted, agreed, giftsOrdered, giftsShipped, giftsDelivered, posted, completed, noContent, contentRate: wholePercent(posted, finished) };
 }
 
 /** Rachna's reading of replies in a period: how many, how many hot, how often the team agreed, how fast hot ones were answered. */
-export type ReadingFigures = { repliesRead: number; hot: number; agreed: number; accuracy: number | null; hotAnsweredInDay: number | null };
+export type ReadingFigures = { repliesRead: number; hot: number; accuracy: number | null; hotAnsweredInDay: number | null };
 
 export async function readingFiguresFor(range: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<ReadingFigures> {
   const at = { gte: range.from, lt: range.to };
@@ -139,13 +139,13 @@ export async function readingFiguresFor(range: { from: Date; to: Date }, campaig
     const inADay = hot.filter((row) => answers.some((answer) => answer.campaignCreatorId === row.campaignCreatorId && answer.sentAt > row.sentAt && answer.sentAt.getTime() - row.sentAt.getTime() <= DAY_MS)).length;
     hotAnsweredInDay = Math.round((inADay / hot.length) * 100);
   }
-  return { repliesRead: read.length, hot: hot.length, agreed, accuracy: read.length > 0 ? Math.round((agreed / read.length) * 100) : null, hotAnsweredInDay };
+  return { repliesRead: read.length, hot: hot.length, accuracy: wholePercent(agreed, read.length), hotAnsweredInDay };
 }
 
-export type Bucket = { from: Date; to: Date; label: string; figures: Figures };
+type Bucket = { from: Date; to: Date; unit: "week" | "month"; label: string; figures: Figures };
 
 /** The period split into weeks (short periods) or months (long ones), oldest first. */
-export async function bucketsFor(period: Period, campaign: Prisma.CampaignWhereInput): Promise<Bucket[]> {
+export async function bucketsFor(period: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<Bucket[]> {
   const days = (period.to.getTime() - period.from.getTime()) / DAY_MS;
   const byMonth = days > 70;
   const buckets: Bucket[] = [];
@@ -156,7 +156,7 @@ export async function bucketsFor(period: Period, campaign: Prisma.CampaignWhereI
     guard += 1;
     const next = byMonth ? monthsLater(startOfMonthInZone(new Date(cursor.getTime() + DAY_MS)), 1) : new Date(startOfWeekInZone(new Date(cursor.getTime() + DAY_MS)).getTime() + 7 * DAY_MS);
     const end = next > period.to ? period.to : next;
-    buckets.push({ from: cursor, to: end, label: byMonth ? dayValueInZone(cursor).slice(0, 7) : `Week of ${dayValueInZone(cursor)}`, figures: await figuresFor({ from: cursor, to: end }, campaign) });
+    buckets.push({ from: cursor, to: end, unit: byMonth ? "month" : "week", label: byMonth ? dayValueInZone(cursor).slice(0, 7) : `Week of ${dayValueInZone(cursor)}`, figures: await figuresFor({ from: cursor, to: end }, campaign) });
     cursor = end;
   }
   return buckets;
@@ -167,5 +167,3 @@ export function previousPeriod(period: Period): { from: Date; to: Date } {
   const length = period.to.getTime() - period.from.getTime();
   return { from: new Date(period.from.getTime() - length), to: period.from };
 }
-
-export { startOfDayInZone };

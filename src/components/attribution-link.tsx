@@ -7,8 +7,9 @@ import { archiveAttributionLink, saveAttributionLink } from "@/actions/amazon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatDollars } from "@/lib/format";
 
-export type SavedLink = {
+type SavedLink = {
   id: string;
   url: string;
   adGroupName: string;
@@ -62,6 +63,12 @@ export function AttributionLinkCard({ campaignCreatorId, campaignName, suggested
     });
   }
 
+  const errorLine = error ? (
+    <p role="alert" className="text-xs font-semibold text-danger-text">
+      {error}
+    </p>
+  ) : null;
+
   return (
     <section className="card p-5">
       <div className="mb-1 flex items-center justify-between gap-3">
@@ -102,7 +109,7 @@ export function AttributionLinkCard({ campaignCreatorId, campaignName, suggested
                   [
                     ["Clicks", link.clicks.toLocaleString("en-US")],
                     ["Orders", link.purchases.toLocaleString("en-US")],
-                    ["Sales", `$${Math.round(link.sales).toLocaleString("en-US")}`],
+                    ["Sales", formatDollars(link.sales)],
                     ["Conv.", link.conversion === null ? "–" : `${link.conversion}%`],
                   ] as const
                 ).map(([label, value]) => (
@@ -135,11 +142,7 @@ export function AttributionLinkCard({ campaignCreatorId, campaignName, suggested
             <Label htmlFor={`aa-group-${campaignCreatorId}`}>Ad group name, as in Amazon</Label>
             <Input id={`aa-group-${campaignCreatorId}`} value={adGroup} onChange={(event) => setAdGroup(event.target.value)} disabled={pending} />
           </div>
-          {error ? (
-            <p role="alert" className="text-xs font-semibold text-danger-text">
-              {error}
-            </p>
-          ) : null}
+          {errorLine}
           <div className="flex gap-2">
             <Button size="sm" disabled={pending || !url.trim() || !adGroup.trim()} onClick={() => run(() => saveAttributionLink(campaignCreatorId, url, adGroup), () => { setUrl(""); setAdding(false); })}>
               Save link
@@ -151,11 +154,7 @@ export function AttributionLinkCard({ campaignCreatorId, campaignName, suggested
             ) : null}
           </div>
         </div>
-      ) : error ? (
-        <p role="alert" className="text-xs font-semibold text-danger-text">
-          {error}
-        </p>
-      ) : null}
+      ) : errorLine}
     </section>
   );
 }

@@ -7,15 +7,24 @@ import nodemailer from "nodemailer";
  * "not configured" and nothing goes out.
  */
 export function emailConfigured(): boolean {
-  return Boolean(process.env.SMTP_URL?.trim() && process.env.SUMMARY_EMAIL_FROM?.trim() && process.env.SUMMARY_EMAIL_TO?.trim());
+  return smtpSettings() !== null;
+}
+
+/** The three settings, trimmed, or nothing when any one of them is missing. */
+function smtpSettings(): { url: string; from: string; to: string } | null {
+  const url = process.env.SMTP_URL?.trim();
+  const from = process.env.SUMMARY_EMAIL_FROM?.trim();
+  const to = process.env.SUMMARY_EMAIL_TO?.trim();
+  return url && from && to ? { url, from, to } : null;
 }
 
 export async function sendSummaryEmail(subject: string, text: string): Promise<{ sent: boolean; reason?: string }> {
-  if (!emailConfigured()) return { sent: false, reason: "SMTP_URL, SUMMARY_EMAIL_FROM or SUMMARY_EMAIL_TO is not set." };
-  const transport = nodemailer.createTransport(process.env.SMTP_URL!.trim());
+  const settings = smtpSettings();
+  if (!settings) return { sent: false, reason: "SMTP_URL, SUMMARY_EMAIL_FROM or SUMMARY_EMAIL_TO is not set." };
+  const transport = nodemailer.createTransport(settings.url);
   await transport.sendMail({
-    from: process.env.SUMMARY_EMAIL_FROM!.trim(),
-    to: process.env.SUMMARY_EMAIL_TO!.trim(),
+    from: settings.from,
+    to: settings.to,
     subject,
     text,
   });

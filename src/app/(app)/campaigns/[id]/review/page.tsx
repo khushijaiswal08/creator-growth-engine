@@ -10,19 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
-import { pendingPosts } from "@/lib/discovery";
-import { SOURCE_LABELS } from "@/lib/discovery";
+import { pendingPosts, SOURCE_LABELS } from "@/lib/discovery";
 import { formatCount, formatDay } from "@/lib/format";
 import { PLATFORM_LABELS, PLATFORMS } from "@/lib/profile-url";
-import {
-  findPossibleDuplicates,
-  loadReviewQueue,
-  parseReviewFilters,
-  reviewFilterQuery,
-  US_SIGNAL_LABELS,
-  US_SIGNALS,
-} from "@/lib/review-queue";
+import { findPossibleDuplicates, loadReviewQueue, parseReviewFilters, reviewFilterQuery } from "@/lib/review-queue";
+import { unscoredWhere } from "@/lib/scoring";
 import { requireUser } from "@/lib/session";
+import { US_SIGNAL_LABELS, US_SIGNALS } from "@/lib/status";
 import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Review queue" };
@@ -52,7 +46,7 @@ export default async function ReviewPage({
     loadReviewQueue(id, filters),
     pendingPosts(id),
     user.role === "admin"
-      ? db.campaignCreator.count({ where: { campaignId: id, status: "discovered", assessments: { none: {} } } })
+      ? db.campaignCreator.count({ where: unscoredWhere(id) })
       : 0,
   ]);
   const shown = items.slice(0, CARDS_PER_PAGE);

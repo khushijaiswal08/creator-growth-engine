@@ -15,10 +15,10 @@ import { isBrandId, type BrandId } from "@/lib/brands";
  *
  * The portal makes the order id itself (the same CGE-... reference the bulk
  * file uses), because creating an order returns no id. Amazon's answers come
- * back through syncAmazonOrders (src/lib/mcf-sync.ts), which feeds them to
+ * back through syncAmazonOrders (src/lib/mcf-flow.ts), which feeds them to
  * the same applyTracking the tracking import uses.
  */
-export const MARKETPLACE_US = "ATVPDKIKX0DER";
+const MARKETPLACE_US = "ATVPDKIKX0DER";
 const API_PATH = "/fba/outbound/2020-07-01";
 const USER_AGENT = "CreatorGrowthEngine/1.0 (Language=TypeScript; Platform=Netlify)";
 
@@ -35,7 +35,6 @@ export class McfError extends Error {
   constructor(
     message: string,
     readonly status: number | null,
-    readonly retryable: boolean,
     /** Amazon's error code, or "lwa" when the sign-in itself failed (bad or expired keys). */
     readonly code: string | null = null,
   ) {
@@ -48,7 +47,7 @@ export class McfError extends Error {
  * in the 2020-07-01 version, with a 400 "InvalidInput" whose message says the
  * order was not found; a refused sign-in is never read as "no such order".
  */
-export function isNotFound(error: unknown): boolean {
+function isNotFound(error: unknown): boolean {
   if (!(error instanceof McfError) || error.code === "lwa") return false;
   return error.status === 404 || (error.status === 400 && /not\s*found|unable to get order/i.test(error.message));
 }
@@ -73,14 +72,14 @@ async function accessToken(brandId: BrandId): Promise<string> {
     cache: "no-store",
   });
   const body = (await response.json().catch(() => ({}))) as { access_token?: string; expires_in?: number; error_description?: string };
-  if (!response.ok || !body.access_token) throw new McfError(`Amazon refused the sign-in for ${brandId}: ${body.error_description ?? response.status}. Check the SP-API keys.`, response.status, false, "lwa");
+  if (!response.ok || !body.access_token) throw new McfError(`Amazon refused the sign-in for ${brandId}: ${body.error_description ?? response.status}. Check the SP-API keys.`, response.status, "lwa");
   tokens.set(brandId, { value: body.access_token, expiresAt: Date.now() + Math.max(60, (body.expires_in ?? 3600) - 300) * 1000 });
   return body.access_token;
 }
 
 type AmazonErrors = { errors?: { code?: string; message?: string; details?: string }[] };
 
-/** One SP-API call with the brand's token. 429 and 5xx answers are marked as worth retrying later. */
+/** One SP-API call with the brand's token. */
 async function call<T>(brandId: BrandId, method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl()}${API_PATH}${path}`, {
     method,
@@ -104,7 +103,7 @@ async function call<T>(brandId: BrandId, method: "GET" | "POST" | "PUT", path: s
   }
   if (!response.ok || (parsed.errors && parsed.errors.length > 0)) {
     const message = parsed.errors?.map((error) => [error.message, error.details].filter(Boolean).join(" ")).join(" ") || `Amazon answered ${response.status}.`;
-    throw new McfError(message, response.status, response.status === 429 || response.status >= 500, parsed.errors?.[0]?.code ?? null);
+    throw new McfError(message, response.status, parsed.errors?.[0]?.code ?? null);
   }
   return parsed;
 }
@@ -162,7 +161,7 @@ export async function previewOrder(brandId: BrandId, address: McfAddress, items:
   };
 }
 
-export type CreateOrderInput = { sellerFulfillmentOrderId: string; displayableOrderDate: Date; comment: string; address: McfAddress; items: McfItem[] };
+type CreateOrderInput ={ sellerFulfillmentOrderId: string; displayableOrderDate: Date; comment: string; address: McfAddress; items: McfItem[] };
 
 /**
  * Places the order. Amazon answers with an empty body, so the portal's own id
@@ -188,7 +187,6 @@ export async function createOrder(brandId: BrandId, input: CreateOrderInput): Pr
 export type McfOrder = {
   status: string;
   packages: { packageNumber: number; carrierCode: string | null; trackingNumber: string | null; shippedAt: string | null }[];
-  shipmentStatuses: string[];
 };
 
 type OrderResponse = {
@@ -205,7 +203,6 @@ export async function getOrder(brandId: BrandId, sellerFulfillmentOrderId: strin
     const shipments = answer.payload?.fulfillmentShipments ?? [];
     return {
       status: answer.payload?.fulfillmentOrder?.fulfillmentOrderStatus ?? "Unknown",
-      shipmentStatuses: shipments.map((shipment) => shipment.fulfillmentShipmentStatus ?? ""),
       packages: shipments.flatMap((shipment) =>
         (shipment.fulfillmentShipmentPackage ?? []).flatMap((pack) =>
           pack.packageNumber === undefined ? [] : [{ packageNumber: pack.packageNumber, carrierCode: pack.carrierCode ?? null, trackingNumber: pack.trackingNumber ?? null, shippedAt: shipment.fulfillmentShipmentStatus === "SHIPPED" ? (shipment.shippingDate ?? null) : null }],
@@ -216,22 +213,6 @@ export async function getOrder(brandId: BrandId, sellerFulfillmentOrderId: strin
     if (isNotFound(error)) return null;
     throw error;
   }
-}
-
-/** Order ids Amazon changed since the given time (status changes, new orders), following every page. */
-export async function listChangedOrders(brandId: BrandId, since: Date): Promise<{ id: string; status: string }[]> {
-  const changed: { id: string; status: string }[] = [];
-  let nextToken: string | undefined;
-  for (let page = 0; page < 20; page += 1) {
-    const query = new URLSearchParams(nextToken ? { nextToken } : { queryStartDate: since.toISOString() });
-    const answer = await call<{ payload?: { nextToken?: string; fulfillmentOrders?: { sellerFulfillmentOrderId?: string; fulfillmentOrderStatus?: string }[] } }>(brandId, "GET", `/fulfillmentOrders?${query}`);
-    for (const order of answer.payload?.fulfillmentOrders ?? []) {
-      if (order.sellerFulfillmentOrderId) changed.push({ id: order.sellerFulfillmentOrderId, status: order.fulfillmentOrderStatus ?? "Unknown" });
-    }
-    nextToken = answer.payload?.nextToken;
-    if (!nextToken) break;
-  }
-  return changed;
 }
 
 /** Where a package is: Amazon's current status (DELIVERED, IN_TRANSIT, UNDELIVERABLE...) and the public tracking page. */

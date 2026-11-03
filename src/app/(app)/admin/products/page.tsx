@@ -21,6 +21,7 @@ import {
   offerStatus,
   productListWhere,
 } from "@/lib/product-list";
+import { withQuery } from "@/lib/query-string";
 import { requireAdmin } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Products" };
@@ -31,10 +32,12 @@ const number = (n: number) => n.toLocaleString("en-US");
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ q?: string; brand?: string; view?: string }> }) {
   await requireAdmin();
   const params = await searchParams;
+  const brand = params.brand ?? "";
+  const view = params.view ?? "";
   const filter = {
     q: (params.q ?? "").trim().slice(0, 100),
-    brand: isBrandId(params.brand ?? "") ? (params.brand ?? "") : "",
-    view: isOfferStatus(params.view ?? "") ? (params.view ?? "") : "",
+    brand: isBrandId(brand) ? brand : "",
+    view: isOfferStatus(view) ? view : "",
   };
   const where = productListWhere(filter);
   // The status pills count within the search and brand, whichever status is open.
@@ -56,14 +59,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     rows.find((row) => row.brandId === brandId)?._count._all ?? 0;
   const allInSearch = statusCounts.reduce((sum, n) => sum + n, 0);
 
-  const href = (view: string) => {
-    const query = new URLSearchParams();
-    if (filter.q) query.set("q", filter.q);
-    if (filter.brand) query.set("brand", filter.brand);
-    if (view) query.set("view", view);
-    const text = query.toString();
-    return text ? `/admin/products?${text}` : "/admin/products";
-  };
+  const href = (view: string) => withQuery("/admin/products", { q: filter.q, brand: filter.brand, view });
 
   return (
     <>

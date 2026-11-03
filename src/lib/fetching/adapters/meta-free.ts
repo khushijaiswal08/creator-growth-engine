@@ -34,15 +34,7 @@ const TOKEN_CODE = 190;
 
 class RateLimited extends Error {}
 class TokenInvalid extends Error {}
-class GraphError extends Error {
-  constructor(
-    message: string,
-    readonly code: number | undefined,
-    readonly subcode: number | undefined,
-  ) {
-    super(message);
-  }
-}
+class GraphError extends Error {}
 
 type GraphErrorBody = { error?: { message?: string; code?: number; error_subcode?: number } };
 type HashtagSearch = { data?: { id: string }[] };
@@ -86,12 +78,10 @@ function graphBase(): string {
   return version ? `${base}/${version}` : base;
 }
 
-export function metaConfigured(): boolean {
-  return Boolean(process.env.META_ACCESS_TOKEN?.trim() && process.env.IG_BUSINESS_ID?.trim());
-}
+const metaCredentials = () => ({ token: process.env.META_ACCESS_TOKEN?.trim(), businessId: process.env.IG_BUSINESS_ID?.trim() });
 
 /** The author's handle from an oEmbed response, or null when Meta does not reveal it. */
-export function authorFromOEmbed(embed: OEmbed): string | null {
+function authorFromOEmbed(embed: OEmbed): string | null {
   if (embed.author_name) return normalizeHandle("instagram", embed.author_name);
   const html = embed.html ?? "";
   const match = /\(@([A-Za-z0-9._]{1,30})\)/.exec(html) ?? /instagram\.com\/([A-Za-z0-9._]{1,30})\/?\?utm_source=ig_embed/.exec(html);
@@ -116,7 +106,7 @@ function makeCaller(token: string): Caller {
       const code = body.error?.code;
       if (code !== undefined && RATE_LIMIT_CODES.has(code)) throw new RateLimited(body.error?.message);
       if (code === TOKEN_CODE) throw new TokenInvalid(body.error?.message);
-      throw new GraphError(body.error?.message ?? `Graph ${path} failed (${response.status})`, code, body.error?.error_subcode);
+      throw new GraphError(body.error?.message ?? `Graph ${path} failed (${response.status})`);
     },
   };
 }
@@ -152,27 +142,33 @@ function fillFromDiscovery(candidate: Candidate, found: NonNullable<BusinessDisc
   }
 }
 
-/**
- * One Instagram account by handle, with stats when Meta is configured and the
- * account is professional. Used when a reviewer names the author of a post.
- */
-export async function lookupInstagramAccount(handle: string, post: PendingPost | null): Promise<{ candidate: Candidate; statsFound: boolean | null }> {
-  const candidate: Candidate = {
+const NO_STATS_NOTE = "Not a professional account; stats unavailable.";
+
+/** A bare Instagram candidate, with what the post itself shows. */
+function candidateFromPost(handle: string, post: PendingPost | null): Candidate {
+  return {
     ...bareProfile("meta_free", "instagram", handle),
     lastPostAt: post?.timestamp ? new Date(post.timestamp) : null,
     lastPostUrl: post?.permalink ?? null,
     recentCaptions: post?.caption ? [clip(post.caption, 300)] : [],
     fetchedAt: new Date(),
   };
-  const token = process.env.META_ACCESS_TOKEN?.trim();
-  const businessId = process.env.IG_BUSINESS_ID?.trim();
+}
+
+/**
+ * One Instagram account by handle, with stats when Meta is configured and the
+ * account is professional. Used when a reviewer names the author of a post.
+ */
+export async function lookupInstagramAccount(handle: string, post: PendingPost | null): Promise<{ candidate: Candidate; statsFound: boolean | null }> {
+  const candidate = candidateFromPost(handle, post);
+  const { token, businessId } = metaCredentials();
   if (!token || !businessId) {
     candidate.fetchNote = "Named by a reviewer; Meta is not configured, so stats were not fetched.";
     return { candidate, statsFound: null };
   }
   const found = await businessDiscovery(makeCaller(token), businessId, handle);
   if (found) fillFromDiscovery(candidate, found);
-  else candidate.fetchNote = "Not a professional account; stats unavailable.";
+  else candidate.fetchNote = NO_STATS_NOTE;
   return { candidate, statsFound: Boolean(found) };
 }
 
@@ -290,19 +286,13 @@ async function authorsStep(brief: Brief, cursor: Cursor, caller: Caller, busines
       if (authors.has(author)) continue;
       authors.add(author);
 
-      const candidate: Candidate = {
-        ...bareProfile("meta_free", "instagram", author),
-        lastPostAt: post.timestamp ? new Date(post.timestamp) : null,
-        lastPostUrl: post.permalink,
-        recentCaptions: post.caption ? [clip(post.caption, 300)] : [],
-        fetchedAt: new Date(),
-      };
+      const candidate = candidateFromPost(author, post);
       report.businessDiscovery.attempted += 1;
       const found = await businessDiscovery(caller, businessId, author);
       if (found) {
         report.businessDiscovery.succeeded += 1;
         fillFromDiscovery(candidate, found);
-      } else candidate.fetchNote = "Not a professional account; stats unavailable.";
+      } else candidate.fetchNote = NO_STATS_NOTE;
       candidates.push(candidate);
     }
   } catch (error) {
@@ -329,8 +319,7 @@ async function authorsStep(brief: Brief, cursor: Cursor, caller: Caller, busines
 }
 
 async function discoverStep(brief: Brief, cursor: Record<string, unknown> | null): Promise<DiscoveryStep> {
-  const token = process.env.META_ACCESS_TOKEN?.trim();
-  const businessId = process.env.IG_BUSINESS_ID?.trim();
+  const { token, businessId } = metaCredentials();
   if (!token || !businessId) {
     const missing = [!token && "META_ACCESS_TOKEN", !businessId && "IG_BUSINESS_ID"].filter(Boolean).join(" and ");
     return finished("not_configured", `Instagram discovery is not configured: ${missing} missing.`);
@@ -340,7 +329,7 @@ async function discoverStep(brief: Brief, cursor: Record<string, unknown> | null
   return hashtagStep(brief, caller, businessId);
 }
 
-/** The whole run in one call, for scripts and tests. */
+/** The whole run in one call: what fetchCandidates and the optional CreatorSource.discover use. */
 async function discover(brief: Brief): Promise<DiscoveryResult> {
   const candidates: Candidate[] = [];
   let cursor: Record<string, unknown> | null = null;

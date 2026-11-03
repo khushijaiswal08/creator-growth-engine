@@ -1,33 +1,15 @@
 import { createId } from "@paralleldrive/cuid2";
 import { Prisma, type DataSource, type RunStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { RUN_STATUS_LABELS, SOURCE_LABELS, type DiscoverySource } from "@/lib/discovery-labels";
 import { getCreatorSource, NotImplementedError, type Candidate, type DiscoveryStep } from "@/lib/fetching";
 import { lookupInstagramAccount, type MetaReport, type PendingPost } from "@/lib/fetching/adapters/meta-free";
-import { displayHandle, normalizeHandle, PLATFORM_LABELS } from "@/lib/profile-url";
+import { normalizeHandle, profileLabel } from "@/lib/profile-url";
+import { SLICE_LOCK_MS, unlocked } from "@/lib/run-lock";
 import { loadSuppressions } from "@/lib/suppression";
 import { youtubeBudget } from "@/lib/youtube-quota";
 
-export const DISCOVERY_SOURCES = ["youtube", "meta_free"] as const satisfies readonly DataSource[];
-export type DiscoverySource = (typeof DISCOVERY_SOURCES)[number];
-
-export const SOURCE_LABELS: Record<DataSource, string> = {
-  youtube: "YouTube",
-  meta_free: "Instagram hashtags (Meta)",
-  vendor: "Data vendor",
-  csv: "CSV import",
-  manual: "Added by hand",
-};
-
-export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
-  running: "Running",
-  completed: "Completed",
-  stopped_quota: "Stopped: quota reached",
-  not_configured: "Not configured",
-  failed: "Failed",
-};
-
-/** How long one slice may hold a run before another worker may take over. */
-const LOCK_MS = 90 * 1000;
+export { DISCOVERY_SOURCES, RUN_STATUS_LABELS, SOURCE_LABELS, type DiscoverySource } from "@/lib/discovery-labels";
 
 export type DiscoverySummary = {
   runId: string;
@@ -46,7 +28,8 @@ export type DiscoverySummary = {
 
 const candidateKey = (candidate: Pick<Candidate, "platform" | "handle">) => `${candidate.platform}:${candidate.handle}`;
 
-type RunRow = Prisma.DiscoveryRunGetPayload<{ include: { campaign: { select: { id: true; name: true; brief: true; nicheKeywords: true; negativeKeywords: true } } } }>;
+const RUN_INCLUDE = { campaign: { select: { id: true, name: true, brief: true, nicheKeywords: true, negativeKeywords: true } } } satisfies Prisma.DiscoveryRunInclude;
+type RunRow = Prisma.DiscoveryRunGetPayload<{ include: typeof RUN_INCLUDE }>;
 
 function summarise(run: RunRow, done: boolean): DiscoverySummary {
   return {
@@ -59,7 +42,7 @@ function summarise(run: RunRow, done: boolean): DiscoverySummary {
     skipped: run.skipped,
     quotaUsed: run.quotaUsed,
     note: run.note,
-    report: (run.report as Record<string, unknown> | null) ?? null,
+    report: run.report as Record<string, unknown> | null,
     done,
   };
 }
@@ -70,7 +53,7 @@ function summarise(run: RunRow, done: boolean): DiscoverySummary {
  * route into the portal (a discovery slice, a reviewer naming a post's author)
  * goes through here, so nobody skips the checks.
  */
-export async function admitCandidates(
+async function admitCandidates(
   run: { id: string; source: DataSource; campaignId: string; campaignName: string },
   candidates: Candidate[],
   userId: string,
@@ -107,7 +90,7 @@ export async function admitCandidates(
     }
     const influencerId = createId();
     const linkId = createId();
-    const label = `${PLATFORM_LABELS[candidate.platform]} ${displayHandle(candidate.handle)}`;
+    const label = profileLabel(candidate.platform, candidate.handle);
     influencers.push({ id: influencerId, name: candidate.name ?? candidate.handle, email: candidate.email, location: candidate.location ?? candidate.country });
     profiles.push({
       id: createId(),
@@ -169,12 +152,12 @@ export async function startDiscovery(args: { campaignId: string; source: Discove
  */
 export async function discoverySlice(runId: string, now = new Date()): Promise<DiscoverySummary> {
   const claimed = await db.discoveryRun.updateMany({
-    where: { id: runId, status: "running", OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] },
-    data: { lockedUntil: new Date(now.getTime() + LOCK_MS) },
+    where: { id: runId, status: "running", ...unlocked(now) },
+    data: { lockedUntil: new Date(now.getTime() + SLICE_LOCK_MS) },
   });
   const run = await db.discoveryRun.findUniqueOrThrow({
     where: { id: runId },
-    include: { campaign: { select: { id: true, name: true, brief: true, nicheKeywords: true, negativeKeywords: true } } },
+    include: RUN_INCLUDE,
   });
   // Finished already, or another worker holds it: report as it stands.
   if (claimed.count === 0) return summarise(run, run.status !== "running");
@@ -185,8 +168,6 @@ export async function discoverySlice(runId: string, now = new Date()): Promise<D
   try {
     const adapter = getCreatorSource(run.source);
     const brief = {
-      campaignId: run.campaign.id,
-      text: run.campaign.brief,
       nicheKeywords: run.campaign.nicheKeywords,
       negativeKeywords: run.campaign.negativeKeywords,
       // YouTube: what is left of today's 80% allowance, counting this run's earlier slices too.
@@ -237,7 +218,7 @@ export async function discoverySlice(runId: string, now = new Date()): Promise<D
       lockedUntil: null,
       ...(step.done ? { status: finalStatus, finishedAt: now } : {}),
     },
-    include: { campaign: { select: { id: true, name: true, brief: true, nicheKeywords: true, negativeKeywords: true } } },
+    include: RUN_INCLUDE,
   });
 
   if (step.done) {
@@ -267,7 +248,7 @@ export async function pendingPosts(campaignId: string): Promise<{ runId: string;
     take: 10,
     select: { id: true, report: true },
   });
-  return runs.flatMap((run) => (((run.report as MetaReport | null)?.pending ?? []) as PendingPost[]).map((post) => ({ runId: run.id, post })));
+  return runs.flatMap((run) => ((run.report as MetaReport | null)?.pending ?? []).map((post) => ({ runId: run.id, post })));
 }
 
 export type AttributeOutcome = { ok: true; outcome: "added" | "known" | "blocked"; statsFound: boolean | null } | { ok: false; error: string };
@@ -282,7 +263,7 @@ export async function attributePost(args: { runId: string; permalink: string; ha
   if (!handle) return { ok: false, error: "That does not look like an Instagram handle." };
 
   const run = await db.discoveryRun.findUniqueOrThrow({ where: { id: args.runId }, include: { campaign: { select: { id: true, name: true } } } });
-  const report = (run.report as MetaReport | null) ?? null;
+  const report = run.report as MetaReport | null;
   const post = report?.pending.find((item) => item.permalink === args.permalink);
   if (!report || !post) return { ok: false, error: "That post is no longer waiting for a handle." };
 
@@ -314,7 +295,7 @@ export async function attributePost(args: { runId: string; permalink: string; ha
 /** A reviewer drops a post that is not worth naming. */
 export async function dismissPost(args: { runId: string; permalink: string }): Promise<boolean> {
   const run = await db.discoveryRun.findUniqueOrThrow({ where: { id: args.runId }, select: { report: true } });
-  const report = (run.report as MetaReport | null) ?? null;
+  const report = run.report as MetaReport | null;
   if (!report?.pending.some((item) => item.permalink === args.permalink)) return false;
   await db.discoveryRun.update({
     where: { id: args.runId },

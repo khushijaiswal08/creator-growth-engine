@@ -1,4 +1,5 @@
 import type { Platform } from "@prisma/client";
+import { ASIN_RE } from "@/lib/amazon-listing";
 
 /**
  * Readers for the Amazon files the team uploads, as plain functions over a
@@ -107,7 +108,10 @@ const ATTRIBUTION_COLUMNS = {
   brandReferralBonus: ["brand referral bonus", "estimated brand referral bonus", "brb", "brb bonus amount"],
 } as const;
 
-export type AttributionRow = {
+/** Without an ad group column there is nothing to match rows to. */
+const ATTRIBUTION_REQUIRED = ["adGroup"] as const;
+
+type AttributionRow = {
   campaign: string;
   adGroup: string;
   publisher: string;
@@ -128,21 +132,21 @@ export type AttributionRow = {
  */
 export function readAttributionReport(grid: Grid): { ok: true; rows: AttributionRow[]; daily: boolean } | { ok: false; error: string } {
   if (grid.length > MAX_REPORT_ROWS) return { ok: false, error: `The file has more than ${MAX_REPORT_ROWS.toLocaleString("en-US")} rows. Download a shorter date range.` };
-  const found = locate(grid, ATTRIBUTION_COLUMNS, ["adGroup"]);
+  const found = locate(grid, ATTRIBUTION_COLUMNS, ATTRIBUTION_REQUIRED);
   if (!found) return { ok: false, error: "This does not look like an Amazon Attribution report: there is no Ad group column. Download the Campaign report (daily) from Amazon Attribution and upload it unchanged." };
   const { header, at } = found;
   if (at.clicks === undefined && at.purchases === undefined && at.productSales === undefined) {
     return { ok: false, error: "The report has no Clicks, Purchases or Product sales column, so there is nothing to count." };
   }
-  const cell = (row: string[], name: keyof typeof ATTRIBUTION_COLUMNS) => (at[name] === undefined ? "" : (row[at[name]!] ?? ""));
+  const cell = (row: string[], name: keyof typeof ATTRIBUTION_COLUMNS) => (at[name] === undefined ? "" : String(row[at[name]!] ?? "").trim());
   const rows: AttributionRow[] = [];
   for (const row of grid.slice(header + 1)) {
-    const adGroup = String(cell(row, "adGroup")).trim();
+    const adGroup = cell(row, "adGroup");
     if (!adGroup || /^total/i.test(adGroup)) continue;
     rows.push({
-      campaign: String(cell(row, "campaign")).trim(),
+      campaign: cell(row, "campaign"),
       adGroup,
-      publisher: String(cell(row, "publisher")).trim(),
+      publisher: cell(row, "publisher"),
       date: at.date === undefined ? null : parseDay(cell(row, "date")),
       clicks: parseCount(cell(row, "clicks")) ?? 0,
       detailPageViews: parseCount(cell(row, "detailPageViews")) ?? 0,
@@ -174,7 +178,10 @@ const BUSINESS_COLUMNS = {
   pageViews: ["page views total", "page views"],
 } as const;
 
-export type BusinessRow = {
+/** The two columns the Business Report cannot be read without. */
+const BUSINESS_REQUIRED = ["childAsin", "unitsOrdered"] as const;
+
+type BusinessRow = {
   childAsin: string;
   parentAsin: string | null;
   title: string | null;
@@ -187,8 +194,6 @@ export type BusinessRow = {
   pageViews: number | null;
 };
 
-const ASIN_RE = /^[A-Z0-9]{10}$/;
-
 /**
  * Rows of "Detail Page Sales and Traffic by Child Item". Needs the child ASIN
  * and Units Ordered; the file has no dates, so the month comes from the person
@@ -196,7 +201,7 @@ const ASIN_RE = /^[A-Z0-9]{10}$/;
  */
 export function readBusinessReport(grid: Grid): { ok: true; rows: BusinessRow[] } | { ok: false; error: string } {
   if (grid.length > MAX_REPORT_ROWS) return { ok: false, error: `The file has more than ${MAX_REPORT_ROWS.toLocaleString("en-US")} rows.` };
-  const found = locate(grid, BUSINESS_COLUMNS, ["childAsin", "unitsOrdered"]);
+  const found = locate(grid, BUSINESS_COLUMNS, BUSINESS_REQUIRED);
   if (!found) {
     return { ok: false, error: "This does not look like a Business Report: it needs (Child) ASIN and Units Ordered columns. In Seller Central open Reports > Business Reports > Detail Page Sales and Traffic by Child Item, pick one month and download the CSV." };
   }
@@ -244,19 +249,15 @@ export function readBusinessReport(grid: Grid): { ok: true; rows: BusinessRow[] 
  * (up to the row limit) so the server can say what is wrong with it.
  */
 export function compactGrid(grid: Grid, kind: "attribution" | "business"): Grid {
-  const columns: Columns = kind === "attribution" ? ATTRIBUTION_COLUMNS : BUSINESS_COLUMNS;
-  const found = kind === "attribution" ? locate(grid, ATTRIBUTION_COLUMNS, ["adGroup"]) : locate(grid, BUSINESS_COLUMNS, ["childAsin", "unitsOrdered"]);
+  const found = kind === "attribution" ? locate(grid, ATTRIBUTION_COLUMNS, ATTRIBUTION_REQUIRED) : locate(grid, BUSINESS_COLUMNS, BUSINESS_REQUIRED);
   if (!found) return grid.slice(0, MAX_REPORT_ROWS + 1).map((row) => row.slice(0, 40));
-  const keep = Object.keys(columns).flatMap((name) => {
-    const index = (found.at as Record<string, number | undefined>)[name];
-    return index === undefined ? [] : [index];
-  });
+  const keep = Object.values(found.at).filter((index): index is number => index !== undefined);
   return grid.slice(found.header, found.header + MAX_REPORT_ROWS + 1).map((row) => keep.map((index) => String(row[index] ?? "")));
 }
 
 // --- Attribution links -------------------------------------------------------------------------------
 
-export type ParsedAttributionLink = { url: string; maas: string; asin: string | null; store: boolean };
+type ParsedAttributionLink = { url: string; maas: string; asin: string | null; store: boolean };
 
 /**
  * Checks a pasted Amazon Attribution tag. It must be an amazon.com address

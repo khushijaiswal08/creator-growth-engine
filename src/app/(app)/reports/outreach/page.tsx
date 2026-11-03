@@ -7,32 +7,31 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
+import { openCampaignIn } from "@/lib/due";
 import { formatDay } from "@/lib/format";
-import { replyRate, weeklyStats } from "@/lib/outreach-stats";
+import { OUTREACH_WEEKS, replyRate, weeklyStats } from "@/lib/outreach-stats";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Outreach report" };
 
-const WEEKS = 8;
-
 /**
- * By person and by week for the last eight weeks: messages, replies, reply
- * rate, agreed, shipped, posted. One campaign or the whole brand. The CSV at
+ * By person and by week for the last eight weeks: messages, creators messaged,
+ * replies, reply rate, follow-ups, agreed, shipped, posted. One campaign or the whole brand. The CSV at
  * /reports/outreach/export has the same rows.
  */
 export default async function OutreachReportPage({ searchParams }: { searchParams: Promise<{ campaign?: string }> }) {
   const user = await requireUser();
   const view = viewed(user);
-  const campaigns = await db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }, orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const campaigns = await db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
   const asked = (await searchParams).campaign;
   const chosen = campaigns.find((campaign) => campaign.id === asked) ?? null;
   const where = chosen ? { id: chosen.id } : view.campaigns;
-  const weeks = await weeklyStats(where, WEEKS);
+  const weeks = await weeklyStats(where, OUTREACH_WEEKS);
   const anyone = weeks.some((week) => week.people.length > 0);
 
   return (
     <>
-      <PageHeader title="Outreach report" meta={`Last ${WEEKS} weeks, by person`}>
+      <PageHeader title="Outreach report" meta={`Last ${OUTREACH_WEEKS} weeks, by person`}>
         <Button asChild variant="outline">
           <a href={`/reports/outreach/export${chosen ? `?campaign=${chosen.id}` : ""}`}>
             <Download strokeWidth={2.4} />
@@ -74,23 +73,26 @@ export default async function OutreachReportPage({ searchParams }: { searchParam
           </TableHeader>
           <TableBody>
             {!anyone ? (
-              <EmptyRow colSpan={10}>No messages logged in the last {WEEKS} weeks. Each message logged with the Message button counts here.</EmptyRow>
+              <EmptyRow colSpan={10}>No messages logged in the last {OUTREACH_WEEKS} weeks. Each message logged with the Message button counts here.</EmptyRow>
             ) : (
               weeks.flatMap((week) =>
-                (week.people.length === 0 ? [null] : week.people).map((person, index) => (
-                  <TableRow key={`${week.weekStart.toISOString()}-${person?.userId ?? "none"}`}>
-                    <TableCell className="text-muted-foreground">{index === 0 ? formatDay(week.weekStart) : ""}</TableCell>
-                    <TableCell>{person ? person.name : <span className="text-muted-foreground">Nobody</span>}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.messages ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.creators ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.replies ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person ? (replyRate(person) === null ? "" : `${replyRate(person)}%`) : ""}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.followUps ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.agreed ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.shipped ?? 0}</TableCell>
-                    <TableCell className="text-right tabular-nums">{person?.posted ?? 0}</TableCell>
-                  </TableRow>
-                )),
+                (week.people.length === 0 ? [null] : week.people).map((person, index) => {
+                  const rate = person ? replyRate(person) : null;
+                  return (
+                    <TableRow key={`${week.weekStart.toISOString()}-${person?.userId ?? "none"}`}>
+                      <TableCell className="text-muted-foreground">{index === 0 ? formatDay(week.weekStart) : ""}</TableCell>
+                      <TableCell>{person ? person.name : <span className="text-muted-foreground">Nobody</span>}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.messages ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.creators ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.replies ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{rate === null ? "" : `${rate}%`}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.followUps ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.agreed ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.shipped ?? 0}</TableCell>
+                      <TableCell className="text-right tabular-nums">{person?.posted ?? 0}</TableCell>
+                    </TableRow>
+                  );
+                }),
               )
             )}
           </TableBody>

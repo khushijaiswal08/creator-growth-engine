@@ -46,7 +46,7 @@ export async function saveScoringPrompt(_prev: FormState, formData: FormData): P
   const brandId = field(formData, "brandId");
   if (!isBrandId(brandId)) return { error: "Unknown brand." };
 
-  const guidance = String(formData.get("guidance") ?? "").trim();
+  const guidance = field(formData, "guidance");
   if (guidance.length < 40) return { error: "The guidance is too short to be useful." };
   if (guidance.length > 6000) return { error: "The guidance is too long (6,000 characters at most)." };
 

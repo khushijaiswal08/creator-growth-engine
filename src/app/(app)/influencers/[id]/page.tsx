@@ -22,15 +22,18 @@ import { suggestedAdGroupName } from "@/lib/amazon-reports";
 import { conversionRate } from "@/lib/amazon-stats";
 import { presignView } from "@/lib/content-storage";
 import { CONTENT_STATUS_LABELS, USAGE_LABELS } from "@/lib/content-upload";
+import { appBaseUrl } from "@/lib/app-url";
 import { activityOfInfluencer, allowed, viewed } from "@/lib/brand-scope";
+import { LATEST_METRICS } from "@/lib/creator-card-data";
 import { db } from "@/lib/db";
-import { formatCount, formatDay, timeAgo } from "@/lib/format";
+import { openCampaignIn } from "@/lib/due";
+import { capitalize, formatCount, formatDay, formatDollars, plural, timeAgo } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
-import { deliverySteps, suggestedTemplate } from "@/lib/next-action";
-import { displayHandle, PLATFORM_LABELS, profileUrl } from "@/lib/profile-url";
-import { appBaseUrl } from "@/lib/selection";
+import { CAMPAIGN_TIMINGS_SELECT, deliverySteps, suggestedTemplate } from "@/lib/next-action";
+import { describeProduct } from "@/lib/product-list";
+import { displayHandle, PLATFORM_LABELS, PLATFORM_SHORT, profileUrl } from "@/lib/profile-url";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS, SEND_BLOCKED_STATUSES } from "@/lib/status";
+import { CONTENT_STATUS_TONES, CREATOR_STATUS_LABELS, sendBlockedReason, USAGE_TONES } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
 import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
 
@@ -39,7 +42,6 @@ export const metadata: Metadata = { title: "Creator" };
 const ACTIVITY_LIMIT = 100;
 const MESSAGE_LIMIT = 60;
 const TIMELINE_SHOWN = 8;
-const PLATFORM_SHORT = { instagram: "IG", tiktok: "TT", youtube: "YT" } as const;
 
 // The journey as eight marks on one bar. Every status lands on one mark, on "not started", or on a closed outcome.
 const STEPS = ["Contacted", "Replied", "Agreed", "Address in", "Shipped", "Delivered", "Content due", "Done"] as const;
@@ -101,15 +103,7 @@ export default async function InfluencerPage({
             select: {
               id: true,
               name: true,
-              followUpAfterDays: true,
-              maxFollowUps: true,
-              closeAfterDays: true,
-              arrivalCheckDays: true,
-              selectionWaitDays: true,
-              deliveryWaitDays: true,
-              contentReminderDays: true,
-              contentDueDays: true,
-              noContentAfterDays: true,
+              ...CAMPAIGN_TIMINGS_SELECT,
             },
           },
           owner: { select: { name: true } },
@@ -129,7 +123,7 @@ export default async function InfluencerPage({
               hasDisclosure: true,
               mentionsBrand: true,
               productShown: true,
-              metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true } },
+              metrics: LATEST_METRICS,
             },
           },
           attributionLinks: { where: { archived: false }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, adGroupName: true, asin: true } },
@@ -172,7 +166,7 @@ export default async function InfluencerPage({
       },
     }),
     db.campaign.findMany({
-      where: { ...view.campaigns, status: { not: "archived" } },
+      where: openCampaignIn(view),
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -197,7 +191,6 @@ export default async function InfluencerPage({
   const trackRecord = (await trackRecordFor([id], view)).get(id);
   const record = describeTrackRecord(trackRecord);
   const messageProfiles = influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle }));
-  const blockedReason = influencer.archived ? "This creator is archived." : suppressed ? `On the do-not-contact list: ${suppressed}` : null;
 
   const links = influencer.campaigns.map((link) => ({ ...link, giftOrders: link.giftOrders.map((gift) => openAddress(gift)) }));
   const active = links[0] ?? null;
@@ -220,6 +213,7 @@ export default async function InfluencerPage({
   const engagement = influencer.profiles.find((profile) => profile.engagementRate !== null)?.engagementRate ?? null;
   const lastPost = influencer.profiles.reduce<Date | null>((best, profile) => (profile.lastPostAt && (!best || profile.lastPostAt > best) ? profile.lastPostAt : best), null);
   const gmv = influencer.amazonMonthlyGmvUsd === null ? null : Number(influencer.amazonMonthlyGmvUsd);
+  const details = { id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes, affiliateQuote: influencer.affiliateQuote };
 
   const targetFor = (link: (typeof links)[number]) => ({
     campaignCreatorId: link.id,
@@ -228,7 +222,7 @@ export default async function InfluencerPage({
     profiles: messageProfiles,
     email: influencer.email,
     amazonCreator: influencer.amazonTier !== null,
-    blockedReason: blockedReason ?? (SEND_BLOCKED_STATUSES.has(link.status) ? `Marked ${CREATOR_STATUS_LABELS[link.status]}.` : null),
+    blockedReason: sendBlockedReason(link.status, suppressed, influencer.archived),
     purpose: suggestedTemplate(link.status, link.nextAction),
   });
 
@@ -275,9 +269,9 @@ export default async function InfluencerPage({
             <Stat label="Followers" value={followers === null ? "–" : formatCount(followers)} />
             <Stat label="Engagement" value={engagement === null ? "–" : `${engagement}%`} />
             <Stat label="Location" value={influencer.location ?? "–"} />
-            <Stat label="Amazon sales, monthly avg" value={gmv === null ? "–" : `$${Math.round(gmv).toLocaleString("en-US")}`} />
+            <Stat label="Amazon sales, monthly avg" value={gmv === null ? "–" : formatDollars(gmv)} />
             <Stat label="Last post" value={lastPost ? timeAgo(lastPost, now) : "–"} />
-            <Stat label="Content delivered" value={trackRecord && trackRecord.gifts > 0 ? `${trackRecord.delivered} of ${trackRecord.gifts} ${trackRecord.gifts === 1 ? "gift" : "gifts"}` : "–"} />
+            <Stat label="Content delivered" value={trackRecord && trackRecord.gifts > 0 ? `${trackRecord.delivered} of ${plural(trackRecord.gifts, "gift")}` : "–"} />
           </dl>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -412,7 +406,7 @@ export default async function InfluencerPage({
                                   <span aria-hidden className={cn("font-bold", done ? "text-success-text" : current ? "text-primary-text" : "text-muted-foreground")}>{done ? "✓" : current ? "●" : "○"}</span>
                                   <span className={cn(current && "font-semibold")}>{step.action}</span>
                                   <span className={cn("text-xs", current ? "font-semibold text-primary-text" : "text-muted-foreground")}>
-                                    {done ? "done" : current ? (now >= step.at ? "due now" : formatDay(step.at)) : reached ? "skipped" : formatDay(step.at)}
+                                    {done ? "done" : current ? (reached ? "due now" : formatDay(step.at)) : reached ? "skipped" : formatDay(step.at)}
                                   </span>
                                 </li>
                               );
@@ -490,7 +484,7 @@ export default async function InfluencerPage({
                 <section className="card p-5">
                   <div className="mb-3 flex items-center justify-between">
                     <h2>About</h2>
-                    <EditDetailsButton influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes, affiliateQuote: influencer.affiliateQuote }} />
+                    <EditDetailsButton influencer={details} />
                   </div>
                   <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm">
                     <dt className="text-muted-foreground">Email</dt>
@@ -503,7 +497,7 @@ export default async function InfluencerPage({
                       <>
                         <dt className="text-muted-foreground">Amazon</dt>
                         <dd>
-                          {[influencer.amazonTier ? `${influencer.amazonTier} tier` : null, gmv !== null ? `$${Math.round(gmv).toLocaleString("en-US")} avg monthly` : null].filter(Boolean).join(", ")}
+                          {[influencer.amazonTier ? `${influencer.amazonTier} tier` : null, gmv !== null ? `${formatDollars(gmv)} avg monthly` : null].filter(Boolean).join(", ")}
                           {influencer.amazonGmvDetail ? <span className="block text-xs text-muted-foreground">{influencer.amazonGmvDetail}</span> : null}
                         </dd>
                       </>
@@ -531,7 +525,7 @@ export default async function InfluencerPage({
                             </Link>
                             <p className="truncate text-xs text-muted-foreground">
                               {link.giftOrders[0] ? [link.giftOrders[0].product.title, link.giftOrders[0].product.color].filter(Boolean).join(", ") : "No gift yet"}
-                              {link.posts.length > 0 ? ` · ${link.posts.length} ${link.posts.length === 1 ? "post" : "posts"}` : ""}
+                              {link.posts.length > 0 ? ` · ${plural(link.posts.length, "post")}` : ""}
                             </p>
                           </div>
                           <CreatorStatusPill status={link.status} />
@@ -631,8 +625,8 @@ export default async function InfluencerPage({
                           {asset.kind === "video" ? "Video" : asset.kind === "photo" ? "Photo" : "File"}
                           {asset.receivedAt ? ` · ${formatDay(asset.receivedAt)}` : ""} · {asset.campaignName}
                         </span>
-                        <Pill tone={asset.status === "approved" ? "success" : asset.status === "changes_requested" ? "danger" : "warning"}>{CONTENT_STATUS_LABELS[asset.status]}</Pill>
-                        <Pill tone={asset.usageRights === "paid" ? "success" : asset.usageRights === "organic" ? "info" : "neutral"}>{USAGE_LABELS[asset.usageRights]}</Pill>
+                        <Pill tone={CONTENT_STATUS_TONES[asset.status]}>{CONTENT_STATUS_LABELS[asset.status]}</Pill>
+                        <Pill tone={USAGE_TONES[asset.usageRights]}>{USAGE_LABELS[asset.usageRights]}</Pill>
                       </li>
                     ))}
                   </ul>
@@ -645,7 +639,7 @@ export default async function InfluencerPage({
                   {posts.map((post) => (
                     <li key={post.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                       <a className="link" href={post.url} target="_blank" rel="noopener noreferrer">
-                        {post.format ? post.format[0].toUpperCase() + post.format.slice(1) : "Post"}
+                        {post.format ? capitalize(post.format) : "Post"}
                       </a>
                       <span className="text-muted-foreground">
                         {post.postedAt ? `posted ${formatDay(post.postedAt)}` : `recorded ${formatDay(post.createdAt)}`} · {post.campaignName}
@@ -683,7 +677,7 @@ export default async function InfluencerPage({
             <section className="card p-5">
               <h2 className="mb-1">Notes and details</h2>
               <p className="text-sm text-muted-foreground">Anything the team should know before the next message: preferred colours, posting days, how they like to be approached.</p>
-              <EditInfluencerForm influencer={{ id: influencer.id, name: influencer.name, email: influencer.email, location: influencer.location, usSignal: influencer.usSignal, notes: influencer.notes, affiliateQuote: influencer.affiliateQuote }} />
+              <EditInfluencerForm influencer={details} />
             </section>
           ),
         }}
@@ -717,18 +711,19 @@ function GiftLine({
     product: { title: string; color: string | null; size: string | null; sku: string; imageUrl: string | null; price: { toString(): string } | null };
   };
 }) {
+  const place = [gift.city, gift.state].filter(Boolean).join(", ");
   return (
     <div className="flex items-start gap-3">
       <ProductPhoto url={gift.product.imageUrl} size={56} className="size-14 shrink-0 rounded-md" />
       <div className="grid min-w-0 gap-0.5 text-sm">
-        <p className="font-semibold">{[gift.product.title, gift.product.color, gift.product.size].filter(Boolean).join(", ")}</p>
+        <p className="font-semibold">{describeProduct(gift.product)}</p>
         <p className="text-xs text-muted-foreground">
           SKU {gift.product.sku}
           {gift.product.price ? ` · $${gift.product.price.toString()}` : ""}
         </p>
         <p className="text-xs text-muted-foreground">
           {gift.deliveredAt ? `Delivered ${formatDay(gift.deliveredAt)}` : gift.shippedAt ? `Shipped ${formatDay(gift.shippedAt)}` : "Not shipped yet"}
-          {[gift.city, gift.state].filter(Boolean).length > 0 ? ` to ${[gift.city, gift.state].filter(Boolean).join(", ")}` : ""}
+          {place ? ` to ${place}` : ""}
           {gift.carrier || gift.trackingNumber ? ` · ${[gift.carrier, gift.trackingNumber].filter(Boolean).join(" ")}` : ""}
         </p>
         {gift.approvalNote && gift.status === "needs_approval" ? <p className="text-xs text-warning-text">Needs approval: {gift.approvalNote}</p> : null}

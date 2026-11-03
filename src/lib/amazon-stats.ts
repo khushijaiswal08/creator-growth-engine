@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { dayValueInZone } from "@/lib/format";
+import { DAY_MS, dayValueInZone } from "@/lib/format";
 
 /**
  * What the imported Amazon files say, added up for the pages that show it.
@@ -15,11 +15,9 @@ import { dayValueInZone } from "@/lib/format";
  * so a period that holds only part of it gets that part, never all or nothing.
  * Links that were removed keep counting for the days they covered.
  */
-export type AttributionTotals = { clicks: number; detailPageViews: number; addToCarts: number; purchases: number; unitsSold: number; productSales: number; brandReferralBonus: number | null };
+type AttributionTotals = { clicks: number; detailPageViews: number; addToCarts: number; purchases: number; unitsSold: number; productSales: number; brandReferralBonus: number | null };
 
 export const EMPTY_TOTALS: AttributionTotals = { clicks: 0, detailPageViews: 0, addToCarts: 0, purchases: 0, unitsSold: 0, productSales: 0, brandReferralBonus: null };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Purchases per click, as a percentage with one decimal; null below 10 clicks, where Amazon's own numbers are too thin to read. */
 export function conversionRate(totals: Pick<AttributionTotals, "clicks" | "purchases">): number | null {
@@ -27,7 +25,7 @@ export function conversionRate(totals: Pick<AttributionTotals, "clicks" | "purch
 }
 
 /** The calendar day (as a plain date at UTC midnight) that an instant falls on, on the team's clock. */
-export const zoneDay = (instant: Date) => new Date(`${dayValueInZone(instant)}T00:00:00Z`);
+const zoneDay = (instant: Date) => new Date(`${dayValueInZone(instant)}T00:00:00Z`);
 
 type Range = { from: Date; to: Date };
 type StatRow = { periodStart: Date; periodEnd: Date; clicks: number; detailPageViews: number; addToCarts: number; purchases: number; unitsSold: number; productSales: Prisma.Decimal; brandReferralBonus: Prisma.Decimal | null };
@@ -106,7 +104,7 @@ export async function attributionByCampaignCreator(creators: Prisma.CampaignCrea
   return new Map([...sums].map(([key, totals]) => [key, rounded(totals)]));
 }
 
-export type UnitsTable = {
+type UnitsTable = {
   months: Date[];
   /** Months that have a Business Report imported; the others show "–" rather than zero. */
   imported: boolean[];

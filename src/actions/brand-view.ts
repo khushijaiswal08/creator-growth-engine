@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { isBrandId } from "@/lib/brands";
 import { BRAND_VIEW_COOKIE, requireUser } from "@/lib/session";
 
-// Same rule as the session cookie: over HTTPS the cookie never travels over plain HTTP.
+// Over HTTPS the cookie never travels over plain HTTP. auth.config.ts decides the same for the session cookie with a wider check of the hosting signals; bringing the two in line is a security change, not a tidy-up.
 const secure = process.env.VERCEL === "1" || (process.env.AUTH_URL ?? "").startsWith("https://");
 
 /**

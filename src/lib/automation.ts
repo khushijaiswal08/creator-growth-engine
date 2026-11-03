@@ -1,9 +1,9 @@
 import { Prisma, type CreatorStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { nextActionFor, TERMINAL_STATUSES, type CampaignTimings, type NextActionInput } from "@/lib/next-action";
-import { CREATOR_STATUS_LABELS, CREATOR_STATUSES } from "@/lib/status";
+import { DAY_MS } from "@/lib/format";
+import { CAMPAIGN_TIMINGS_SELECT, nextActionFor, TERMINAL_STATUSES, type CampaignTimings, type NextAction, type NextActionInput } from "@/lib/next-action";
+import { CREATOR_STATUSES, statusChangeText } from "@/lib/status";
 
-const DAY = 24 * 60 * 60 * 1000;
 const AUTOMATION_EMAIL = "automation@system.invalid";
 
 /**
@@ -33,19 +33,7 @@ const creatorSelect = {
   nextActionDueAt: true,
   waitingOn: true,
   invitedBackAt: true,
-  campaign: {
-    select: {
-      followUpAfterDays: true,
-      maxFollowUps: true,
-      closeAfterDays: true,
-      arrivalCheckDays: true,
-      selectionWaitDays: true,
-      deliveryWaitDays: true,
-      contentReminderDays: true,
-      contentDueDays: true,
-      noContentAfterDays: true,
-    },
-  },
+  campaign: { select: CAMPAIGN_TIMINGS_SELECT },
   giftOrders: {
     where: { status: { not: "cancelled" } },
     orderBy: { createdAt: "desc" },
@@ -71,6 +59,11 @@ const toInput = (creator: LoadedCreator, status: CreatorStatus = creator.status)
   invitedBack: creator.invitedBackAt !== null,
 });
 
+/** A task that is already waiting on us keeps its original due time, so the queue shows how long it has waited. */
+function keepDueTime(next: NextAction, current: { nextAction: string | null; nextActionDueAt: Date | null }): Date | null {
+  return next.waitingOn === "team" && next.action === current.nextAction && current.nextActionDueAt ? current.nextActionDueAt : next.dueAt;
+}
+
 /**
  * Recomputes the next action for one creator. Every action that changes a
  * creator calls this, so the work queue is right without waiting for the
@@ -80,18 +73,14 @@ export async function refreshNextAction(campaignCreatorId: string, now = new Dat
   const creator = await db.campaignCreator.findUnique({ where: { id: campaignCreatorId }, select: creatorSelect });
   if (!creator) return;
   const next = nextActionFor(toInput(creator), creator.campaign, now);
-  // A task that is already waiting on us keeps its original due time.
-  const dueAt =
-    next.waitingOn === "team" && next.action === creator.nextAction && creator.nextActionDueAt
-      ? creator.nextActionDueAt
-      : next.dueAt;
+  const dueAt = keepDueTime(next, creator);
   await db.campaignCreator.update({
     where: { id: campaignCreatorId },
     data: { nextAction: next.action, nextActionDueAt: dueAt, waitingOn: next.waitingOn },
   });
 }
 
-export type AutomationSummary = {
+type AutomationSummary = {
   checked: number;
   followUpsDue: number;
   closedNoReply: number;
@@ -132,7 +121,7 @@ export async function runAutomations(trigger: "cron" | "manual" | "dashboard", n
     // The product arrived, the content date passed, and the grace period after it has run out too.
     // The record then says so, so the team sees who takes gifts without posting before gifting again.
     if (creator.status === "content_expected") {
-      if (creator.contentDueAt && now.getTime() - creator.contentDueAt.getTime() >= timings.noContentAfterDays * DAY) {
+      if (creator.contentDueAt && now.getTime() - creator.contentDueAt.getTime() >= timings.noContentAfterDays * DAY_MS) {
         toNoContent.push(creator);
         newStatus.set(creator.id, "no_content");
       }
@@ -141,11 +130,11 @@ export async function runAutomations(trigger: "cron" | "manual" | "dashboard", n
     if (creator.status !== "contacted" || !creator.lastContactedAt) continue;
     const quietFor = now.getTime() - creator.lastContactedAt.getTime();
     if (creator.followUpsSent < timings.maxFollowUps) {
-      if (quietFor >= timings.followUpAfterDays * DAY) {
+      if (quietFor >= timings.followUpAfterDays * DAY_MS) {
         toFollowUp.push(creator);
         newStatus.set(creator.id, "follow_up_due");
       }
-    } else if (quietFor >= timings.closeAfterDays * DAY) {
+    } else if (quietFor >= timings.closeAfterDays * DAY_MS) {
       toClose.push(creator);
       newStatus.set(creator.id, "no_reply");
     }
@@ -163,7 +152,7 @@ export async function runAutomations(trigger: "cron" | "manual" | "dashboard", n
           campaignCreatorId: creator.id,
           influencerId: creator.influencerId,
           kind: "status_change",
-          body: `Status changed from ${CREATOR_STATUS_LABELS[from]} to ${CREATOR_STATUS_LABELS[status]} automatically: ${reason}`,
+          body: `${statusChangeText(from, status)} automatically: ${reason}`,
         })),
       }),
     ]);
@@ -177,11 +166,7 @@ export async function runAutomations(trigger: "cron" | "manual" | "dashboard", n
   for (const creator of creators) {
     const status = newStatus.get(creator.id) ?? creator.status;
     const next = nextActionFor(toInput(creator, status), creator.campaign, now);
-    // "Due now" items keep their original due time, so the queue shows how long they have waited.
-    const dueAt =
-      next.waitingOn === "team" && next.action === creator.nextAction && creator.nextActionDueAt
-        ? creator.nextActionDueAt
-        : next.dueAt;
+    const dueAt = keepDueTime(next, creator);
     if (
       next.action !== creator.nextAction ||
       next.waitingOn !== creator.waitingOn ||
@@ -217,7 +202,7 @@ export async function runAutomations(trigger: "cron" | "manual" | "dashboard", n
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
 /**
- * Runs the automation if it has not run in the last 6 hours. The dashboard
+ * Runs the automation if it has not run in the last 6 hours. Home (/today)
  * calls this, so things keep moving even where no scheduler is set up.
  */
 export async function runAutomationsIfStale(now = new Date()): Promise<void> {

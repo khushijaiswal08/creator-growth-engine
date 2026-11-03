@@ -1,4 +1,5 @@
 import { allowed } from "@/lib/brand-scope";
+import { csvLine, csvResponse, fileSlug } from "@/lib/csv-out";
 import { db } from "@/lib/db";
 import { SOURCE_LABELS } from "@/lib/discovery";
 import { profileUrl } from "@/lib/profile-url";
@@ -23,13 +24,6 @@ const COLUMNS = [
   "latest_post",
   "reasons",
 ] as const;
-
-/** Quotes a cell, and defuses values a spreadsheet would run as a formula. */
-function cell(value: string | number | boolean | null): string {
-  let text = value === null ? "" : String(value);
-  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
 
 /** The review queue with the current filters, one row per profile. Signed-in users only. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -63,17 +57,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         latest_post: item.latestPostUrl,
         reasons: item.reasons.join(" | "),
       };
-      lines.push(COLUMNS.map((column) => cell(row[column])).join(","));
+      lines.push(csvLine(COLUMNS.map((column) => row[column])));
     }
   }
 
-  const fileName = `review-queue-${campaign.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.csv`;
-  // The BOM makes Excel read the file as UTF-8.
-  return new Response(`﻿${lines.join("\r\n")}\r\n`, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${fileName}"`,
-      "Cache-Control": "no-store",
-    },
-  });
+  return csvResponse(lines, `review-queue-${fileSlug(campaign.name)}.csv`);
 }

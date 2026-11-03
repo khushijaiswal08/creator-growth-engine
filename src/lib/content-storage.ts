@@ -19,9 +19,9 @@ import type { ContentKind } from "@prisma/client";
  * lived signed address, so large videos never pass through a Netlify function,
  * and the team views them through signed addresses too: the bucket stays private.
  */
-export type StorageMode = "s3" | "local";
+type StorageMode = "s3" | "local";
 
-/** Largest single file a creator may send (about 1.9 GB). */
+/** Largest single file a creator may send: 2 GB, the figure the upload page quotes. */
 export const MAX_FILE_BYTES = 2_000_000_000;
 export const MAX_FILES_PER_UPLOAD = 20;
 /**
@@ -111,7 +111,7 @@ export function storageKeyFor(brandId: string, campaignCreatorId: string, assetI
 
 // --- Local test storage: a folder, with addresses signed like S3's -------------------------------
 
-export const LOCAL_STORE_DIR = path.join(process.cwd(), ".content-store");
+const LOCAL_STORE_DIR =path.join(process.cwd(), ".content-store");
 const KEY_PATTERN = /^[a-z0-9][a-z0-9/._-]*$/i;
 
 /** The file on disk for a key, or null when the key could step outside the folder. */
@@ -121,7 +121,7 @@ export function localPathFor(key: string): string | null {
   return full.startsWith(LOCAL_STORE_DIR + path.sep) ? full : null;
 }
 
-export type LocalGrant = { method: "PUT" | "GET"; key: string; exp: number; size: number; type: string; download: string };
+type LocalGrant ={ method: "PUT" | "GET"; key: string; exp: number; size: number; type: string; download: string };
 
 function localSecret(): string {
   const secret = process.env.AUTH_SECRET?.trim();

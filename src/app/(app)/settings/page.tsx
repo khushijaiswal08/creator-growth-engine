@@ -4,11 +4,11 @@ import { RachnaTipsToggle } from "@/components/rachna/rachna";
 import { AutomationSettingsForm } from "@/components/journey-forms";
 import { PageHeader, Panel } from "@/components/panel";
 import { ScoringPromptForm, TargetsForm, type PromptVersionRow } from "@/components/settings-forms";
-import { viewed } from "@/lib/brand-scope";
-import { BRANDS } from "@/lib/brands";
+import { brandsIn, viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatDay } from "@/lib/format";
 import { GIFT_RULES } from "@/lib/gift-rules";
+import { CAMPAIGN_TIMINGS_SELECT } from "@/lib/next-action";
 import { brandTargets } from "@/lib/outreach-stats";
 import { readerConfigured } from "@/lib/reply-reader-claude";
 import { OFFER_STATUS_WHERE } from "@/lib/product-list";
@@ -28,11 +28,11 @@ export default async function SettingsPage() {
   const user = await requireUser();
   const view = viewed(user);
   const isAdmin = user.role === "admin";
-  const brandIds = BRANDS.filter((brand) => view.includes(brand.id)).map((brand) => brand.id);
+  const brandIds = brandsIn(view).map((brand) => brand.id);
   const targets = await brandTargets(brandIds);
 
   const brands = await Promise.all(
-    BRANDS.filter((brand) => view.includes(brand.id)).map(async (brand) => {
+    brandsIn(view).map(async (brand) => {
       const [campaigns, articles, prompt, versions] = await Promise.all([
         db.campaign.findMany({
           where: { brandId: brand.id, status: { not: "archived" } },
@@ -40,15 +40,7 @@ export default async function SettingsPage() {
           select: {
             id: true,
             name: true,
-            followUpAfterDays: true,
-            maxFollowUps: true,
-            closeAfterDays: true,
-            arrivalCheckDays: true,
-            selectionWaitDays: true,
-            deliveryWaitDays: true,
-            contentReminderDays: true,
-            contentDueDays: true,
-            noContentAfterDays: true,
+            ...CAMPAIGN_TIMINGS_SELECT,
             giftArticles: true,
           },
         }),

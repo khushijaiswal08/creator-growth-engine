@@ -3,19 +3,12 @@ import { db } from "@/lib/db";
 import { PLATFORMS } from "@/lib/profile-url";
 import { emailStatusFor, LOW_FIT_SCORE } from "@/lib/scoring";
 import { normaliseForMatch, similarHandles } from "@/lib/similar";
-
-export const US_SIGNAL_LABELS: Record<UsSignal, string> = {
-  confirmed: "US confirmed",
-  likely: "US likely",
-  unknown: "US unknown",
-  unlikely: "US unlikely",
-};
-export const US_SIGNALS = Object.keys(US_SIGNAL_LABELS) as UsSignal[];
+import { REVIEW_STATUSES, US_SIGNALS } from "@/lib/status";
 
 const SOURCES: DataSource[] = ["youtube", "meta_free", "vendor", "csv", "manual"];
 const MAX_QUEUE = 1000;
 
-export type ReviewFilters = {
+type ReviewFilters = {
   platform: Platform | null;
   minScore: number | null;
   email: EmailStatus | null;
@@ -51,7 +44,7 @@ export function reviewFilterQuery(filters: ReviewFilters): string {
   return query.toString();
 }
 
-export type ReviewItem = {
+type ReviewItem = {
   campaignCreatorId: string;
   influencerId: string;
   name: string;
@@ -64,7 +57,6 @@ export type ReviewItem = {
   usSignal: UsSignal | null;
   emailStatus: EmailStatus;
   reasons: string[];
-  model: string | null;
   profiles: {
     id: string;
     platform: Platform;
@@ -92,7 +84,7 @@ export async function loadReviewQueue(campaignId: string, filters: ReviewFilters
   const creators = await db.campaignCreator.findMany({
     where: {
       campaignId,
-      status: { in: ["discovered", "scored"] },
+      status: { in: REVIEW_STATUSES },
       ...(filters.minScore ? { fitScore: { gte: filters.minScore } } : {}),
       ...(filters.platform || filters.source ? { influencer: { profiles: { some: profileFilter } } } : {}),
     },
@@ -128,7 +120,6 @@ export async function loadReviewQueue(campaignId: string, filters: ReviewFilters
       usSignal: assessment?.usSignal ?? null,
       emailStatus,
       reasons: assessment ? assessment.reasons.split("\n").filter(Boolean) : [],
-      model: assessment?.model ?? null,
       profiles: creator.influencer.profiles.map((profile) => ({
         id: profile.id,
         platform: profile.platform,
@@ -145,7 +136,7 @@ export async function loadReviewQueue(campaignId: string, filters: ReviewFilters
   return items;
 }
 
-export type DuplicateWarning = { influencerId: string; name: string; platform: Platform; handle: string };
+type DuplicateWarning = { influencerId: string; name: string; platform: Platform; handle: string };
 
 /**
  * For each item, other people whose handle on a different platform looks like

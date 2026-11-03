@@ -1,10 +1,17 @@
+import { isoDay } from "@/lib/format";
+
 /** Helpers for the CSV files the portal hands out. */
 
 /** Quotes a cell, and defuses values a spreadsheet would run as a formula. */
 export function csvCell(value: string | number | boolean | Date | null | undefined): string {
-  let text = value === null || value === undefined ? "" : value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
+  let text = value === null || value === undefined ? "" : value instanceof Date ? isoDay(value) : String(value);
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+/** One CSV row: every cell quoted and defused, joined with commas. */
+export function csvLine(cells: Parameters<typeof csvCell>[0][]): string {
+  return cells.map((cell) => csvCell(cell)).join(",");
 }
 
 /** A download. The BOM makes Excel read the file as UTF-8. */

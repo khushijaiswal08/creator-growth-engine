@@ -3,12 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { allowed } from "@/lib/brand-scope";
 import { importCreators, type ImportReport } from "@/lib/creator-import";
-import { field } from "@/lib/form";
+import { field, MAX_IMPORT_BYTES } from "@/lib/form";
 import { requireUser } from "@/lib/session";
 
-export type { ImportDetail, ImportOutcome, ImportReport } from "@/lib/creator-import";
-
-const MAX_FILE_BYTES = 3 * 1024 * 1024;
+export type { ImportOutcome } from "@/lib/creator-import";
 
 /**
  * The CSV import screen. The rules live in src/lib/creator-import.ts; this
@@ -21,7 +19,7 @@ export async function importCsv(_prev: ImportReport | null, formData: FormData):
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a CSV file." };
-  if (file.size > MAX_FILE_BYTES) return { ok: false, error: "The file is larger than 3 MB." };
+  if (file.size > MAX_IMPORT_BYTES) return { ok: false, error: "The file is larger than 3 MB." };
 
   const report = await importCreators(await file.text(), {
     userId: user.id,

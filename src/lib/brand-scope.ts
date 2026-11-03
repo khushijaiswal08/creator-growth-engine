@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { BRANDS } from "@/lib/brands";
 
 /**
  * Who sees which brand's data.
@@ -19,7 +20,7 @@ import type { Prisma } from "@prisma/client";
  *
  * An unrecognised brand on an account matches nothing: it fails closed.
  */
-export type BrandViewer = {
+type BrandViewer = {
   id: string;
   /** The brand on the account; null means both brands. */
   brandId: string | null;
@@ -74,6 +75,11 @@ export function allowed(user: BrandViewer): BrandScope {
 export function viewed(user: BrandViewer): BrandScope {
   // The account's own brand always wins, so a sidebar choice can never widen what someone sees.
   return scopeFor(user.brandId ?? user.viewBrand);
+}
+
+/** The brands inside a scope, in the portal's order. */
+export function brandsIn(scope: BrandScope) {
+  return BRANDS.filter((brand) => scope.includes(brand.id));
 }
 
 /**

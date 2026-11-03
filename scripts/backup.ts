@@ -1,5 +1,5 @@
 /**
- * Writes every table to one JSON file under data/backups/ (git-ignored).
+ * Writes the core tables to one JSON file under data/backups/ (git-ignored).
  *
  *   pnpm db:backup
  *
@@ -17,6 +17,7 @@ async function main() {
   const host = new URL(process.env.DATABASE_URL ?? "").hostname;
 
   // Parents first, so the file can be loaded back in this order.
+  // Not included yet: scoring prompts, brand settings, content file records (the files themselves live in storage, not here), Amazon tracking links and sales, report imports, tidy-up history, and the rate-limit and login counters.
   const tables = {
     user: await db.user.findMany(),
     template: await db.template.findMany(),

@@ -7,7 +7,7 @@ import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-export type PendingPostCard = { runId: string; permalink: string; caption: string; timestamp: string | null };
+type PendingPostCard ={ runId: string; permalink: string; caption: string; timestamp: string | null };
 
 /** "https://www.instagram.com/p/ABC123/" -> the embed address Instagram serves without an API. */
 function embedUrl(permalink: string): string | null {
@@ -38,12 +38,13 @@ export function PendingPosts({ posts }: { posts: PendingPostCard[] }) {
         setNotes((all) => ({ ...all, [post.permalink]: result.error }));
         return;
       }
-      const text =
-        result.outcome === "added"
-          ? `Added @${handle.replace(/^@/, "")} as Discovered${result.statsFound === false ? " (not a professional account, so no stats)" : result.statsFound === null ? " (Meta not configured, so no stats)" : ""}.`
-          : result.outcome === "known"
-            ? `@${handle.replace(/^@/, "")} is already in the portal.`
-            : `@${handle.replace(/^@/, "")} is on the do-not-contact list and was not added.`;
+      const shown = `@${handle.replace(/^@/, "")}`;
+      let text: string;
+      if (result.outcome === "added") {
+        const stats = result.statsFound === false ? " (not a professional account, so no stats)" : result.statsFound === null ? " (Meta not configured, so no stats)" : "";
+        text = `Added ${shown} as Discovered${stats}.`;
+      } else if (result.outcome === "known") text = `${shown} is already in the portal.`;
+      else text = `${shown} is on the do-not-contact list and was not added.`;
       setNotes((all) => ({ ...all, [post.permalink]: text }));
       setTimeout(() => setGone((all) => new Set(all).add(post.permalink)), 2500);
       router.refresh();

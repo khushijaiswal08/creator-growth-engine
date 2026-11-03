@@ -1,12 +1,15 @@
-import type { CollaborationType, CreatorStatus, GiftOrderStatus, Platform, TemplatePurpose } from "@prisma/client";
+import type { CollaborationType, CreatorStatus, GiftOrderStatus, Platform, Prisma } from "@prisma/client";
 import { attributionByCampaignCreator } from "@/lib/amazon-stats";
 import type { BrandScope } from "@/lib/brand-scope";
+import type { MessageTarget } from "@/lib/channels";
 import { contentCount, contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
 import { db } from "@/lib/db";
+import { DAY_MS, latestDate } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { CLOSED_STATUSES } from "@/lib/pipeline";
-import { SEND_BLOCKED_STATUSES } from "@/lib/status";
-import { firstName } from "@/lib/template";
+import { describeProduct } from "@/lib/product-list";
+import { topFollowers } from "@/lib/profile-url";
+import { DELIVERED_STATUSES, GIFT_IN_PROGRESS_STATUSES, SEND_BLOCKED_STATUSES } from "@/lib/status";
 
 /**
  * Everything the creator card shows, gathered in one query inside the
@@ -28,7 +31,7 @@ export type CardPost = {
   capturedAt: Date | null;
 };
 
-export type CardGift = {
+type CardGift = {
   id: string;
   product: string;
   priceUsd: number | null;
@@ -38,7 +41,7 @@ export type CardGift = {
   delivered: boolean;
 };
 
-export type CardCampaign = {
+type CardCampaign = {
   id: string;
   campaignId: string;
   name: string;
@@ -53,16 +56,7 @@ export type CardCampaign = {
   posts: CardPost[];
 };
 
-export type CardMessageTarget = {
-  campaignCreatorId: string;
-  influencerName: string;
-  status: CreatorStatus;
-  profiles: { id: string; platform: Platform; handle: string }[];
-  email: string | null;
-  amazonCreator: boolean;
-  blockedReason: string | null;
-  purpose: TemplatePurpose | null;
-};
+type CardMessageTarget = Required<MessageTarget>;
 
 export type CreatorCard = {
   influencer: {
@@ -87,6 +81,13 @@ export type CreatorCard = {
   /** What the creator's Amazon tracking links brought in, from imported Attribution reports; null when nothing is imported. */
   fromLinks: { clicks: number; purchases: number; productSales: number } | null;
 };
+
+/** A post's most recent numbers: the latest Metric row. */
+export const LATEST_METRICS = {
+  orderBy: { capturedAt: "desc" },
+  take: 1,
+  select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true },
+} as const satisfies Prisma.MetricFindManyArgs;
 
 const num = (value: { toNumber(): number } | number | null | undefined): number | null => (value === null || value === undefined ? null : typeof value === "number" ? value : value.toNumber());
 
@@ -133,7 +134,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
               format: true,
               postedAt: true,
               createdAt: true,
-              metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, likes: true, comments: true, shares: true, clicks: true, salesUsd: true, capturedAt: true } },
+              metrics: LATEST_METRICS,
             },
           },
         },
@@ -155,7 +156,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     fitScore: link.fitScore,
     gifts: link.giftOrders.map((gift) => ({
       id: gift.id,
-      product: [gift.product.title, gift.product.color, gift.product.size].filter(Boolean).join(", "),
+      product: describeProduct(gift.product),
       priceUsd: num(gift.product.price),
       quantity: gift.quantity,
       status: gift.status,
@@ -183,41 +184,39 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
   const gifts = campaigns.flatMap((link) => link.gifts);
   const posts = campaigns.flatMap((link) => link.posts);
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value ?? 0), 0);
-  const latest = (dates: Date[]) => dates.sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
 
   const open = row.campaigns.find((link) => !CLOSED_STATUSES.includes(link.status)) ?? null;
   // Campaign by campaign, Amazon Attribution's own count takes over from numbers logged by hand on that
   // campaign's posts, so nothing is counted twice and other campaigns keep their hand-logged numbers.
   const byCampaign = await attributionByCampaignCreator({ ...scope.creators, influencerId: row.id });
-  const measured = new Set([...byCampaign].filter(([, totals]) => totals.clicks > 0 || totals.purchases > 0 || totals.productSales > 0).map(([id]) => id));
+  const measuredTotals = [...byCampaign].filter(([, totals]) => totals.clicks > 0 || totals.purchases > 0 || totals.productSales > 0);
+  const measured = new Set(measuredTotals.map(([id]) => id));
   const fromLinks =
-    measured.size > 0
-      ? [...measured].reduce((all, id) => {
-          const totals = byCampaign.get(id)!;
-          return { clicks: all.clicks + totals.clicks, purchases: all.purchases + totals.purchases, productSales: Math.round((all.productSales + totals.productSales) * 100) / 100 };
-        }, { clicks: 0, purchases: 0, productSales: 0 })
+    measuredTotals.length > 0
+      ? measuredTotals.reduce(
+          (all, [, totals]) => ({ clicks: all.clicks + totals.clicks, purchases: all.purchases + totals.purchases, productSales: Math.round((all.productSales + totals.productSales) * 100) / 100 }),
+          { clicks: 0, purchases: 0, productSales: 0 },
+        )
       : null;
   const handLogged = campaigns.filter((link) => !measured.has(link.id)).flatMap((link) => link.posts);
 
   const stats: CreatorStats = {
-    firstName: firstName(row.name),
     gifts: gifts.length,
     giftValueUsd: sum(gifts.map((gift) => (gift.priceUsd === null ? null : gift.priceUsd * gift.quantity))),
     posts: posts.length,
-    delivered: campaigns.filter((link) => link.status === "content_posted" || link.status === "completed").length,
+    delivered: campaigns.filter((link) => DELIVERED_STATUSES.has(link.status)).length,
     noContent: campaigns.filter((link) => link.status === "no_content").length,
-    pending: campaigns.filter((link) => ["address_collected", "product_shipped", "content_expected"].includes(link.status)).length,
+    pending: campaigns.filter((link) => GIFT_IN_PROGRESS_STATUSES.has(link.status)).length,
     reach: sum(posts.map((post) => post.views)),
     engagements: sum(posts.map((post) => (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0))),
     clicks: (fromLinks?.clicks ?? 0) + sum(handLogged.map((post) => post.clicks)),
     salesUsd: Math.round(((fromLinks?.productSales ?? 0) + sum(handLogged.map((post) => post.salesUsd))) * 100) / 100,
-    followers: Math.max(0, ...row.profiles.map((profile) => profile.followers ?? 0)),
+    followers: topFollowers(row.profiles),
     fitScore: campaigns.map((link) => link.fitScore).find((score): score is number => score !== null) ?? null,
-    lastGiftAt: latest(gifts.map((gift) => gift.at)),
-    lastPostAt: latest(posts.map((post) => post.at)),
+    lastGiftAt: latestDate(gifts.map((gift) => gift.at)),
     amazonTier: row.amazonTier,
     stage: open?.status ?? null,
-    dueDays: open?.nextActionDueAt && open.nextActionDueAt <= now ? Math.floor((now.getTime() - open.nextActionDueAt.getTime()) / 86_400_000) : null,
+    dueDays: open?.nextActionDueAt && open.nextActionDueAt <= now ? Math.floor((now.getTime() - open.nextActionDueAt.getTime()) / DAY_MS) : null,
   };
 
   const message: CardMessageTarget | null = open

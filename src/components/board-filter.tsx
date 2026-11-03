@@ -2,27 +2,19 @@
 
 import { cn } from "cn";
 import { Filter } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useDismiss } from "@/components/use-dismiss";
 
 export type BoardFilters = { owner: string; platform: string; followers: string };
 
 /** The "Filter" button on a campaign: owner, platform and a followers floor, applied by submitting the page's form. */
 export function BoardFilter({ owners, values, view, q, mine }: { owners: { id: string; name: string }[]; values: BoardFilters; view: string; q: string; mine: boolean }) {
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+  const box = useDismiss(open, setOpen, false);
   const active = [values.owner, values.platform, values.followers].filter(Boolean).length;
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(event: MouseEvent) {
-      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
 
   return (
     <div ref={box} className="relative">

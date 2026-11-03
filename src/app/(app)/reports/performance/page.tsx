@@ -11,37 +11,42 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
-import { brandName } from "@/lib/brands";
+import { brandsLabel } from "@/lib/brands";
+import { contentRate } from "@/lib/creator-card";
 import { db } from "@/lib/db";
-import { dayValueInZone, formatCount, formatDay, formatMonth, formatShortDay, startOfWeekInZone } from "@/lib/format";
+import { openCampaignIn } from "@/lib/due";
+import { DAY_MS, dayValueInZone, formatCount, formatDay, formatDollars, formatMonth, formatShortDay, startOfWeekInZone } from "@/lib/format";
+import { replyRate } from "@/lib/outreach-stats";
 import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, readingFiguresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { displayHandle } from "@/lib/profile-url";
+import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
 import { trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Performance" };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const TREND_WEEKS = 8;
 const TOP = 8;
 const TABLE_KEYS: (keyof Figures)[] = ["messages", "replies", "contacted", "agreed", "giftsShipped", "giftsDelivered", "posted", "noContent", "contentRate"];
 
+const percent = (value: number | null) => (value === null ? "–" : `${value}%`);
+
 function show(key: keyof Figures, value: number | null): string {
-  if (key === "contentRate") return value === null ? "–" : `${value}%`;
+  if (key === "contentRate") return percent(value);
   return String(value ?? 0);
 }
 
 /** Up in green, down in red, the same in grey. Points for the rate, counts for the rest. */
-function Delta({ now, before, points = false, money = false, suffix = "vs previous" }: { now: number | null; before: number | null; points?: boolean; money?: boolean; suffix?: string }) {
+function Delta({ now, before, points = false, money = false }: { now: number | null; before: number | null; points?: boolean; money?: boolean }) {
   if (now === null || before === null) return <span className="chip border-transparent bg-surface-2">no earlier period</span>;
   const delta = now - before;
-  if (delta === 0) return <span className="chip border-transparent bg-surface-2">same {suffix}</span>;
+  if (delta === 0) return <span className="chip border-transparent bg-surface-2">same vs previous</span>;
   const up = delta > 0;
   return (
     <span className={cn("chip border-transparent", up ? "bg-success-soft text-success-text" : "bg-danger-soft text-danger-text")}>
       {up ? "▲" : "▼"} {money ? "$" : ""}
       {Math.abs(delta).toLocaleString("en-US")}
-      {points ? " pts" : ""} {suffix}
+      {points ? " pts" : ""} vs previous
     </span>
   );
 }
@@ -59,17 +64,13 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const now = new Date();
   const period = resolvePeriod(params.period, params.from, params.to, now);
-  const campaigns = await db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }, orderBy: { name: "asc" }, select: { id: true, name: true } });
+  const campaigns = await db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
   const chosen = campaigns.find((campaign) => campaign.id === params.campaign) ?? null;
   const where = chosen ? { id: chosen.id } : view.campaigns;
-  const href = (overrides: Record<string, string | undefined>) => {
-    const query = new URLSearchParams();
-    const merged = { period: period.key, from: params.from, to: params.to, campaign: chosen?.id, ...overrides };
-    for (const [key, value] of Object.entries(merged)) if (value) query.set(key, value);
-    return `/reports/performance?${query}`;
-  };
+  // The period is always set, so the link always has a "?": the Export button's replace() relies on it.
+  const href = (overrides: Record<string, string | undefined>) => withQuery("/reports/performance", { period: period.key, from: params.from, to: params.to, campaign: chosen?.id, ...overrides });
   const thisWeek = startOfWeekInZone(now);
-  const trendPeriod = { key: "trend", label: "trend", from: new Date(thisWeek.getTime() - (TREND_WEEKS - 1) * 7 * DAY_MS), to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
+  const trendPeriod = { from: new Date(thisWeek.getTime() - (TREND_WEEKS - 1) * 7 * DAY_MS), to: new Date(thisWeek.getTime() + 7 * DAY_MS) };
   const inPeriod = { gte: period.from, lt: period.to };
 
   const earlier = previousPeriod(period);
@@ -93,8 +94,8 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const conversionNow = conversionRate(amazonNow);
   const conversionBefore = conversionRate(amazonBefore);
   // Reply rate the way the outreach report defines it: replies divided by the creators messaged in the period.
-  const replyRateNow = messagedNow.length > 0 ? Math.round((figures.replies / messagedNow.length) * 100) : null;
-  const replyRateBefore = messagedBefore.length > 0 ? Math.round((before.replies / messagedBefore.length) * 100) : null;
+  const replyRateNow = replyRate({ replies: figures.replies, creators: messagedNow.length });
+  const replyRateBefore = replyRate({ replies: before.replies, creators: messagedBefore.length });
 
   // The creators behind the period's posts, with the figures that rank them.
   const topLinks = postsByCreator.length
@@ -118,21 +119,20 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const records = await trackRecordFor(top.map((row) => row.link.influencer.id), view);
   const contentRateOf = (influencerId: string): number | null => {
     const record = records.get(influencerId);
-    const ended = (record?.delivered ?? 0) + (record?.noContent ?? 0);
-    return record && ended > 0 ? Math.round((record.delivered / ended) * 100) : null;
+    return record ? contentRate(record) : null;
   };
 
   // "Email to my manager": the headline figures in a plain message the mail app opens.
   const subject = `Creator Growth: ${period.label}${chosen ? `, ${chosen.name}` : ""}`;
   const body = [
-    `${view.brandId ? brandName(view.brandId) : "Both brands"} · ${period.label}, ${formatDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`,
+    `${brandsLabel(view.brandId, "Both brands")} · ${period.label},${formatDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`,
     "",
     `Messages sent: ${figures.messages} (${before.messages} the period before)`,
     `Replies: ${figures.replies}${replyRateNow !== null ? `, reply rate ${replyRateNow}%` : ""}`,
     `Agreed: ${figures.agreed}`,
     `Gifts chosen: ${figures.giftsOrdered}, shipped: ${figures.giftsShipped}, delivered: ${figures.giftsDelivered}`,
     `Content posted: ${figures.posted}, no content: ${figures.noContent}${figures.contentRate !== null ? `, content rate ${figures.contentRate}%` : ""}`,
-    `Amazon from creator links: ${amazonNow.purchases} orders, $${Math.round(amazonNow.productSales).toLocaleString("en-US")} in sales, ${amazonNow.clicks} clicks`,
+    `Amazon from creator links: ${amazonNow.purchases} orders, ${formatDollars(amazonNow.productSales)} in sales, ${amazonNow.clicks} clicks`,
     "",
     `Full report: ${process.env.APP_URL ?? ""}${href({})}`,
   ].join("\n");
@@ -158,7 +158,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
     <>
       <PageHeader
         title="Reports"
-        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"}${chosen ? ` · ${chosen.name}` : ""} · ${period.label} · ${formatShortDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`}
+        meta={`${brandsLabel(view.brandId, "Both brands")}${chosen ? ` · ${chosen.name}` : ""} · ${period.label} · ${formatShortDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`}
       >
         <Button asChild variant="outline">
           <a href={href({}).replace("/reports/performance?", "/reports/performance/export?")}>
@@ -226,7 +226,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
         <div className="card grid gap-1.5 p-4">
           <p className="label">Reply rate</p>
-          <p className="stat-number text-[28px]">{replyRateNow === null ? "–" : `${replyRateNow}%`}</p>
+          <p className="stat-number text-[28px]">{percent(replyRateNow)}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Delta now={replyRateNow} before={replyRateBefore} points />
             <span>
@@ -265,7 +265,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
         <div className="card grid gap-1.5 p-4">
           <p className="label">Amazon sales</p>
-          <p className="stat-number text-[28px]">${Math.round(amazonNow.productSales).toLocaleString("en-US")}</p>
+          <p className="stat-number text-[28px]">{formatDollars(amazonNow.productSales)}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Delta now={Math.round(amazonNow.productSales)} before={Math.round(amazonBefore.productSales)} money />
             <span>{amazonNow.unitsSold.toLocaleString("en-US")} units</span>
@@ -281,7 +281,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
         <div className="card grid gap-1.5 p-4">
           <p className="label">Click to order</p>
-          <p className="stat-number text-[28px]">{conversionNow === null ? "–" : `${conversionNow}%`}</p>
+          <p className="stat-number text-[28px]">{percent(conversionNow)}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             {conversionNow === null ? <span className="chip border-transparent bg-surface-2">under 10 clicks</span> : <Delta now={conversionNow} before={conversionBefore} points />}
             <Link href="/reports/amazon" className="link">
@@ -302,7 +302,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
         <div className="card grid gap-1.5 p-4">
           <p className="label">Rachna was right</p>
-          <p className="stat-number text-[28px]">{reading.accuracy === null ? "–" : `${reading.accuracy}%`}</p>
+          <p className="stat-number text-[28px]">{percent(reading.accuracy)}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Delta now={reading.accuracy} before={readingBefore.accuracy} points />
             <span>matched the team&apos;s choice</span>
@@ -310,7 +310,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
         </div>
         <div className="card grid gap-1.5 p-4">
           <p className="label">Hot replies answered in a day</p>
-          <p className="stat-number text-[28px]">{reading.hotAnsweredInDay === null ? "–" : `${reading.hotAnsweredInDay}%`}</p>
+          <p className="stat-number text-[28px]">{percent(reading.hotAnsweredInDay)}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Delta now={reading.hotAnsweredInDay} before={readingBefore.hotAnsweredInDay} points />
             <span>of {reading.hot} hot {reading.hot === 1 ? "reply" : "replies"}</span>
@@ -331,7 +331,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
               </span>
             </span>
           </div>
-          <TrendChart points={trend.map((bucket) => ({ label: formatDay(bucket.from).replace(/, \d{4}$/, ""), messages: bucket.figures.messages, replies: bucket.figures.replies }))} />
+          <TrendChart points={trend.map((bucket) => ({ label: formatShortDay(bucket.from), messages: bucket.figures.messages, replies: bucket.figures.replies }))} />
         </section>
 
         <section id="report-funnel" className="card flex flex-col p-5" aria-labelledby="funnel-title">
@@ -387,6 +387,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
               {top.map((row, index) => {
                 const profile = row.link.influencer.profiles[0];
                 const gmv = row.link.influencer.amazonMonthlyGmvUsd === null ? null : Number(row.link.influencer.amazonMonthlyGmvUsd);
+                const rate = contentRateOf(row.link.influencer.id);
                 return (
                   <TableRow key={row.link.id}>
                     <TableCell className="text-muted-foreground">{index + 1}</TableCell>
@@ -403,15 +404,12 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">{row.posts}</TableCell>
                     <TableCell>
-                      {(() => {
-                        const value = contentRateOf(row.link.influencer.id);
-                        return value === null ? <span className="text-muted-foreground">–</span> : <span className={cn("chip border-transparent", value >= 80 ? "bg-success-soft text-success-text" : value >= 50 ? "bg-warning-soft text-warning-text" : "bg-danger-soft text-danger-text")}>{value}%</span>;
-                      })()}
+                      {rate === null ? <span className="text-muted-foreground">–</span> : <span className={cn("chip border-transparent", rate >= 80 ? "bg-success-soft text-success-text" : rate >= 50 ? "bg-warning-soft text-warning-text" : "bg-danger-soft text-danger-text")}>{rate}%</span>}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">{profile?.followers !== null && profile?.followers !== undefined ? formatCount(profile.followers) : "–"}</TableCell>
-                    <TableCell className="text-right tabular-nums">{profile?.engagementRate !== null && profile?.engagementRate !== undefined ? `${profile.engagementRate}%` : "–"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{typeof profile?.followers === "number" ? formatCount(profile.followers) : "–"}</TableCell>
+                    <TableCell className="text-right tabular-nums">{typeof profile?.engagementRate === "number" ? `${profile.engagementRate}%` : "–"}</TableCell>
                     <TableCell>{row.link.influencer.amazonTier ?? <span className="text-muted-foreground">–</span>}</TableCell>
-                    <TableCell className="text-right tabular-nums">{gmv === null ? "–" : `$${Math.round(gmv).toLocaleString("en-US")}`}</TableCell>
+                    <TableCell className="text-right tabular-nums">{gmv === null ? "–" : formatDollars(gmv)}</TableCell>
                     <TableCell className="text-right tabular-nums">{amazonByCreator.get(row.link.influencer.id)?.purchases ?? <span className="text-muted-foreground">–</span>}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDay(row.link.lastContactedAt) || "–"}</TableCell>
                   </TableRow>
@@ -424,7 +422,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
       <section className="card overflow-hidden">
         <div className="border-b px-4 py-3">
-          <h2>{buckets.length > 0 && buckets[0].label.startsWith("Week") ? "Week by week" : "Month by month"}</h2>
+          <h2>{buckets[0]?.unit === "week" ? "Week by week" : "Month by month"}</h2>
         </div>
         <Table>
           <TableHeader>
@@ -440,7 +438,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
           <TableBody>
             {buckets.map((bucket) => (
               <TableRow key={bucket.label}>
-                <TableCell className="font-semibold">{bucket.label.startsWith("Week") ? `Week of ${formatShortDay(bucket.from)}` : formatMonth(bucket.from)}</TableCell>
+                <TableCell className="font-semibold">{bucket.unit === "week" ? `Week of ${formatShortDay(bucket.from)}` : formatMonth(bucket.from)}</TableCell>
                 {TABLE_KEYS.map((key) => (
                   <TableCell key={key} className="text-right tabular-nums">
                     {show(key, bucket.figures[key])}

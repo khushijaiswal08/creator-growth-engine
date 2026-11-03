@@ -12,7 +12,18 @@ export function optionalField(formData: FormData, name: string): string | null {
   return field(formData, name) || null;
 }
 
+/** The largest file the import forms accept: 3 MB. */
+export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
+
 /** "linen, block print ,  table" -> ["linen", "block print", "table"] */
 export function splitKeywords(raw: string): string[] {
   return [...new Set(raw.split(/[,\n]/).map((part) => part.trim().toLowerCase()).filter(Boolean))];
+}
+
+/** The same set with one item ticked on when it was off, or off when it was on. */
+export function toggled<T>(set: ReadonlySet<T>, item: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(item)) next.delete(item);
+  else next.add(item);
+  return next;
 }

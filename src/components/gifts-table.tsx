@@ -11,12 +11,15 @@ import { Avatar } from "@/components/avatar";
 import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
 import { GiftTrackingForm } from "@/components/journey-forms";
+import { NoticeText, type Notice } from "@/components/notice-text";
 import { ProductPhoto } from "@/components/product-photo";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { MILESTONES } from "@/lib/rachna";
+import { toggled } from "@/lib/form";
 import { formatShortDay } from "@/lib/format";
-import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
+import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES, OPEN_GIFT_STATUSES } from "@/lib/gifts";
+import { describeProduct } from "@/lib/product-list";
 import { trackingUrl } from "@/lib/tracking";
 
 export type GiftRow = {
@@ -63,11 +66,12 @@ const RULE_LABELS: Record<string, string> = {
   paidCollaborationNeedsApprovedFee: "Not a paid collaboration without an approved fee",
 };
 
+/** Statuses whose parcel can be marked delivered. */
+const DELIVERABLE: ReadonlySet<GiftOrderStatus> = new Set(["ordered", "shipped", "exception"]);
+
 function addressOf(order: GiftRow): string {
   return [order.shipName, order.address1, order.address2, order.city, [order.state, order.postalCode].filter(Boolean).join(" "), order.country].filter(Boolean).join(", ");
 }
-
-const OPEN: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved", "ordered", "shipped", "exception"]);
 
 /**
  * One row per gift order, checkboxes for bulk work, and a drawer on the right
@@ -80,7 +84,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [notice, setNotice] = useState<{ text: string; refused: boolean } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const rachna = useRachna();
   const open = orders.find((order) => order.id === openId) ?? null;
 
@@ -95,16 +99,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
 
   const chosen = orders.filter((order) => selected.has(order.id));
   const approvable = chosen.filter((order) => order.status === "needs_approval");
-  const cancellable = chosen.filter((order) => OPEN.has(order.status));
-
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const cancellable = chosen.filter((order) => OPEN_GIFT_STATUSES.has(order.status));
 
   /** Runs an action; a text it returns (Amazon refusing a cancel, say) replaces the usual notice. */
   function run(label: string, work: () => Promise<unknown>) {
@@ -171,11 +166,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               {orders.length} {orders.length === 1 ? "order" : "orders"}
             </span>
           )}
-          {notice ? (
-            <span role={notice.refused ? "alert" : "status"} className={cn("text-xs", notice.refused ? "font-semibold text-danger-text" : "text-success-text")}>
-              {notice.text}
-            </span>
-          ) : null}
+          {notice ? <NoticeText notice={notice} className="text-xs" /> : null}
           <form method="get" className="ml-auto flex items-center gap-2 text-[13px] font-semibold text-muted-foreground">
             {sort.status ? <input type="hidden" name="status" value={sort.status} /> : null}
             <label htmlFor="gift-sort">Sort</label>
@@ -220,6 +211,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               ) : (
                 orders.map((order) => {
                   const failed = order.checks.filter((check) => !check.passed);
+                  const stamp = order.deliveredAt ?? order.shippedAt;
                   return (
                     <tr
                       key={order.id}
@@ -228,7 +220,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                       className={cn("cursor-pointer border-t border-[#f1f3f6] transition-colors hover:bg-[#fbfbfc]", (openId === order.id || selected.has(order.id)) && "bg-primary-faint hover:bg-primary-faint")}
                     >
                       <td className="py-3.5 pr-1 pl-5" onClick={(event) => event.stopPropagation()}>
-                        <input type="checkbox" aria-label={`Select the order for ${order.creator.name}`} checked={selected.has(order.id)} onChange={() => toggle(order.id)} />
+                        <input type="checkbox" aria-label={`Select the order for ${order.creator.name}`} checked={selected.has(order.id)} onChange={() => setSelected((current) => toggled(current, order.id))} />
                       </td>
                       <td className="px-3 py-3.5">
                         <div className="flex items-center gap-3">
@@ -255,7 +247,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                       </td>
                       <td className="px-3 py-3.5 max-md:hidden">
                         <Pill tone={GIFT_STATUS_TONES[order.status]}>{GIFT_STATUS_LABELS[order.status]}</Pill>
-                        {order.deliveredAt ? <div className="mt-1 text-xs font-medium text-muted-foreground">{formatShortDay(order.deliveredAt)}</div> : order.shippedAt ? <div className="mt-1 text-xs font-medium text-muted-foreground">{formatShortDay(order.shippedAt)}</div> : null}
+                        {stamp ? <div className="mt-1 text-xs font-medium text-muted-foreground">{formatShortDay(stamp)}</div> : null}
                       </td>
                       <td className="px-3 py-3.5 whitespace-nowrap text-muted-foreground max-lg:hidden">{formatShortDay(order.createdAt)}</td>
                       <td className="px-3 py-3.5 max-md:hidden">
@@ -289,7 +281,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                           <Button size="sm" variant="action" disabled={pending} onClick={(event) => { event.stopPropagation(); run("Approved.", () => decideGift(order.id, "approve")); }}>
                             Approve
                           </Button>
-                        ) : order.status === "shipped" || order.status === "ordered" || order.status === "exception" ? (
+                        ) : DELIVERABLE.has(order.status) ? (
                           <Button size="sm" variant="outline" disabled={pending} onClick={(event) => { event.stopPropagation(); deliver(order); }}>
                             Delivered
                           </Button>
@@ -333,7 +325,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               <ProductPhoto url={open.product.imageUrl} size={56} className="size-14 shrink-0 rounded-md" />
               <div className="min-w-0 text-sm">
                 <p className="font-semibold">
-                  {[open.product.title, open.product.color, open.product.size].filter(Boolean).join(", ")}
+                  {describeProduct(open.product)}
                   {open.quantity > 1 ? ` × ${open.quantity}` : ""}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -418,7 +410,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                   Approve order
                 </Button>
               ) : null}
-              {open.status === "shipped" || open.status === "ordered" || open.status === "exception" ? (
+              {DELIVERABLE.has(open.status) ? (
                 <Button variant="outline" disabled={pending} onClick={() => deliver(open)}>
                   Mark delivered today
                 </Button>
@@ -430,7 +422,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                   </a>
                 </Button>
               ) : null}
-              {OPEN.has(open.status) ? (
+              {OPEN_GIFT_STATUSES.has(open.status) ? (
                 <Button
                   variant="destructive"
                   disabled={pending}

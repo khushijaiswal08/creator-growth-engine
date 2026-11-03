@@ -3,7 +3,8 @@
 import { cn } from "cn";
 import { ChevronDown, Flame } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useDismiss } from "@/components/use-dismiss";
 
 export type QueueTab = { key: string; label: string; count: number; href: string; active: boolean; hot?: boolean };
 
@@ -14,25 +15,9 @@ export type QueueTab = { key: string; label: string; count: number; href: string
  */
 export function QueueTabs({ tabs, more }: { tabs: QueueTab[]; more: QueueTab[] }) {
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+  const box = useDismiss(open, setOpen);
   const chosen = more.find((tab) => tab.active) ?? null;
   const moreCount = more.reduce((sum, tab) => sum + tab.count, 0);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDown(event: MouseEvent) {
-      if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
-    }
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
 
   return (
     <nav aria-label="Task queues" className="tabs mt-3 px-2.5 max-md:flex-wrap max-md:overflow-visible md:px-[11px]">

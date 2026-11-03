@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { startOfDayInZone, startOfWeekInZone } from "@/lib/format";
+import { DAY_MS, startOfDayInZone, startOfWeekInZone, wholePercent } from "@/lib/format";
 import { TIDY_NOTE } from "@/lib/tidy-up-rules";
 
 /**
@@ -17,15 +17,14 @@ import { TIDY_NOTE } from "@/lib/tidy-up-rules";
  *   shipped         gift orders shipped to creators the person owns
  *   posted          posts recorded for creators the person owns
  */
-export const DEFAULT_TARGETS: Targets = { daily: 20, weekly: 100, creatorConnectionsUrl: null };
-const DAY_MS = 24 * 60 * 60 * 1000;
 
-export type Targets = {
+type Targets = {
   daily: number;
   weekly: number;
   /** The brand's Creator Connections page in the Amazon Ads console, which the Message button opens. */
   creatorConnectionsUrl: string | null;
 };
+const DEFAULT_TARGETS: Targets = { daily: 20, weekly: 100, creatorConnectionsUrl: null };
 
 export async function brandTargets(brandIds: string[]): Promise<Map<string, Targets>> {
   const rows = await db.brandSettings.findMany({ where: { brandId: { in: brandIds } } });
@@ -37,7 +36,7 @@ export async function brandTargets(brandIds: string[]): Promise<Map<string, Targ
   return map;
 }
 
-export type PersonStats = {
+type PersonStats = {
   userId: string;
   name: string;
   messages: number;
@@ -50,7 +49,7 @@ export type PersonStats = {
 };
 
 export function replyRate(stats: { replies: number; creators: number }): number | null {
-  return stats.creators > 0 ? Math.round((stats.replies / stats.creators) * 100) : null;
+  return wholePercent(stats.replies, stats.creators);
 }
 
 type Period = { from: Date; to: Date };
@@ -93,7 +92,7 @@ export async function personStats(period: Period, campaign: Prisma.CampaignWhere
     .sort((a, b) => b.messages - a.messages || a.name.localeCompare(b.name));
 }
 
-export type TodayStats = { today: PersonStats[]; week: PersonStats[]; dayStart: Date; weekStart: Date };
+type TodayStats = { today: PersonStats[]; week: PersonStats[]; dayStart: Date; weekStart: Date };
 
 /** Today and this week (Monday onwards), in the app's time zone. */
 export async function todayStats(campaign: Prisma.CampaignWhereInput, now = new Date()): Promise<TodayStats> {
@@ -103,10 +102,13 @@ export async function todayStats(campaign: Prisma.CampaignWhereInput, now = new 
   return { today, week, dayStart, weekStart };
 }
 
-export type WeekRow = { weekStart: Date; weekEnd: Date; people: PersonStats[] };
+/** How many weeks the outreach report and its CSV look back. */
+export const OUTREACH_WEEKS = 8;
 
-/** The last `weeks` whole weeks plus the current one, newest first. */
-export async function weeklyStats(campaign: Prisma.CampaignWhereInput, weeks = 8, now = new Date()): Promise<WeekRow[]> {
+type WeekRow = { weekStart: Date; weekEnd: Date; people: PersonStats[] };
+
+/** The current week and the weeks before it, `weeks` in all, newest first. */
+export async function weeklyStats(campaign: Prisma.CampaignWhereInput, weeks = OUTREACH_WEEKS, now = new Date()): Promise<WeekRow[]> {
   const thisWeek = startOfWeekInZone(now);
   const rows: WeekRow[] = [];
   for (let index = 0; index < weeks; index += 1) {

@@ -6,6 +6,7 @@ import { allowed } from "@/lib/brand-scope";
 import { loadCreatorCard, type CreatorCard } from "@/lib/creator-card-data";
 import { db } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
+import { capitalize } from "@/lib/format";
 import { requireUser } from "@/lib/session";
 
 /** The creator card, for a creator the person may see. */
@@ -19,8 +20,8 @@ const COUNTS = ["views", "likes", "comments", "shares", "clicks"] as const;
 /**
  * Logs a post's numbers as of now: views, likes, comments, shares, clicks and
  * sales. Each save is a new reading, so the history stays; the card shows the
- * latest. Until the Amazon reports are imported these are typed in by hand
- * from the creator's screenshots or Amazon Attribution.
+ * latest. Views and likes are typed in by hand from the creator's screenshots;
+ * once Amazon Attribution reports are imported for a campaign, their clicks and sales take over on the card.
  */
 export async function logPostNumbers(_prev: FormState, formData: FormData): Promise<FormState> {
   const user = await requireUser();
@@ -31,7 +32,7 @@ export async function logPostNumbers(_prev: FormState, formData: FormData): Prom
     const raw = field(formData, name).replace(/,/g, "");
     if (!raw) continue;
     const value = Number(raw);
-    if (!Number.isInteger(value) || value < 0 || value > 1_000_000_000) return { error: `${name[0].toUpperCase()}${name.slice(1)}: whole numbers only.` };
+    if (!Number.isInteger(value) || value < 0 || value > 1_000_000_000) return { error: `${capitalize(name)}: whole numbers only.` };
     numbers[name] = value;
   }
   const salesRaw = field(formData, "salesUsd").replace(/[$,\s]/g, "");

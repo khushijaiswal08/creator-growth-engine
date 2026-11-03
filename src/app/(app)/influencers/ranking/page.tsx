@@ -12,10 +12,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { attributionByInfluencer } from "@/lib/amazon-stats";
 import { viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
-import { formatCount, formatDay } from "@/lib/format";
+import { formatCount, formatDay, formatDollars, latestDate } from "@/lib/format";
+import { topFollowers } from "@/lib/profile-url";
+import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
-import { contentCount, GRADES, gradeCreator } from "@/lib/creator-card";
-import { describeTrackRecord, trackRecordFor } from "@/lib/track-record";
+import { contentCount, contentRate, GRADES, gradeFromRecord } from "@/lib/creator-card";
+import { describeTrackRecord, LATEST_POST_AND_GIFT, trackRecordFor } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Creator ranking" };
 
@@ -37,6 +39,9 @@ type SortKey = keyof typeof SORTS;
 const WORKED = { any: "Everyone", yes: "Worked with before", no: "Never gifted" } as const;
 type WorkedKey = keyof typeof WORKED;
 
+const SORT_KEYS = Object.keys(SORTS) as SortKey[];
+const WORKED_KEYS = Object.keys(WORKED) as WorkedKey[];
+
 const TIER_ORDER = ["platinum", "gold", "silver", "bronze", "entry"];
 
 /**
@@ -52,10 +57,10 @@ export default async function RankingPage({
 }) {
   const view = viewed(await requireUser());
   const params = await searchParams;
-  const sort: SortKey = (Object.keys(SORTS) as SortKey[]).includes(params.sort as SortKey) ? (params.sort as SortKey) : "posts";
+  const sort: SortKey = SORT_KEYS.includes(params.sort as SortKey) ? (params.sort as SortKey) : "posts";
   // Every sort runs biggest or newest first; "Reverse order" turns it round (oldest first, fewest gifts first).
   const reversed = params.dir === "asc";
-  const worked: WorkedKey = (Object.keys(WORKED) as WorkedKey[]).includes(params.worked as WorkedKey) ? (params.worked as WorkedKey) : "any";
+  const worked: WorkedKey = WORKED_KEYS.includes(params.worked as WorkedKey) ? (params.worked as WorkedKey) : "any";
   const usOnly = params.us === "1";
   const tier = (params.tier ?? "").toLowerCase();
   const minFollowers = Math.max(0, Number.parseInt(params.min ?? "0", 10) || 0);
@@ -75,7 +80,7 @@ export default async function RankingPage({
       profiles: { select: { id: true, platform: true, handle: true, followers: true, engagementRate: true, country: true, bio: true }, orderBy: { platform: "asc" } },
       campaigns: {
         where: view.creators,
-        select: { status: true, lastContactedAt: true, posts: { select: { createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 }, giftOrders: { where: { status: { not: "cancelled" } }, select: { shippedAt: true, createdAt: true }, orderBy: { createdAt: "desc" }, take: 1 } },
+        select: LATEST_POST_AND_GIFT,
       },
     },
   });
@@ -84,11 +89,10 @@ export default async function RankingPage({
   const rows = influencers
     .map((row) => {
       const record = records.get(row.id);
-      const followers = Math.max(0, ...row.profiles.map((profile) => profile.followers ?? 0));
+      const followers = topFollowers(row.profiles);
       const engagement = Math.max(0, ...row.profiles.map((profile) => profile.engagementRate ?? 0));
-      const finished = (record?.delivered ?? 0) + (record?.noContent ?? 0);
-      const lastPost = row.campaigns.flatMap((link) => link.posts.map((post) => post.createdAt)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
-      const lastGift = row.campaigns.flatMap((link) => link.giftOrders.map((gift) => gift.shippedAt ?? gift.createdAt)).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+      const lastPost = latestDate(row.campaigns.flatMap((link) => link.posts.map((post) => post.createdAt)));
+      const lastGift = latestDate(row.campaigns.flatMap((link) => link.giftOrders.map((gift) => gift.shippedAt ?? gift.createdAt)));
       const us = row.usSignal !== null ? row.usSignal >= 60 : row.profiles.some((profile) => profile.country === "US") || /united states|\bUS\b|USA/i.test(row.location ?? "");
       return {
         id: row.id,
@@ -100,40 +104,23 @@ export default async function RankingPage({
         gifts: record?.gifts ?? 0,
         posts: record?.posts ?? 0,
         content: contentCount({ posts: record?.posts ?? 0, delivered: record?.delivered ?? 0 }),
-        rate: finished > 0 ? Math.round(((record?.delivered ?? 0) / finished) * 100) : null,
+        rate: contentRate({ delivered: record?.delivered ?? 0, noContent: record?.noContent ?? 0 }),
         record: describeTrackRecord(record),
         tier: row.amazonTier,
         gmv: row.amazonMonthlyGmvUsd === null ? null : Number(row.amazonMonthlyGmvUsd),
         linkOrders: fromLinks.get(row.id)?.purchases ?? 0,
         linkSales: fromLinks.get(row.id)?.productSales ?? 0,
-        lastCollaboration: [lastPost, lastGift].filter((date): date is Date => date !== null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null,
+        lastCollaboration: latestDate([lastPost, lastGift]),
         added: row.createdAt,
         us,
-        grade: gradeCreator({
-          firstName: "",
-          gifts: record?.gifts ?? 0,
-          giftValueUsd: 0,
-          posts: record?.posts ?? 0,
-          delivered: record?.delivered ?? 0,
-          noContent: record?.noContent ?? 0,
-          pending: record?.pending ?? 0,
-          reach: 0,
-          engagements: 0,
-          clicks: 0,
-          salesUsd: 0,
-          followers,
-          fitScore: null,
-          lastGiftAt: lastGift,
-          lastPostAt: lastPost,
-          amazonTier: row.amazonTier,
-        }),
+        grade: gradeFromRecord(record, { followers, lastGiftAt: lastGift, amazonTier: row.amazonTier }),
       };
     })
-    .filter((row) => (worked === "yes" ? row.gifts > 0 : worked === "no" ? row.gifts === 0 : true))
-    .filter((row) => (usOnly ? row.us : true))
-    .filter((row) => (tier ? (row.tier ?? "").toLowerCase() === tier : true))
+    .filter((row) => worked === "any" || (worked === "yes" ? row.gifts > 0 : row.gifts === 0))
+    .filter((row) => !usOnly || row.us)
+    .filter((row) => !tier || (row.tier ?? "").toLowerCase() === tier)
     .filter((row) => row.followers >= minFollowers)
-    .filter((row) => (q ? row.name.toLowerCase().includes(q) || row.profiles.some((profile) => profile.handle.includes(q) || (profile.bio ?? "").toLowerCase().includes(q)) : true));
+    .filter((row) => !q || row.name.toLowerCase().includes(q) || row.profiles.some((profile) => profile.handle.includes(q) || (profile.bio ?? "").toLowerCase().includes(q)));
 
   const tierRank = (value: string | null) => (value ? TIER_ORDER.indexOf(value.toLowerCase()) : TIER_ORDER.length);
   rows.sort((a, b) => {
@@ -162,13 +149,8 @@ export default async function RankingPage({
 
   const lastPage = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const shown = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const href = (overrides: Record<string, string | undefined>) => {
-    const query = new URLSearchParams();
-    const merged = { sort, dir: reversed ? "asc" : undefined, worked, us: usOnly ? "1" : undefined, tier: tier || undefined, min: minFollowers ? String(minFollowers) : undefined, q: q || undefined, ...overrides };
-    for (const [key, value] of Object.entries(merged)) if (value) query.set(key, value);
-    const text = query.toString();
-    return text ? `/influencers/ranking?${text}` : "/influencers/ranking";
-  };
+  const href = (overrides: Record<string, string | undefined>) =>
+    withQuery("/influencers/ranking", { sort, dir: reversed ? "asc" : undefined, worked, us: usOnly ? "1" : undefined, tier: tier || undefined, min: minFollowers ? String(minFollowers) : undefined, q: q || undefined, ...overrides });
   const tiers = [...new Set(influencers.map((row) => row.amazonTier?.toLowerCase()).filter((value): value is string => Boolean(value)))].sort((a, b) => tierRank(a) - tierRank(b));
 
   return (
@@ -190,7 +172,7 @@ export default async function RankingPage({
 
       <div className="mb-6 grid gap-3">
         <nav aria-label="Sort" className="flex flex-wrap items-center gap-1.5">
-          {(Object.keys(SORTS) as SortKey[]).map((key) => (
+          {SORT_KEYS.map((key) => (
             <Link key={key} href={href({ sort: key, page: undefined })} className="chip" aria-current={sort === key ? "true" : undefined}>
               {SORTS[key]}
             </Link>
@@ -201,7 +183,7 @@ export default async function RankingPage({
           </Link>
         </nav>
         <div className="flex flex-wrap items-center gap-1.5">
-          {(Object.keys(WORKED) as WorkedKey[]).map((key) => (
+          {WORKED_KEYS.map((key) => (
             <Link key={key} href={href({ worked: key, page: undefined })} className="chip" aria-current={worked === key ? "true" : undefined}>
               {WORKED[key]}
             </Link>
@@ -267,7 +249,7 @@ export default async function RankingPage({
                       {row.location ? <div className="text-xs font-medium text-muted-foreground">{row.location}</div> : null}
                       {row.linkOrders > 0 || row.linkSales > 0 ? (
                         <div className="text-xs font-semibold text-primary-text">
-                          Our links: {row.linkOrders} {row.linkOrders === 1 ? "order" : "orders"} · ${Math.round(row.linkSales).toLocaleString("en-US")}
+                          Our links: {row.linkOrders} {row.linkOrders === 1 ? "order" : "orders"} · {formatDollars(row.linkSales)}
                         </div>
                       ) : null}
                       {row.tier ? (

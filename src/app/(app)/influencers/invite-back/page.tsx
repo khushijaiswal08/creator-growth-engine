@@ -8,6 +8,7 @@ import { viewed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { inviteBackList, OPEN_CAMPAIGN_STATUSES } from "@/lib/invite-back";
+import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
 import { CAMPAIGN_STATUS_LABELS } from "@/lib/status";
 
@@ -15,6 +16,7 @@ export const metadata: Metadata = { title: "Invite back" };
 
 const SHOW = { all: "Everyone proven", stars: "Stars only", ready: "Ready to gift now" } as const;
 type ShowKey = keyof typeof SHOW;
+const SHOW_KEYS = Object.keys(SHOW) as ShowKey[];
 const OPEN_CAMPAIGN_ORDER = ["active", "draft", "paused"];
 
 /**
@@ -25,7 +27,7 @@ const OPEN_CAMPAIGN_ORDER = ["active", "draft", "paused"];
 export default async function InviteBackPage({ searchParams }: { searchParams: Promise<{ campaign?: string; show?: string }> }) {
   const view = viewed(await requireUser());
   const params = await searchParams;
-  const show: ShowKey = (Object.keys(SHOW) as ShowKey[]).includes(params.show as ShowKey) ? (params.show as ShowKey) : "all";
+  const show: ShowKey = SHOW_KEYS.includes(params.show as ShowKey) ? (params.show as ShowKey) : "all";
 
   // Active campaigns first, then drafts, then paused ones; newest first within each.
   const campaigns = (
@@ -40,12 +42,7 @@ export default async function InviteBackPage({ searchParams }: { searchParams: P
   const all = await inviteBackList(view, campaign);
   const rows = all.filter((row) => (show === "stars" ? row.grade === "star" : show === "ready" ? row.invitable && row.giftAgainFrom === null : true));
   const brands = new Set(campaigns.map((row) => row.brandId));
-  const href = (overrides: Record<string, string | undefined>) => {
-    const query = new URLSearchParams();
-    for (const [key, value] of Object.entries({ campaign: campaign?.id, show: show === "all" ? undefined : show, ...overrides })) if (value) query.set(key, value);
-    const text = query.toString();
-    return text ? `/influencers/invite-back?${text}` : "/influencers/invite-back";
-  };
+  const href = (overrides: Record<string, string | undefined>) => withQuery("/influencers/invite-back", { campaign: campaign?.id, show: show === "all" ? undefined : show, ...overrides });
 
   return (
     <>
@@ -91,7 +88,7 @@ export default async function InviteBackPage({ searchParams }: { searchParams: P
             </span>
           )}
           <nav aria-label="Show" className="flex flex-wrap items-center gap-1.5">
-            {(Object.keys(SHOW) as ShowKey[]).map((key) => (
+            {SHOW_KEYS.map((key) => (
               <Link key={key} href={href({ show: key === "all" ? undefined : key })} className="chip" aria-current={show === key ? "true" : undefined}>
                 {SHOW[key]}
               </Link>

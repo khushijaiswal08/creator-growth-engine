@@ -1,8 +1,8 @@
 "use client";
 
-import type { CreatorStatus, Platform, TemplatePurpose } from "@prisma/client";
+import type { CreatorStatus, TemplatePurpose } from "@prisma/client";
 import { createContext, useContext, useEffect, useRef, useState, useTransition } from "react";
-import { checkMessageAllowed, logOutboundMessage } from "@/actions/messages";
+import { checkMessageAllowed, logOutboundMessage, type MessageAllowed } from "@/actions/messages";
 import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,27 +16,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AMAZON_CONSOLE_URL, defaultDestination, destinationsFor, mailtoFor, pickTemplate, type Destination } from "@/lib/channels";
+import { AMAZON_CONSOLE_URL, defaultDestination, destinationsFor, mailtoFor, pickTemplate, type Destination, type MessageTarget } from "@/lib/channels";
 import { messageUrl } from "@/lib/profile-url";
 import { PRE_CONTACT_STATUSES } from "@/lib/status";
 import { fillTemplate, firstName, remainingPlaceholders } from "@/lib/template";
 
-export type MessageTemplate = { id: string; name: string; purpose: TemplatePurpose; body: string };
-
-export type MessageTarget = {
-  campaignCreatorId: string;
-  influencerName: string;
-  status: CreatorStatus;
-  profiles: { id: string; platform: Platform; handle: string }[];
-  /** Why this creator must not be messaged (suppression list, blocked status, archived). */
-  blockedReason: string | null;
-  /** The template the next action calls for, when the caller knows it. */
-  purpose?: TemplatePurpose | null;
-  /** The creator's email, when known: offers the email channel. */
-  email?: string | null;
-  /** A Creator Connections creator: offers the Amazon channel. */
-  amazonCreator?: boolean;
-};
+type MessageTemplate = { id: string; name: string; purpose: TemplatePurpose; body: string };
 
 const OpenComposer = createContext<((target: MessageTarget) => void) | null>(null);
 
@@ -141,7 +126,22 @@ type Outcome = {
   logged: { ok: true; movedToContacted: boolean } | { ok: false; error: string };
 };
 
-type Allowed = { ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; amazonUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string };
+/** The template that fits where this creator is in the journey, when the caller did not say. */
+function purposeForStatus(status: CreatorStatus): TemplatePurpose {
+  if (PRE_CONTACT_STATUSES.has(status)) return "first";
+  if (status === "interested" || status === "agreed") return "selection";
+  if (status === "content_expected") return "reminder";
+  return "followup";
+}
+
+/** Where the message is going, in words: "Instagram DM", "your mail app", "Amazon Creator Connections", "TikTok profile". */
+function placeName(destination: Destination | null): string {
+  if (!destination) return "";
+  if (destination.channel === "amazon") return "Amazon Creator Connections";
+  if (destination.channel === "email") return "your mail app";
+  if (destination.platform === "instagram") return "Instagram DM";
+  return `${destination.platformWord} profile`;
+}
 
 function ComposerDialog({
   target,
@@ -155,17 +155,9 @@ function ComposerDialog({
   onClose: () => void;
 }) {
   // The template that fits where this creator is in the journey.
-  const preferred: TemplatePurpose = target.purpose
-    ? target.purpose
-    : PRE_CONTACT_STATUSES.has(target.status)
-      ? "first"
-      : target.status === "interested" || target.status === "agreed"
-        ? "selection"
-        : target.status === "content_expected"
-          ? "reminder"
-          : "followup";
+  const preferred: TemplatePurpose = target.purpose ?? purposeForStatus(target.status);
   // null while the server re-checks the suppression list for this creator.
-  const [allowed, setAllowed] = useState<Allowed | null>(null);
+  const [allowed, setAllowed] = useState<MessageAllowed | null>(null);
   useEffect(() => {
     let cancelled = false;
     checkMessageAllowed(target.campaignCreatorId).then(
@@ -186,7 +178,7 @@ function ComposerDialog({
   const [destinationKey, setDestinationKey] = useState<string | null>(null);
   const destination = destinations.find((item) => item.key === destinationKey) ?? defaultDestination(destinations, target.status);
 
-  const [templateId, setTemplateId] = useState(() => pickTemplate(templates, preferred, defaultDestination(destinationsFor(target), target.status)?.channel ?? "dm")?.id ?? "");
+  const [templateId, setTemplateId] = useState(() => pickTemplate(templates, preferred, destination?.channel ?? "dm")?.id ?? "");
   const [product, setProduct] = useState(readLastProduct);
   // Manual edits to the message; cleared when a choice above changes.
   const [edited, setEdited] = useState<string | null>(null);
@@ -212,7 +204,7 @@ function ComposerDialog({
         })
       : "");
   const unfilled = remainingPlaceholders(body);
-  const where = destination?.channel === "amazon" ? "Amazon Creator Connections" : destination?.channel === "email" ? "your mail app" : destination?.platform === "instagram" ? "Instagram DM" : destination ? `${destination.platformWord} profile` : "";
+  const where = placeName(destination);
   const verb = destination?.channel === "email" ? "Open mail app" : `Copy and open ${where}`;
 
   function chooseDestination(key: string) {
@@ -225,12 +217,14 @@ function ComposerDialog({
   function copyAndOpen() {
     if (!destination) return;
     const text = body;
-    const url =
-      destination.channel === "dm" && destination.platform && destination.handle
-        ? messageUrl(destination.platform, destination.handle)
-        : destination.channel === "amazon"
-          ? (allowed?.ok && allowed.creatorConnectionsUrl) || AMAZON_CONSOLE_URL
-          : mailtoFor(destination.email ?? "", allowed?.ok ? `A gift from ${allowed.brand}` : "A gift for you", text);
+    let url: string;
+    if (destination.channel === "dm" && destination.platform && destination.handle) {
+      url = messageUrl(destination.platform, destination.handle);
+    } else if (destination.channel === "amazon") {
+      url = (allowed?.ok && allowed.creatorConnectionsUrl) || AMAZON_CONSOLE_URL;
+    } else {
+      url = mailtoFor(destination.email ?? "", allowed?.ok ? `A gift from ${allowed.brand}` : "A gift for you", text);
+    }
 
     // Copy and open must both happen synchronously inside the click, or browsers
     // block them. execCommand is synchronous; the async Clipboard API is the fallback.

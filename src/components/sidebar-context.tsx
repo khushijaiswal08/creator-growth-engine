@@ -9,7 +9,7 @@ import { createContext, useContext } from "react";
  */
 export type SidebarPreference = "expanded" | "collapsed" | null;
 
-export type SidebarUi = {
+type SidebarUi = {
   preference: SidebarPreference;
   /** Classes that hide a label in the rail and show it in the full column. */
   label: string;

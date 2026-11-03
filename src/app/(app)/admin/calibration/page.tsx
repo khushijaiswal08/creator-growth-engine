@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CalibrationCards, type CalibrationCard } from "@/components/calibration-cards";
 import { PageHeader, Panel } from "@/components/panel";
-import { BRANDS, isBrandId } from "@/lib/brands";
+import { BRANDS, DEFAULT_BRAND, isBrandId } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { formatCount } from "@/lib/format";
+import { formatCount, wholePercent } from "@/lib/format";
 import { displayHandle, profileUrl } from "@/lib/profile-url";
 import { requireAdmin } from "@/lib/session";
 
@@ -21,7 +21,7 @@ const THRESHOLDS = [50, 60, 75];
 export default async function CalibrationPage({ searchParams }: { searchParams: Promise<{ brand?: string }> }) {
   await requireAdmin();
   const raw = (await searchParams).brand ?? "";
-  const brandId = isBrandId(raw) ? raw : BRANDS[0].id;
+  const brandId = isBrandId(raw) ? raw : DEFAULT_BRAND;
 
   const ofBrand = { campaignCreator: { campaign: { brandId } } };
   // Latest assessment per creator; random order so the sample is not the same thirty every time.
@@ -62,7 +62,7 @@ export default async function CalibrationPage({ searchParams }: { searchParams: 
 
   const agreement = THRESHOLDS.map((threshold) => {
     const agree = reviewed.filter((row) => (row.score >= threshold) === row.reviewerVerdict).length;
-    return { threshold, rate: reviewed.length > 0 ? Math.round((agree / reviewed.length) * 100) : null };
+    return { threshold, rate: wholePercent(agree, reviewed.length) };
   });
 
   return (

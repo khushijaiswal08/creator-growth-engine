@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-// Sent with every response. Vercel already redirects HTTP to HTTPS; HSTS tells
+// Sent with every response. Netlify already redirects HTTP to HTTPS (netlify.toml); HSTS tells
 // browsers to never try plain HTTP again.
 const SECURITY_HEADERS = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },

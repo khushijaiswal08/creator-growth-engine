@@ -5,11 +5,11 @@ import { continueDiscoveryAction, startDiscoveryAction } from "@/actions/discove
 import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
 import type { DiscoverySummary } from "@/lib/discovery";
+import { DISCOVERY_SOURCES, SOURCE_LABELS } from "@/lib/discovery-labels";
+import type { MetaReport as MetaReportFull } from "@/lib/fetching/adapters/meta-free";
+import type { YoutubeReport as YoutubeReportFull } from "@/lib/fetching/adapters/youtube";
 
-const SOURCES = [
-  { value: "youtube", label: "YouTube" },
-  { value: "meta_free", label: "Instagram hashtags (Meta)" },
-];
+const SOURCES = DISCOVERY_SOURCES.map((value) => ({ value, label: SOURCE_LABELS[value] }));
 
 const STATUS_TEXT: Record<string, string> = {
   completed: "Completed",
@@ -19,19 +19,15 @@ const STATUS_TEXT: Record<string, string> = {
   running: "Running",
 };
 
-type YoutubeReport = { searches?: { keyword: string; channelIds: number; units: number }[]; searchesSkippedForBudget?: string[]; channelsFetched?: number; uploadsRead?: number; budget?: number | null };
-type MetaReport = {
-  hashtags?: { tag: string; hashtagId: string | null; posts: number; refused?: string }[];
-  oembed?: { calls: number; withAuthor: number; withoutAuthor: number; failed: number };
-  businessDiscovery?: { attempted: number; succeeded: number };
-  pending?: unknown[];
-};
+type MetaReport = Partial<MetaReportFull>;
+type YoutubeReport = Partial<YoutubeReportFull>;
 
 /** What the live service answered, step by step, in plain words. */
 function ReportLines({ source, report }: { source: string; report: Record<string, unknown> | null }) {
   if (!report) return null;
   if (source === "youtube") {
     const r = report as YoutubeReport;
+    const skipped = r.searchesSkippedForBudget ?? [];
     return (
       <ul className="grid gap-0.5 border-t px-3 py-2 text-xs text-muted-foreground">
         {(r.searches ?? []).map((search) => (
@@ -39,7 +35,7 @@ function ReportLines({ source, report }: { source: string; report: Record<string
             Search &quot;{search.keyword}&quot;: {search.channelIds} channels ({search.units} units)
           </li>
         ))}
-        {(r.searchesSkippedForBudget ?? []).length > 0 ? <li>Not searched (80% of the daily quota): {r.searchesSkippedForBudget!.join(", ")}</li> : null}
+        {skipped.length > 0 ? <li>Not searched (80% of the daily quota): {skipped.join(", ")}</li> : null}
         <li>
           Channel details read: {r.channelsFetched ?? 0}. Latest uploads read: {r.uploadsRead ?? 0}.
           {r.budget !== null && r.budget !== undefined ? ` Allowance left when this run started: ${r.budget} units.` : ""}
@@ -48,6 +44,7 @@ function ReportLines({ source, report }: { source: string; report: Record<string
     );
   }
   const r = report as MetaReport;
+  const pending = r.pending?.length ?? 0;
   return (
     <ul className="grid gap-0.5 border-t px-3 py-2 text-xs text-muted-foreground">
       {(r.hashtags ?? []).map((tag) => (
@@ -65,7 +62,7 @@ function ReportLines({ source, report }: { source: string; report: Record<string
           Business Discovery: {r.businessDiscovery.succeeded} of {r.businessDiscovery.attempted} accounts returned stats.
         </li>
       ) : null}
-      {(r.pending ?? []).length > 0 ? <li>{r.pending!.length} posts are waiting in the review queue for a handle.</li> : null}
+      {pending > 0 ? <li>{pending} posts are waiting in the review queue for a handle.</li> : null}
     </ul>
   );
 }

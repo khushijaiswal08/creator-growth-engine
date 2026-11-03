@@ -4,15 +4,15 @@ import type { DataSource, EmailStatus, Platform, UsSignal } from "@prisma/client
 import { cn } from "cn";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import { blacklistFromReview, decideReview, type ReviewDecision } from "@/actions/review";
+import { blacklistFromReview, decideReview, type ReviewDecision, type ReviewResult } from "@/actions/review";
 import { Pill } from "@/components/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { displayHandle, PLATFORM_LABELS, profileUrl } from "@/lib/profile-url";
-import type { StatusTone } from "@/lib/status";
+import { displayHandle, PLATFORM_LABELS, profileLabel, profileUrl } from "@/lib/profile-url";
+import { US_SIGNAL_LABELS, type StatusTone } from "@/lib/status";
 
 export type ReviewCard = {
   campaignCreatorId: string;
@@ -41,14 +41,8 @@ export type ReviewCard = {
   trackRecord: { text: string; tone: StatusTone } | null;
 };
 
-const US_LABELS: Record<UsSignal, string> = {
-  confirmed: "US confirmed",
-  likely: "US likely",
-  unknown: "US unknown",
-  unlikely: "US unlikely",
-};
-
-const SOURCE_LABELS: Record<DataSource, string> = {
+// Shorter than the shared SOURCE_LABELS in @/lib/discovery: these sit next to each handle on the card.
+const CARD_SOURCE_LABELS: Record<DataSource, string> = {
   youtube: "YouTube discovery",
   meta_free: "Instagram discovery",
   vendor: "Data vendor",
@@ -71,7 +65,7 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
   const active = visible.find((card) => card.campaignCreatorId === activeId) ?? visible[0] ?? null;
 
   const finish = useCallback(
-    (card: ReviewCard, run: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
+    (card: ReviewCard, run: () => Promise<ReviewResult>) => {
       const index = visible.findIndex((item) => item.campaignCreatorId === card.campaignCreatorId);
       const next = visible[index + 1] ?? visible[index - 1] ?? null;
       startTransition(async () => {
@@ -175,7 +169,7 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
                       <span className="text-muted-foreground tabular-nums">
                         {profile.followers ? `${profile.followers} followers` : "followers not known"}
                       </span>
-                      <span className="text-xs text-muted-foreground">{SOURCE_LABELS[profile.source]}</span>
+                      <span className="text-xs text-muted-foreground">{CARD_SOURCE_LABELS[profile.source]}</span>
                       {profile.fetchNote ? <span className="text-xs text-muted-foreground">({profile.fetchNote})</span> : null}
                     </li>
                   ))}
@@ -185,7 +179,7 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
                   <Badge variant={card.emailStatus === "found" ? "secondary" : "outline"}>
                     {card.emailStatus === "found" ? "Email found" : "Email not found"}
                   </Badge>
-                  <Badge variant="outline">{card.usSignal ? US_LABELS[card.usSignal] : "US signal not assessed"}</Badge>
+                  <Badge variant="outline">{card.usSignal ? US_SIGNAL_LABELS[card.usSignal] : "US signal not assessed"}</Badge>
                   {card.trackRecord ? <Pill tone={card.trackRecord.tone}>{card.trackRecord.text}</Pill> : null}
                   {card.latestPostUrl ? (
                     <a
@@ -210,7 +204,7 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
                         <Link href={`/influencers/${duplicate.influencerId}`} className="link underline">
                           {duplicate.name}
                         </Link>{" "}
-                        ({PLATFORM_LABELS[duplicate.platform]} {displayHandle(duplicate.handle)})
+                        ({profileLabel(duplicate.platform, duplicate.handle)})
                       </span>
                     ))}
                     . Check before approving.

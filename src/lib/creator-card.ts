@@ -1,4 +1,5 @@
 import type { CreatorStatus } from "@prisma/client";
+import { DAY_MS, formatDollars, plural, wholePercent } from "@/lib/format";
 import type { StatusTone } from "@/lib/status";
 
 /**
@@ -10,7 +11,6 @@ import type { StatusTone } from "@/lib/status";
  */
 
 export type CreatorStats = {
-  firstName: string;
   gifts: number;
   /** Amazon price of the gifted products, summed, in US dollars. */
   giftValueUsd: number;
@@ -30,7 +30,6 @@ export type CreatorStats = {
   followers: number;
   fitScore: number | null;
   lastGiftAt: Date | null;
-  lastPostAt: Date | null;
   amazonTier: string | null;
   /** Where the open collaboration stands, and for how many days its next step has been due. */
   stage?: CreatorStatus | null;
@@ -48,7 +47,6 @@ export const GRADES: Record<Grade, { label: string; tone: StatusTone }> = {
   new: { label: "New face", tone: "neutral" },
 };
 
-const DAY = 24 * 60 * 60 * 1000;
 /** Days after the last gift before "waiting" turns into a chase. */
 export const PATIENCE_DAYS = 21;
 
@@ -63,8 +61,7 @@ export function contentCount(s: Pick<CreatorStats, "posts" | "delivered">): numb
 
 /** Posted or no-content outcomes as a share, null before anything finished. */
 export function contentRate(s: Pick<CreatorStats, "delivered" | "noContent">): number | null {
-  const finished = s.delivered + s.noContent;
-  return finished > 0 ? Math.round((s.delivered / finished) * 100) : null;
+  return wholePercent(s.delivered, s.delivered + s.noContent);
 }
 
 export function reachPerPost(s: Pick<CreatorStats, "reach" | "posts">): number | null {
@@ -98,11 +95,30 @@ export function gradeCreator(s: CreatorStats): Grade {
   return "mixed";
 }
 
+/** Rachna's grade for a list row (Ranking, Invite back): the track record plus what a list knows. Lists carry no reach, clicks, sales or gift value, so those count as zero. */
+export function gradeFromRecord(
+  record: Pick<CreatorStats, "gifts" | "posts" | "delivered" | "noContent" | "pending"> | undefined,
+  known: Pick<CreatorStats, "followers" | "lastGiftAt" | "amazonTier">,
+): Grade {
+  return gradeCreator({
+    gifts: record?.gifts ?? 0,
+    giftValueUsd: 0,
+    posts: record?.posts ?? 0,
+    delivered: record?.delivered ?? 0,
+    noContent: record?.noContent ?? 0,
+    pending: record?.pending ?? 0,
+    reach: 0,
+    engagements: 0,
+    clicks: 0,
+    salesUsd: 0,
+    fitScore: null,
+    ...known,
+  });
+}
+
 export type Verdict = { grade: Grade; label: string; tone: StatusTone; pose: "cheer" | "point" | "think" | "worried" | "idle" | "happy"; text: string };
 
-const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
 const count = (value: number) => (value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)}M` : value >= 10_000 ? `${Math.round(value / 1000)}K` : value >= 1_000 ? `${(value / 1000).toFixed(1)}K` : String(value));
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Rachna's verdict: the grade, her face, and a line in her voice, built only from the figures. */
 export function rachnaVerdict(s: CreatorStats, now = new Date()): Verdict {
@@ -110,11 +126,12 @@ export function rachnaVerdict(s: CreatorStats, now = new Date()): Verdict {
   const { label, tone } = GRADES[grade];
   const rate = contentRate(s);
   const flourish: string[] = [];
-  if (s.salesUsd > 0) flourish.push(`${money(s.salesUsd)} in Amazon sales from their content, real money.`);
+  if (s.salesUsd > 0) flourish.push(`${formatDollars(s.salesUsd)} in Amazon sales from their content, real money.`);
   else if (s.clicks > 0) flourish.push(`${plural(s.clicks, "click")} to Amazon so far.`);
   const multiple = reachMultiple(s);
+  const perPost = reachPerPost(s);
   if (multiple !== null && multiple >= 1.5) flourish.push(`Posts reach ${multiple}× the follower count.`);
-  else if (reachPerPost(s) !== null) flourish.push(`About ${count(reachPerPost(s)!)} views a post.`);
+  else if (perPost !== null) flourish.push(`About ${count(perPost)} views a post.`);
   const extra = flourish.length > 0 ? ` ${flourish.join(" ")}` : "";
   const content = contentCount(s);
   // "3 posts" when the links are on file, "3 collaborations" when only the outcome is.
@@ -129,7 +146,7 @@ export function rachnaVerdict(s: CreatorStats, now = new Date()): Verdict {
     case "mixed":
       return { grade, label, tone, pose: "think", text: `Hit and miss. ${delivered} ${fromGifts}${rate !== null ? `, only ${rate}% delivered` : ""}. Nudge before the next gift.${extra}` };
     case "waiting": {
-      const days = s.lastGiftAt ? Math.max(0, Math.floor((now.getTime() - s.lastGiftAt.getTime()) / DAY)) : null;
+      const days = s.lastGiftAt ? Math.max(0, Math.floor((now.getTime() - s.lastGiftAt.getTime()) / DAY_MS)) : null;
       if (days !== null && days > PATIENCE_DAYS) return { grade, label, tone, pose: "worried", text: `Gift landed ${days} days ago and still no post. Time to chase, nicely.` };
       return { grade, label, tone, pose: "point", text: days !== null ? `Gift landed ${days === 0 ? "today" : `${days} days ago`}, no post yet. Give it till day ${PATIENCE_DAYS}, then chase.` : `Gift on its way, no post yet. Give it till day ${PATIENCE_DAYS} after it lands.` };
     }
@@ -182,13 +199,14 @@ export type MonthPoint = { month: string; label: string; gifts: number; posts: n
 
 /** The last `months` months, oldest first, with each event counted in its month. */
 export function monthlySeries(events: { at: Date; kind: "gift" | "post"; reach?: number; salesUsd?: number }[], months = 6, now = new Date()): MonthPoint[] {
+  const monthKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
   const points: MonthPoint[] = [];
   for (let back = months - 1; back >= 0; back--) {
     const date = new Date(now.getFullYear(), now.getMonth() - back, 1);
-    points.push({ month: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`, label: date.toLocaleString("en-US", { month: "short" }), gifts: 0, posts: 0, reach: 0, salesUsd: 0 });
+    points.push({ month: monthKey(date), label: date.toLocaleString("en-US", { month: "short" }), gifts: 0, posts: 0, reach: 0, salesUsd: 0 });
   }
   for (const event of events) {
-    const key = `${event.at.getFullYear()}-${String(event.at.getMonth() + 1).padStart(2, "0")}`;
+    const key = monthKey(event.at);
     const point = points.find((item) => item.month === key);
     if (!point) continue;
     if (event.kind === "gift") point.gifts += 1;

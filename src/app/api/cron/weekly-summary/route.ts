@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { refuseUnlessScheduler } from "@/lib/cron-auth";
 import { sendSummaryEmail } from "@/lib/email";
 import { summaryText, weeklySummary } from "@/lib/weekly-summary";
 
@@ -11,14 +11,8 @@ export const maxDuration = 60;
  * Composes last week's figures per brand and emails them to the admin address.
  */
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return Response.json({ error: "CRON_SECRET is not set." }, { status: 503 });
-
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const expected = Buffer.from(`Bearer ${secret}`);
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    return Response.json({ error: "Not authorised." }, { status: 401 });
-  }
+  const refused = refuseUnlessScheduler(request);
+  if (refused) return refused;
 
   const summary = await weeklySummary();
   const { subject, text } = summaryText(summary);

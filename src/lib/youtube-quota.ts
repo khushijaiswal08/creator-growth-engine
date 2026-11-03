@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { gmtOffsetMs } from "@/lib/format";
 
 /**
  * YouTube's Data API allows 10,000 quota units a day by default, reset at
@@ -7,7 +8,7 @@ import { db } from "@/lib/db";
  * that would take the day past 80% of the allowance, so ordinary use never
  * trips the hard limit.
  */
-export const QUOTA_STOP_SHARE = 0.8;
+const QUOTA_STOP_SHARE = 0.8;
 const DEFAULT_DAILY_QUOTA = 10_000;
 
 const pacific = new Intl.DateTimeFormat("en-US", {
@@ -18,7 +19,7 @@ const pacific = new Intl.DateTimeFormat("en-US", {
   timeZoneName: "longOffset",
 });
 
-export function youtubeDailyQuota(): number {
+function youtubeDailyQuota(): number {
   const configured = Number(process.env.YOUTUBE_DAILY_QUOTA ?? "");
   return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_DAILY_QUOTA;
 }
@@ -26,12 +27,11 @@ export function youtubeDailyQuota(): number {
 /** Midnight Pacific Time at the start of the given moment's day. */
 export function pacificDayStart(now: Date): Date {
   const parts = Object.fromEntries(pacific.formatToParts(now).map((part) => [part.type, part.value]));
-  const offset = /GMT([+-])(\d{2}):?(\d{2})?/.exec(parts.timeZoneName ?? "");
-  const offsetMs = offset ? (offset[1] === "-" ? -1 : 1) * (Number(offset[2]) * 60 + Number(offset[3] ?? 0)) * 60_000 : 0;
+  const offsetMs = gmtOffsetMs(parts.timeZoneName);
   return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) - offsetMs);
 }
 
-export type YoutubeBudget = {
+type YoutubeBudget = {
   daily: number;
   /** Units we allow ourselves per day: 80% of the allowance. */
   limit: number;

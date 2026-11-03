@@ -1,12 +1,11 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { importAttribution, importBusinessReport, monthFromField, type AttributionImportResult, type BusinessImportResult } from "@/lib/amazon-import";
-import { adGroupKey, parseAttributionUrl, parseDay, type Grid } from "@/lib/amazon-reports";
+import { adGroupKey, MAX_REPORT_ROWS, parseAttributionUrl, parseDay, type Grid } from "@/lib/amazon-reports";
 import { allowed } from "@/lib/brand-scope";
 import { brandName, isBrandId, type BrandId } from "@/lib/brands";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
 import { requireUser } from "@/lib/session";
 
 /** The brand a person may import for: their own, or the one they choose when they have both. */
@@ -16,11 +15,14 @@ function importBrand(user: { brandId: string | null }, chosen: unknown): BrandId
   return isBrandId(value) ? value : null;
 }
 
-/** The browser sends the file as rows of text; anything else is refused before it reaches the readers. */
+/** The browser sends the file as rows of text; anything else is refused before it reaches the readers, and cut to the readers' row limit plus the header. */
 function gridFrom(value: unknown): Grid | null {
   if (!Array.isArray(value) || value.length === 0) return null;
-  return value.slice(0, 20_001).map((row) => (Array.isArray(row) ? row.slice(0, 80).map((cell) => String(cell ?? "").slice(0, 500)) : []));
+  return value.slice(0, MAX_REPORT_ROWS + 1).map((row) => (Array.isArray(row) ? row.slice(0, 80).map((cell) => String(cell ?? "").slice(0, 500)) : []));
 }
+
+/** Shown when a tag belongs to a creator the person may not see, or two people saved it at once. */
+const TAG_IN_USE = "This tag is already in use. Each creator needs their own ad group in Amazon Attribution.";
 
 /**
  * Saves the Amazon Attribution tag for a creator in a campaign. The tag is
@@ -45,7 +47,7 @@ export async function saveAttributionLink(campaignCreatorId: string, rawUrl: str
   if (taken && taken.campaignCreatorId !== creator.id) {
     // The other creator's name is shown only inside the person's own brand.
     const visible = !taken.archived && allowed(user).includes(taken.campaignCreator.campaign.brandId);
-    return { ok: false, error: visible ? `This tag is already saved for ${taken.campaignCreator.influencer.name}. Each creator needs their own ad group in Amazon Attribution.` : "This tag is already in use. Each creator needs their own ad group in Amazon Attribution." };
+    return { ok: false, error: visible ? `This tag is already saved for ${taken.campaignCreator.influencer.name}. Each creator needs their own ad group in Amazon Attribution.` : TAG_IN_USE };
   }
   // Report rows find links by ad group name, so two live links of one brand may not share one.
   const sameName = await db.attributionLink.findMany({
@@ -72,7 +74,7 @@ export async function saveAttributionLink(campaignCreatorId: string, rawUrl: str
     ]);
   } catch (error) {
     // Two saves of the same new tag at once: the second loses to the unique tag.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { ok: false, error: "This tag is already in use. Each creator needs their own ad group in Amazon Attribution." };
+    if (isUniqueViolation(error)) return { ok: false, error: TAG_IN_USE };
     throw error;
   }
   revalidatePath(`/influencers/${creator.influencerId}`);

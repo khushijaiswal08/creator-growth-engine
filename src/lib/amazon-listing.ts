@@ -6,6 +6,8 @@
  * the browser (where the Excel file is opened), in scripts and in tests.
  */
 
+import { capitalize } from "@/lib/format";
+
 /** The sheet of the workbook that holds the listings. */
 export const LISTING_SHEET = "Template";
 
@@ -32,10 +34,6 @@ export type AmazonListing = {
   condition: string;
 };
 
-export const LISTING_FIELDS = [
-  "sku", "status", "parentage", "productType", "name", "brandName", "asin", "imageUrl", "color", "size", "price", "channel", "condition",
-] as const satisfies readonly (keyof AmazonListing)[];
-
 /**
  * Where each value sits, by Amazon's own field name (the row under the column
  * titles). Positions differ between accounts, so nothing is read by position.
@@ -59,7 +57,10 @@ const COLUMNS = {
   condition: [/^condition_type\[[^#]*\]#1\.value$/],
 } as const;
 
-const MAX_LISTINGS = 20_000;
+export const MAX_LISTINGS = 20_000;
+
+/** An Amazon product code: ten capital letters or digits. */
+export const ASIN_RE = /^[A-Z0-9]{10}$/;
 
 const text = (value: unknown) => String(value ?? "").replace(/\s+/g, " ").trim();
 
@@ -108,7 +109,7 @@ export function readListingRows(rows: unknown[][]): { listings: AmazonListing[] 
       productType: pick(row, "productType"),
       name: pick(row, "name"),
       brandName: pick(row, "brandName"),
-      asin: pick(row, "idType").toUpperCase() === "ASIN" && /^[A-Z0-9]{10}$/.test(idValue) ? idValue : "",
+      asin: pick(row, "idType").toUpperCase() === "ASIN" && ASIN_RE.test(idValue) ? idValue : "",
       imageUrl: /^https:\/\/\S+$/.test(imageUrl) ? imageUrl : "",
       color: pick(row, "color"),
       size: pick(row, "size"),
@@ -145,13 +146,16 @@ export function listingKind(listing: AmazonListing): ListingKind {
   return "live";
 }
 
+/** Amazon's own SKUs for stray units it found in the warehouse ("Amazon.Found.B0..."). */
+export const AMAZON_FOUND_SKU = /^amazon\.found\./i;
+
 /**
  * When Amazon finds stray units in its warehouse it makes its own SKU
  * ("Amazon.Found.B0...") for a product that already has one. Those copies are
  * left out so each product appears once.
  */
 export function isAmazonCopy(listing: AmazonListing, asinsOfOwnSkus: Set<string>): boolean {
-  return /^amazon\.found\./i.test(listing.sku) && listing.asin !== "" && asinsOfOwnSkus.has(listing.asin);
+  return AMAZON_FOUND_SKU.test(listing.sku) && listing.asin !== "" && asinsOfOwnSkus.has(listing.asin);
 }
 
 /* ------------------------------------------------------------ product names */
@@ -204,7 +208,7 @@ function titleCase(raw: string): string {
     .toLowerCase()
     .split(/[_\s]+/)
     .filter(Boolean)
-    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .map(capitalize)
     .join(" ");
 }
 

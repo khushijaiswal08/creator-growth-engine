@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { usePreservedForm } from "@/components/use-preserved-form";
+import { describeProduct } from "@/lib/product-list";
 
 export type SelectableProduct = {
   id: string;
@@ -21,8 +22,6 @@ export type SelectableProduct = {
   websiteUrl: string | null;
   imageUrl: string | null;
 };
-
-const describe = (product: SelectableProduct) => [product.title, product.color, product.size].filter(Boolean).join(", ");
 
 /** The search box appears once there are more prints than fit on a phone screen. */
 const SEARCH_FROM = 13;
@@ -192,7 +191,7 @@ export function SelectionForm({ token, categories, products }: { token: string; 
                   />
                   <span className="flex h-full items-center gap-3 rounded-md border-2 border-border bg-surface p-2 peer-checked:border-primary peer-checked:bg-primary-soft peer-focus-visible:ring-2 peer-focus-visible:ring-ring">
                     <ProductPhoto url={product.imageUrl} size={80} className="size-20 shrink-0 rounded" />
-                    <span className="text-sm leading-snug">{product.listingName ?? describe(product)}</span>
+                    <span className="text-sm leading-snug">{product.listingName ?? describeProduct(product)}</span>
                   </span>
                 </label>
               ))}
@@ -205,7 +204,7 @@ export function SelectionForm({ token, categories, products }: { token: string; 
             {chosen.imageUrl ? <ProductPhoto url={chosen.imageUrl} size={112} className="size-28 shrink-0 rounded-md" /> : null}
             <div className="grid min-w-0 gap-1">
               <p>
-                You chose: <strong>{describe(chosen)}</strong>
+                You chose: <strong>{describeProduct(chosen)}</strong>
               </p>
               {/* The full name only where it was what told the versions apart. */}
               {matches.length > 1 && chosen.listingName ? <p className="text-sm text-muted-foreground">{chosen.listingName}</p> : null}

@@ -1,5 +1,6 @@
 "use server";
 
+import type { MessageChannel } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
 import { refreshNextAction } from "@/lib/automation";
@@ -7,13 +8,15 @@ import { allowed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
+import { DAY_MS } from "@/lib/format";
 import { isReplyClass, REPLY_CLASS_LABELS, REPLY_OUTCOMES } from "@/lib/replies";
-import { isReading, WARMTH_OF, type Reading } from "@/lib/reply-reader";
+import { isReading, MAX_FEE, WARMTH_OF, type Reading } from "@/lib/reply-reader";
 import { readReply } from "@/lib/reply-reader-claude";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
+import { statusChangeText } from "@/lib/status";
 
-const DAY = 24 * 60 * 60 * 1000;
+/** How the channel is named to Rachna when she reads a reply. */
+const CHANNEL_WORDS: Record<MessageChannel, string> = { dm: "Instagram DM", email: "email", amazon: "Amazon Creator Connections" };
 
 /**
  * Rachna reads a pasted reply: her suggested class, warmth, summary, the
@@ -39,7 +42,7 @@ export async function readReplyText(campaignCreatorId: string, text: string): Pr
     brand: brandName(row.campaign.brandId),
     campaign: row.campaign.name,
     creatorName: row.influencer.name,
-    channel: last?.channel === "email" ? "email" : last?.channel === "amazon" ? "Amazon Creator Connections" : "Instagram DM",
+    channel: CHANNEL_WORDS[last?.channel ?? "dm"],
     lastOutbound: last?.body ?? null,
   });
   return { ok: true, reading };
@@ -74,7 +77,7 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
   let requestedFee: number | null = null;
   if (replyClass === "rate_requested" && field(formData, "requestedFee")) {
     requestedFee = Number(field(formData, "requestedFee"));
-    if (!Number.isInteger(requestedFee) || requestedFee < 0 || requestedFee > 1_000_000) {
+    if (!Number.isInteger(requestedFee) || requestedFee < 0 || requestedFee > MAX_FEE) {
       return { error: "Enter the fee as a whole number of dollars." };
     }
   }
@@ -82,7 +85,7 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
   let reengageAfter: Date | null = null;
   if (replyClass === "maybe_later") {
     const raw = field(formData, "reengageAfter");
-    reengageAfter = raw ? new Date(`${raw}T00:00:00Z`) : new Date(Date.now() + 60 * DAY);
+    reengageAfter = raw ? new Date(`${raw}T00:00:00Z`) : new Date(Date.now() + 60 * DAY_MS);
     if (Number.isNaN(reengageAfter.getTime())) return { error: "That date is not valid." };
   }
 
@@ -94,6 +97,11 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
 
   const outcome = REPLY_OUTCOMES[replyClass];
   const now = new Date();
+  const warmth = WARMTH_OF[replyClass];
+  // Her one-line summary is kept only when she was sure of it.
+  const readSummary = reading?.sure ? reading.summary : null;
+  let rachnaNote = "";
+  if (reading?.sure) rachnaNote = reading.replyClass === replyClass ? " Rachna agreed." : ` Rachna read it as ${REPLY_CLASS_LABELS[reading.replyClass]}.`;
 
   await db.$transaction(async (tx) => {
     await tx.message.create({
@@ -109,8 +117,8 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
         classificationConfidence: 1,
         suggestedClass: reading?.replyClass ?? null,
         suggestedConfidence: reading?.confidence ?? null,
-        warmth: WARMTH_OF[replyClass],
-        readSummary: reading?.sure ? reading.summary : null,
+        warmth: warmth,
+        readSummary,
         readQuestions: reading?.questions ?? [],
         readBy: reading ? `${reading.reader}:${reading.version}` : null,
       },
@@ -124,8 +132,8 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
         requestedFee: requestedFee ?? undefined,
         reengageAfter: replyClass === "maybe_later" ? reengageAfter : undefined,
         // The latest reply's warmth and Rachna's line: Home and the board sort hot first.
-        replyWarmth: WARMTH_OF[replyClass],
-        replyRead: reading?.sure ? reading.summary : null,
+        replyWarmth: warmth,
+        replyRead: readSummary,
       },
     });
     await logActivity(tx, {
@@ -133,7 +141,7 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
       kind: "message_logged",
       campaignCreatorId,
       influencerId: current.influencerId,
-      body: `Reply logged: ${REPLY_CLASS_LABELS[replyClass]}${requestedFee !== null ? ` (${requestedFee})` : ""}.${reading?.sure ? (reading.replyClass === replyClass ? " Rachna agreed." : ` Rachna read it as ${REPLY_CLASS_LABELS[reading.replyClass]}.`) : ""}`,
+      body: `Reply logged: ${REPLY_CLASS_LABELS[replyClass]}${requestedFee !== null ? ` (${requestedFee})` : ""}.${rachnaNote}`,
     });
     if (current.status !== outcome.status) {
       await logActivity(tx, {
@@ -141,7 +149,7 @@ export async function logReply(_prev: FormState, formData: FormData): Promise<Fo
         kind: "status_change",
         campaignCreatorId,
         influencerId: current.influencerId,
-        body: `Status changed from ${CREATOR_STATUS_LABELS[current.status]} to ${CREATOR_STATUS_LABELS[outcome.status]}.`,
+        body: `${statusChangeText(current.status, outcome.status)}.`,
       });
     }
   });

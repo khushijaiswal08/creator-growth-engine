@@ -48,7 +48,7 @@ import tours from "./tours.json";
 
 type Bubble = Speech & { anchor: string | null; kind: TipKind; title?: string; tour?: { step: number; total: number } };
 
-export type Pointer = { label: string; element: HTMLElement };
+type Pointer = { label: string; element: HTMLElement };
 
 type Api = {
   userId: string;
@@ -131,6 +131,11 @@ function findPointers(): Pointer[] {
   return out;
 }
 
+/** Scroll the thing she means into the middle of the window. */
+function reveal(id: string) {
+  document.getElementById(id)?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 export function RachnaProvider({ userId, tipsOn, counts, intro, children }: { userId: string; tipsOn: boolean; counts: RachnaCounts; intro: boolean; children: React.ReactNode }) {
   const pathname = usePathname();
   const [current, setCurrent] = useState<Bubble | null>(null);
@@ -211,8 +216,8 @@ export function RachnaProvider({ userId, tipsOn, counts, intro, children }: { us
     tourStep.current = { key, step };
     setAsleep(false);
     setPointing(false);
-    setCurrent({ pose: "point", text: item.text, title: item.title, anchor: item.anchor, kind: "tour", tour: { step, total: steps.length }, action: undefined });
-    document.getElementById(item.anchor)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setCurrent({ pose: "point", text: item.text, title: item.title, anchor: item.anchor, kind: "tour", tour: { step, total: steps.length } });
+    reveal(item.anchor);
   }, []);
 
   const startTour = useCallback(() => {
@@ -452,7 +457,7 @@ function useCloudTap(bubble: Bubble | null, pointing: boolean): () => void {
       router.push(bubble.action.href);
       return;
     }
-    if (bubble.anchor) return document.getElementById(bubble.anchor)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (bubble.anchor) return reveal(bubble.anchor);
     rachna.close();
   };
 }
@@ -462,12 +467,12 @@ function Words({ bubble, compact, onClose }: { bubble: Bubble; compact?: boolean
   const rachna = useRachna();
   const router = useRouter();
   const pathname = usePathname();
-  const showMe = bubble.anchor ? () => document.getElementById(bubble.anchor!)?.scrollIntoView({ block: "center", behavior: "smooth" }) : null;
-  return (
-    <>
-      {bubble.title ? <p className="label mb-0.5">{bubble.title}</p> : null}
-      <p className={cn("text-sm", compact && "text-[13px]")}>{bubble.text}</p>
-      {bubble.tour ? (
+  const anchor = bubble.anchor;
+  const showMe = anchor ? () => reveal(anchor) : null;
+  // The buttons under her words: tour steps, her suggested link, the sign-in hello, or the morning note.
+  const buttons = (() => {
+    if (bubble.tour)
+      return (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-muted-foreground">
             {bubble.tour.step + 1} of {bubble.tour.total}
@@ -486,7 +491,9 @@ function Words({ bubble, compact, onClose }: { bubble: Bubble; compact?: boolean
             {bubble.tour.step + 1 === bubble.tour.total ? "Done" : "Next"}
           </Button>
         </div>
-      ) : bubble.action ? (
+      );
+    if (bubble.action)
+      return (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Button asChild size="xs" variant="action">
             <Link href={bubble.action.href} onClick={onClose}>
@@ -497,7 +504,9 @@ function Words({ bubble, compact, onClose }: { bubble: Bubble; compact?: boolean
             Not now
           </Button>
         </div>
-      ) : bubble.kind === "intro" ? (
+      );
+    if (bubble.kind === "intro")
+      return (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <Button
             size="xs"
@@ -514,7 +523,9 @@ function Words({ bubble, compact, onClose }: { bubble: Bubble; compact?: boolean
             Show me around
           </Button>
         </div>
-      ) : bubble.kind === "greeting" ? (
+      );
+    if (bubble.kind === "greeting")
+      return (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {showMe ? (
             <Button size="xs" variant="action" onClick={showMe}>
@@ -532,7 +543,14 @@ function Words({ bubble, compact, onClose }: { bubble: Bubble; compact?: boolean
             Got it
           </Button>
         </div>
-      ) : null}
+      );
+    return null;
+  })();
+  return (
+    <>
+      {bubble.title ? <p className="label mb-0.5">{bubble.title}</p> : null}
+      <p className={cn("text-sm", compact && "text-[13px]")}>{bubble.text}</p>
+      {buttons}
     </>
   );
 }
@@ -568,7 +586,7 @@ function PointingWords({ labels, onTour }: { labels: string[]; onTour?: () => vo
 }
 
 /** The tooltip on her: a word about her mood, then what a click does. */
-function title(mood: Mood): string {
+function tooltipFor(mood: Mood): string {
   if (mood === "worried") return "Something is three or more days late. Click me for what needs doing now";
   if (mood === "happy") return "All clear. Click me and I'll check again";
   return "Show me what needs doing now";
@@ -646,6 +664,15 @@ function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] 
   );
 }
 
+/** Her face in the slot: napping when quiet, pointing, her mood when silent (or once the confetti has gone), else the bubble's pose. */
+function slotPose(rachna: Api, bubble: Bubble | null, quiet: boolean, cheering: boolean): RachnaPose {
+  if (rachna.asleep && quiet) return "sleep";
+  if (rachna.pointing) return "point";
+  if (!bubble) return rachna.mood;
+  if (bubble.pose === "cheer" && !cheering) return rachna.mood;
+  return bubble.pose;
+}
+
 /**
  * Her slot at the foot of the sidebar. She is always there: idle with a hint,
  * talking in a cloud, pointing, or napping. Icon rail: the portrait with a dot
@@ -672,16 +699,15 @@ export function RachnaSlot() {
   const quiet = !bubble && !rachna.pointing;
   if (!rachna.tipsOn && quiet) return null;
 
-  const pose: RachnaPose = rachna.asleep && quiet ? "sleep" : rachna.pointing ? "point" : !bubble ? rachna.mood : bubble.pose === "cheer" && !cheering ? rachna.mood : bubble.pose;
-  const busy = Boolean(bubble) || rachna.pointing;
+  const pose = slotPose(rachna, bubble, quiet, cheering);
 
   return (
     <>
       {/* The full column */}
       <div className={cn("rachna-home relative mb-3", ui.wideOnly)} data-rachna role="status" aria-live="polite">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={rachna.togglePointing} aria-pressed={rachna.pointing} title={title(rachna.mood)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
-            <RachnaPortrait pose={pose} size={48} lively={busy} />
+          <button type="button" onClick={rachna.togglePointing} aria-pressed={rachna.pointing} title={tooltipFor(rachna.mood)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
+            <RachnaPortrait pose={pose} size={48} lively={!quiet} />
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1 text-[15px] leading-tight font-extrabold text-primary">
                 Rachna
@@ -692,7 +718,7 @@ export function RachnaSlot() {
               ) : null}
             </span>
           </button>
-          {busy ? (
+          {!quiet ? (
             <button type="button" aria-label="Close" onClick={rachna.close} className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground">
               <X className="size-4" />
             </button>
@@ -712,11 +738,11 @@ export function RachnaSlot() {
         {cheering ? <Burst /> : null}
       </div>
       {/* The icon rail */}
-      <button type="button" onClick={() => (busy ? setRailOpen((value) => !value) : rachna.togglePointing())} aria-label={busy ? "Rachna has something to say" : "Rachna: show me what needs doing now"} className={cn("relative mb-3 flex w-full justify-center rounded-md py-1 outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring", ui.railOnly)}>
+      <button type="button" onClick={() => (!quiet ? setRailOpen((value) => !value) : rachna.togglePointing())} aria-label={!quiet ? "Rachna has something to say" : "Rachna: show me what needs doing now"} className={cn("relative mb-3 flex w-full justify-center rounded-md py-1 outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring", ui.railOnly)}>
         <RachnaPortrait pose={pose} size={40} />
-        {busy ? <span aria-hidden className="absolute top-1 right-2 size-2.5 rounded-full border-2 border-surface bg-primary" /> : null}
+        {!quiet ? <span aria-hidden className="absolute top-1 right-2 size-2.5 rounded-full border-2 border-surface bg-primary" /> : null}
       </button>
-      {railOpen && busy ? (
+      {railOpen && !quiet ? (
         <div className={ui.railOnly}>
           <Strip bubble={bubble} pointing={rachna.pointing} labels={rachna.pointers} pose={pose} onClose={rachna.close} />
         </div>
@@ -797,7 +823,7 @@ export function RachnaGreeting({ name, replies, parcels, total, weekSent, weekTa
 export function RachnaCameo() {
   const rachna = useRachna();
   if (!rachna) return null;
-  const wide = () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+  const wide = () => window.matchMedia("(min-width: 768px)").matches;
   return (
     <button
       type="button"

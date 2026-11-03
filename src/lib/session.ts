@@ -20,7 +20,7 @@ export type SessionUser = {
   viewBrand: string | null;
   /** Profile photo as a data URL, when the person has set one. */
   avatarUrl: string | null;
-  /** Whether Rachna, the guide, shows her notes and nudges (the "?" tour always works). */
+  /** Whether Rachna, the guide, shows her notes and nudges (the tour from her face in the top bar always works). */
   showRachnaTips: boolean;
 };
 
@@ -58,7 +58,7 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** For the change-password screen only: does not bounce a user who still has a temporary password. */
+/** For the change-password screen, and for the small self-service actions (profile, Rachna tips) that must never redirect: does not bounce someone who still holds a temporary password. */
 export async function requireUserForPasswordChange(): Promise<SessionUser & { mustChangePassword: boolean }> {
   return loadSessionUser();
 }

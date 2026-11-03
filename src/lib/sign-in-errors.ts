@@ -8,7 +8,7 @@
  * person their password is wrong would send them off to reset a password that
  * was fine.
  */
-export type SignInFailure = { type?: string; code?: string };
+type SignInFailure ={ type?: string; code?: string };
 
 const REFUSED: Record<string, string> = {
   rate_limited: "Too many failed attempts. Wait 15 minutes and try again.",

@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { discoverySlice } from "@/lib/discovery";
+import { unlocked } from "@/lib/run-lock";
 import { scoringSlice } from "@/lib/scoring";
+
+type TickSummary = { discovery: { runId: string; done: boolean }[]; scoring: { runId: string; done: boolean }[]; skipped: number };
 
 /**
  * Long jobs (discovery, AI scoring) never run inside one request. They are
@@ -11,12 +14,10 @@ import { scoringSlice } from "@/lib/scoring";
  * tick, within a time budget so the tick itself stays short. Most ticks find
  * nothing, so both lists are read at once and the tick returns straight away.
  */
-export type TickSummary = { discovery: { runId: string; done: boolean }[]; scoring: { runId: string; done: boolean }[]; skipped: number };
-
 export async function tickJobs(now = new Date(), budgetMs = 6000): Promise<TickSummary> {
   const started = Date.now();
   const summary: TickSummary = { discovery: [], scoring: [], skipped: 0 };
-  const free = { OR: [{ lockedUntil: null }, { lockedUntil: { lt: now } }] };
+  const free = unlocked(now);
 
   const [discoveries, scorings] = await Promise.all([
     db.discoveryRun.findMany({ where: { status: "running", ...free }, orderBy: { startedAt: "asc" }, take: 5, select: { id: true } }),

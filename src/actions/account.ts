@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db";
-import type { FormState } from "@/lib/form";
+import { field, type FormState } from "@/lib/form";
 import { requireUserForPasswordChange } from "@/lib/session";
 
 const MIN_LENGTH = 10;
@@ -44,7 +44,7 @@ const AVATAR_PATTERN = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 export async function updateProfile(_prev: FormState, formData: FormData): Promise<FormState> {
   const user = await requireUserForPasswordChange();
 
-  const name = String(formData.get("name") ?? "").trim();
+  const name = field(formData, "name");
   if (!name) return { error: "Enter your name." };
   if (name.length > NAME_MAX) return { error: `The name can have at most ${NAME_MAX} characters.` };
 
@@ -64,7 +64,8 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
   await db.$transaction(async (tx) => {
     await tx.user.update({
       where: { id: user.id },
-      data: { name, avatarUrl: avatar ? avatar : removeAvatar ? null : undefined },
+      // A new photo replaces the old one, Remove clears it, otherwise it is left alone.
+      data: { name, avatarUrl: avatar || (removeAvatar ? null : undefined) },
     });
     await logActivity(tx, { userId: user.id, kind: "user_admin", body: `Updated their profile (${changes.join(", ")}).` });
   });
@@ -72,7 +73,7 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
   return { message: "Saved." };
 }
 
-/** Settings: whether Rachna, the guide, shows her notes and nudges to this person. The "?" tour always stays. */
+/** Settings: whether Rachna, the guide, shows her notes and nudges to this person. The tour (her face in the top bar) always stays. */
 export async function setRachnaTips(on: boolean): Promise<void> {
   const user = await requireUserForPasswordChange();
   await db.user.update({ where: { id: user.id }, data: { showRachnaTips: on } });

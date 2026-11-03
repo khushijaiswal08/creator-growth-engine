@@ -1,8 +1,6 @@
 import type { Platform } from "@prisma/client";
 import { formatCount } from "@/lib/format";
-import { displayHandle, PLATFORM_LABELS, profileUrl } from "@/lib/profile-url";
-
-const PLATFORM_SHORT: Record<Platform, string> = { instagram: "IG", tiktok: "TT", youtube: "YT" };
+import { displayHandle, PLATFORM_LABELS, PLATFORM_SHORT, profileUrl } from "@/lib/profile-url";
 
 /**
  * Compact one-line-per-profile list for table cells. `inline` puts the

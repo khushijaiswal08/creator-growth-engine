@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { reachLabel } from "@/lib/channels";
 
 /** "Check a profile": paste a link, see the creator before messaging. */
 export function CheckProfileButton() {
@@ -113,25 +114,28 @@ export function NewMessageButton() {
                 ) : null}
               </li>
             ) : (
-              results.map((creator) => (
-                <li key={creator.campaignCreatorId}>
-                  <button
-                    type="button"
-                    disabled={creator.blockedReason !== null || (creator.profiles.length === 0 && !creator.email && !creator.amazonCreator)}
-                    title={creator.blockedReason ?? (creator.profiles.length === 0 && !creator.email && !creator.amazonCreator ? "No way to reach this creator" : undefined)}
-                    onClick={() => choose(creator)}
-                    className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
-                  >
-                    <Avatar name={creator.influencerName} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold">{creator.influencerName}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {creator.handle ?? (creator.amazonCreator ? "Amazon Creator Connections" : (creator.email ?? "No profile"))} · {creator.campaignName} · {creator.statusLabel}
+              results.map((creator) => {
+                const unreachable = creator.profiles.length === 0 && !creator.email && !creator.amazonCreator;
+                return (
+                  <li key={creator.campaignCreatorId}>
+                    <button
+                      type="button"
+                      disabled={creator.blockedReason !== null || unreachable}
+                      title={creator.blockedReason ?? (unreachable ? "No way to reach this creator" : undefined)}
+                      onClick={() => choose(creator)}
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      <Avatar name={creator.influencerName} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">{creator.influencerName}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {reachLabel(creator)} · {creator.campaignName} · {creator.statusLabel}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))
+                    </button>
+                  </li>
+                );
+              })
             )}
           </ul>
         </DialogContent>

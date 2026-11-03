@@ -4,6 +4,7 @@ import { PageHeader, Panel } from "@/components/panel";
 import { viewed } from "@/lib/brand-scope";
 import { CSV_MAX_ROWS } from "@/lib/csv";
 import { db } from "@/lib/db";
+import { openCampaignIn } from "@/lib/due";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "CSV import" };
@@ -27,7 +28,7 @@ const COLUMNS: { name: string; required?: boolean; help: string }[] = [
 export default async function ImportPage() {
   const user = await requireUser();
   const campaigns = await db.campaign.findMany({
-    where: { ...viewed(user).campaigns, status: { not: "archived" } },
+    where: openCampaignIn(viewed(user)),
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });

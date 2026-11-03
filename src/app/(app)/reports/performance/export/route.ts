@@ -1,5 +1,5 @@
 import { viewed } from "@/lib/brand-scope";
-import { csvCell, csvResponse, fileSlug } from "@/lib/csv-out";
+import { csvLine, csvResponse, fileSlug } from "@/lib/csv-out";
 import { db } from "@/lib/db";
 import { bucketsFor, FIGURE_LABELS, figuresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { requireUser } from "@/lib/session";
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
 
   const [buckets, total] = await Promise.all([bucketsFor(period, where), figuresFor(period, where)]);
   const lines = [["period", ...KEYS].join(",")];
-  for (const bucket of buckets) lines.push([bucket.label, ...KEYS.map((key) => bucket.figures[key] ?? "")].map((value) => csvCell(value)).join(","));
-  lines.push(["total", ...KEYS.map((key) => total[key] ?? "")].map((value) => csvCell(value)).join(","));
+  for (const bucket of buckets) lines.push(csvLine([bucket.label, ...KEYS.map((key) => bucket.figures[key] ?? "")]));
+  lines.push(csvLine(["total", ...KEYS.map((key) => total[key] ?? "")]));
   return csvResponse(lines, `performance-${fileSlug(campaign?.name ?? "all-campaigns")}-${period.key}.csv`);
 }

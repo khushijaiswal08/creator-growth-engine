@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
  * the same across serverless instances. Keys are hashed, so no address or
  * token is stored in readable form.
  */
-export type RateLimitRule = { name: string; max: number; windowMs: number };
+type RateLimitRule ={ name: string; max: number; windowMs: number };
 
 export const RATE_LIMITS = {
   /** Opening selection links, per caller address. */
@@ -29,14 +29,14 @@ export const RATE_LIMITS = {
 
 const PURGE_AFTER_MS = 24 * 60 * 60 * 1000;
 
-/** The caller's address as the platform reports it (Netlify and Vercel both set x-forwarded-for). */
+/** The caller's address as the platform reports it: Netlify's own client-address header first, then x-forwarded-for (which Netlify and Vercel both set). */
 export function callerIp(headers: Headers): string {
   const netlify = headers.get("x-nf-client-connection-ip")?.trim();
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return netlify || forwarded || headers.get("x-real-ip")?.trim() || "unknown";
 }
 
-export function rateLimitKey(rule: RateLimitRule, subject: string): string {
+function rateLimitKey(rule: RateLimitRule, subject: string): string {
   return createHash("sha256").update(`${rule.name}|${subject}`).digest("hex");
 }
 

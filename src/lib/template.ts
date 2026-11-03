@@ -1,9 +1,10 @@
-export const TEMPLATE_VARS = ["name", "handle", "platform", "sender", "product", "brand", "selection_link", "upload_link", "amazon_link"] as const;
+const TEMPLATE_VARS = ["name", "handle", "platform", "sender", "product", "brand", "selection_link", "upload_link", "amazon_link"] as const;
 
-export type TemplateVar = (typeof TEMPLATE_VARS)[number];
-export type TemplateVars = Record<TemplateVar, string>;
+type TemplateVar = (typeof TEMPLATE_VARS)[number];
+type TemplateVars = Record<TemplateVar, string>;
 
-const PLACEHOLDER_RE = /\{(name|handle|platform|sender|product|brand|selection_link|upload_link|amazon_link)\}/g;
+// Built from the list above, so a new placeholder only has to be added once.
+const PLACEHOLDER_RE = new RegExp(`\\{(${TEMPLATE_VARS.join("|")})\\}`, "g");
 
 /**
  * Replaces {name} {handle} {platform} {sender} {product} {brand} {selection_link} {upload_link} {amazon_link}.

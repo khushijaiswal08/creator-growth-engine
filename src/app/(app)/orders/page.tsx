@@ -7,17 +7,16 @@ import { TrackingImportForm } from "@/components/journey-forms";
 import { PageHeader } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { openAddress } from "@/lib/address-crypto";
-import { viewed } from "@/lib/brand-scope";
-import { BRANDS, brandName } from "@/lib/brands";
+import { brandsIn, viewed } from "@/lib/brand-scope";
+import { brandsLabel } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { approvalChecks, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference } from "@/lib/gifts";
+import { approvalChecks, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference, OPEN_GIFT_STATUSES } from "@/lib/gifts";
 import { mcfConfigured } from "@/lib/mcf";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Gifts" };
 
 const PAGE_SIZE = 50;
-const CHECKED: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved", "ordered", "shipped", "exception"]);
 
 // The tab words, shorter than the status labels where the context makes them clear.
 const TAB_LABELS: Record<GiftOrderStatus, string> = {
@@ -59,58 +58,61 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const deliveredLinks = delivered.length ? await db.campaignCreator.findMany({ where: { id: { in: delivered.map((row) => row.campaignCreatorId) } }, select: { campaignId: true } }) : [];
   const campaignsWithDelivery = new Set(deliveredLinks.map((row) => row.campaignId));
   const countOf = new Map(counts.map((row) => [row.status, row._count._all]));
-  const openCount = GIFT_STATUSES.filter((status) => status !== "cancelled" && status !== "delivered").reduce((sum, status) => sum + (countOf.get(status) ?? 0), 0);
+  const openCount = GIFT_STATUSES.filter((status) => OPEN_GIFT_STATUSES.has(status)).reduce((sum, status) => sum + (countOf.get(status) ?? 0), 0);
 
   // Addresses are encrypted at rest; only this signed-in, brand-scoped page reads them.
   // Open orders also carry the rules they passed or failed, so the drawer can show them.
   const orders: GiftRow[] = await Promise.all(
-    stored.map(openAddress).map(async (order) => ({
-      id: order.id,
-      reference: giftReference(order.id),
-      status: order.status,
-      quantity: order.quantity,
-      createdAt: order.createdAt,
-      shippedAt: order.shippedAt,
-      deliveredAt: order.deliveredAt,
-      orderNumber: order.orderNumber,
-      carrier: order.carrier,
-      trackingNumber: order.trackingNumber,
-      trackingStatus: order.trackingStatus,
-      approvalNote: order.approvalNote,
-      creatorNote: order.creatorNote,
-      shipName: order.shipName,
-      address1: order.address1,
-      address2: order.address2,
-      city: order.city,
-      state: order.state,
-      postalCode: order.postalCode,
-      country: order.country,
-      phone: order.phone,
-      product: { ...order.product, price: order.product.price === null ? null : Number(order.product.price) },
-      creator: order.campaignCreator.influencer,
-      campaign: order.campaignCreator.campaign.name,
-      campaignCreatorId: order.campaignCreator.id,
-      arrivalCheckDays: order.campaignCreator.campaign.arrivalCheckDays,
-      firstDeliveryInCampaign: !campaignsWithDelivery.has(order.campaignCreator.campaign.id),
-      // One-click Amazon orders, when the brand's SP-API keys are set; otherwise the Amazon file.
-      amazon: { enabled: mcfConfigured(order.campaignCreator.campaign.brandId), sentAt: order.mcfSentAt, status: order.mcfStatus, error: order.mcfError, trackingLink: order.trackingLink },
-      checks: CHECKED.has(order.status)
-        ? await approvalChecks({
-            influencerId: order.campaignCreator.influencerId,
-            country: order.country,
-            quantity: order.quantity,
-            productPriceUsd: order.product.price === null ? null : Number(order.product.price),
-            collaborationType: order.campaignCreator.collaborationType,
-            approvedFee: order.campaignCreator.approvedFee,
-          }, { id: order.id, createdAt: order.createdAt })
-        : [],
-    })),
+    stored.map(openAddress).map(async (order) => {
+      const price = order.product.price === null ? null : Number(order.product.price);
+      return {
+        id: order.id,
+        reference: giftReference(order.id),
+        status: order.status,
+        quantity: order.quantity,
+        createdAt: order.createdAt,
+        shippedAt: order.shippedAt,
+        deliveredAt: order.deliveredAt,
+        orderNumber: order.orderNumber,
+        carrier: order.carrier,
+        trackingNumber: order.trackingNumber,
+        trackingStatus: order.trackingStatus,
+        approvalNote: order.approvalNote,
+        creatorNote: order.creatorNote,
+        shipName: order.shipName,
+        address1: order.address1,
+        address2: order.address2,
+        city: order.city,
+        state: order.state,
+        postalCode: order.postalCode,
+        country: order.country,
+        phone: order.phone,
+        product: { ...order.product, price },
+        creator: order.campaignCreator.influencer,
+        campaign: order.campaignCreator.campaign.name,
+        campaignCreatorId: order.campaignCreator.id,
+        arrivalCheckDays: order.campaignCreator.campaign.arrivalCheckDays,
+        firstDeliveryInCampaign: !campaignsWithDelivery.has(order.campaignCreator.campaign.id),
+        // One-click Amazon orders, when the brand's SP-API keys are set; otherwise the Amazon file.
+        amazon: { enabled: mcfConfigured(order.campaignCreator.campaign.brandId), sentAt: order.mcfSentAt, status: order.mcfStatus, error: order.mcfError, trackingLink: order.trackingLink },
+        checks: OPEN_GIFT_STATUSES.has(order.status)
+          ? await approvalChecks({
+              influencerId: order.campaignCreator.influencerId,
+              country: order.country,
+              quantity: order.quantity,
+              productPriceUsd: price,
+              collaborationType: order.campaignCreator.collaborationType,
+              approvedFee: order.campaignCreator.approvedFee,
+            }, { id: order.id, createdAt: order.createdAt })
+          : [],
+      };
+    }),
   );
 
   // Each brand ships from its own Amazon account, so there is one order file per brand.
   const toOrder = (
     await Promise.all(
-      BRANDS.filter((brand) => view.includes(brand.id)).map(async (brand) => ({
+      brandsIn(view).map(async (brand) => ({
         brand,
         count: await db.giftOrder.count({ where: { status: "approved", campaignCreator: { campaign: { brandId: brand.id } } } }),
       })),
@@ -121,7 +123,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
     <>
       <PageHeader
         title="Gifts"
-        meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${openCount} open · ${countOf.get("needs_approval") ?? 0} to approve`}
+        meta={`${brandsLabel(view.brandId, "Both brands")} ·${openCount} open · ${countOf.get("needs_approval") ?? 0} to approve`}
       >
         <Button asChild variant="outline">
           <a href="#tracking">

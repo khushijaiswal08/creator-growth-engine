@@ -9,7 +9,7 @@ import { CreatorName } from "@/components/creator-card";
 import { Pill } from "@/components/status-pill";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import type { StatusTone } from "@/lib/status";
+import { CONTENT_STATUS_TONES, USAGE_TONES } from "@/lib/status";
 
 export type ContentCardData = {
   id: string;
@@ -31,9 +31,6 @@ export type ContentCardData = {
   reviewNote: string | null;
   reviewedBy: string | null;
 };
-
-const STATUS_TONES: Record<ContentCardData["status"], StatusTone> = { received: "warning", approved: "success", changes_requested: "danger" };
-const USAGE_TONES: Record<ContentCardData["usage"], StatusTone> = { paid: "success", organic: "info", none: "neutral" };
 
 /** One file in the content library: the preview, what the creator allows, and the team's decision. */
 export function ContentCard({ asset }: { asset: ContentCardData }) {
@@ -72,7 +69,7 @@ export function ContentCard({ asset }: { asset: ContentCardData }) {
           </span>
         )}
         <span className="absolute top-2.5 left-2.5">
-          <Pill tone={STATUS_TONES[asset.status]}>{asset.statusLabel}</Pill>
+          <Pill tone={CONTENT_STATUS_TONES[asset.status]}>{asset.statusLabel}</Pill>
         </span>
       </div>
 

@@ -171,8 +171,8 @@ type SeedInfluencer = {
   location: string;
   usSignal: number;
   profiles: { platform: Platform; handle: string; followers: number; engagementRate: number; bio: string }[];
-  // campaign index -> status
-  campaigns: { campaign: 0 | 1; status: CreatorStatus; owner: 1 | 2 }[];
+  // Which seeded campaign (its position in CAMPAIGNS) and the status in it. The admin owns every link.
+  campaigns: { campaign: 0 | 1; status: CreatorStatus }[];
 };
 
 // Fictional people. Handles end in ".sample" so they cannot collide with real imports.
@@ -186,7 +186,7 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "instagram", handle: "mayatorres.home.sample", followers: 48200, engagementRate: 3.4, bio: "Texas home, slow mornings, thrifted finds." },
       { platform: "tiktok", handle: "mayatorres.home.sample", followers: 121000, engagementRate: 6.1, bio: "Styling a 1940s bungalow." },
     ],
-    campaigns: [{ campaign: 0, status: "contacted", owner: 1 }],
+    campaigns: [{ campaign: 0, status: "contacted" }],
   },
   {
     name: "Hannah Whitfield",
@@ -197,8 +197,8 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "instagram", handle: "whitfieldcottage.sample", followers: 23900, engagementRate: 4.8, bio: "Cottage interiors and garden tables." },
     ],
     campaigns: [
-      { campaign: 0, status: "agreed", owner: 1 },
-      { campaign: 1, status: "discovered", owner: 1 },
+      { campaign: 0, status: "agreed" },
+      { campaign: 1, status: "discovered" },
     ],
   },
   {
@@ -210,7 +210,7 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "youtube", handle: "priyaramanhome.sample", followers: 67400, engagementRate: 2.2, bio: "Home tours, hosting and Indian textiles." },
       { platform: "instagram", handle: "priyaraman.home.sample", followers: 15800, engagementRate: 3.9, bio: "Hosting, textiles, tea." },
     ],
-    campaigns: [{ campaign: 0, status: "interested", owner: 2 }],
+    campaigns: [{ campaign: 0, status: "interested" }],
   },
   {
     name: "Jordan Ellis",
@@ -220,7 +220,7 @@ const INFLUENCERS: SeedInfluencer[] = [
     profiles: [
       { platform: "tiktok", handle: "jordanellis.diy.sample", followers: 310500, engagementRate: 7.3, bio: "Renter-friendly DIY and thrift flips." },
     ],
-    campaigns: [{ campaign: 0, status: "approved", owner: 2 }],
+    campaigns: [{ campaign: 0, status: "approved" }],
   },
   {
     name: "Sofia Marchetti",
@@ -231,8 +231,8 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "instagram", handle: "sofia.sets.the.table.sample", followers: 9400, engagementRate: 5.6, bio: "Dinner parties in a small apartment." },
     ],
     campaigns: [
-      { campaign: 0, status: "follow_up_due", owner: 1 },
-      { campaign: 1, status: "approved", owner: 1 },
+      { campaign: 0, status: "follow_up_due" },
+      { campaign: 1, status: "approved" },
     ],
   },
   {
@@ -243,7 +243,7 @@ const INFLUENCERS: SeedInfluencer[] = [
     profiles: [
       { platform: "instagram", handle: "clairedonovan.interiors.sample", followers: 132000, engagementRate: 1.9, bio: "Southern interiors and entertaining." },
     ],
-    campaigns: [{ campaign: 0, status: "no_reply", owner: 2 }],
+    campaigns: [{ campaign: 0, status: "no_reply" }],
   },
   {
     name: "Aaliyah Brooks",
@@ -254,7 +254,7 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "youtube", handle: "aaliyahathome.sample", followers: 41200, engagementRate: 3.1, bio: "Budget home makeovers and seasonal resets." },
       { platform: "tiktok", handle: "aaliyahathome.sample", followers: 88700, engagementRate: 5.4, bio: "Seasonal resets." },
     ],
-    campaigns: [{ campaign: 1, status: "scored", owner: 2 }],
+    campaigns: [{ campaign: 1, status: "scored" }],
   },
   {
     name: "Emma Lindqvist",
@@ -264,7 +264,7 @@ const INFLUENCERS: SeedInfluencer[] = [
     profiles: [
       { platform: "instagram", handle: "emmalindqvist.home.sample", followers: 5600, engagementRate: 8.2, bio: "Scandi-meets-prairie home, hand sewing." },
     ],
-    campaigns: [{ campaign: 0, status: "product_shipped", owner: 1 }],
+    campaigns: [{ campaign: 0, status: "product_shipped" }],
   },
   {
     name: "Rachel Kim",
@@ -275,8 +275,8 @@ const INFLUENCERS: SeedInfluencer[] = [
       { platform: "tiktok", handle: "rachelkim.table.sample", followers: 56300, engagementRate: 4.4, bio: "Tablescapes for every excuse." },
     ],
     campaigns: [
-      { campaign: 0, status: "discovered", owner: 2 },
-      { campaign: 1, status: "discovered", owner: 2 },
+      { campaign: 0, status: "discovered" },
+      { campaign: 1, status: "discovered" },
     ],
   },
   {
@@ -287,7 +287,7 @@ const INFLUENCERS: SeedInfluencer[] = [
     profiles: [
       { platform: "youtube", handle: "noracastellanos.sample", followers: 18900, engagementRate: 2.8, bio: "Adobe home, natural dyes, quilts." },
     ],
-    campaigns: [{ campaign: 0, status: "review_later", owner: 1 }],
+    campaigns: [{ campaign: 0, status: "review_later" }],
   },
 ];
 

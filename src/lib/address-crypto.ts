@@ -10,8 +10,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
  */
 const PREFIX = "enc:v1:";
 
-export const ADDRESS_FIELDS = ["shipName", "address1", "address2", "city", "state", "postalCode", "phone"] as const;
-export type AddressField = (typeof ADDRESS_FIELDS)[number];
+const ADDRESS_FIELDS = ["shipName", "address1", "address2", "city", "state", "postalCode", "phone"] as const;
+type AddressField = (typeof ADDRESS_FIELDS)[number];
 
 let cachedKey: Buffer | null | undefined;
 
@@ -31,11 +31,6 @@ function key(): Buffer | null {
 /** True when a key is set, so new addresses are written encrypted. */
 export function addressEncryptionEnabled(): boolean {
   return key() !== null;
-}
-
-/** For tests: forget the cached key after changing the environment. */
-export function resetAddressKey(): void {
-  cachedKey = undefined;
 }
 
 export function seal(value: string): string {

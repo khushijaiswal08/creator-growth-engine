@@ -5,6 +5,14 @@ import { db } from "@/lib/db";
 import { formatDateTime } from "@/lib/format";
 import { requireAdmin } from "@/lib/session";
 
+/** The note beside someone who still holds a temporary password; null once they have chosen their own. */
+function temporaryPasswordNote(user: { mustChangePassword: boolean; tempPasswordExpiresAt: Date | null }, now: number): string | null {
+  if (!user.mustChangePassword) return null;
+  if (!user.tempPasswordExpiresAt) return "Has a temporary password";
+  if (user.tempPasswordExpiresAt.getTime() < now) return "Temporary password expired; reset it";
+  return `Temporary password, expires ${formatDateTime(user.tempPasswordExpiresAt)}`;
+}
+
 export const metadata: Metadata = { title: "Users" };
 
 export default async function UsersPage() {
@@ -31,15 +39,7 @@ export default async function UsersPage() {
               <UserRow
                 key={user.id}
                 user={{ id: user.id, name: user.name, email: user.email, role: user.role, brandId: user.role === "admin" ? null : user.brandId }}
-                temporaryPassword={
-                  !user.mustChangePassword
-                    ? null
-                    : user.tempPasswordExpiresAt && user.tempPasswordExpiresAt.getTime() < now
-                      ? "Temporary password expired; reset it"
-                      : user.tempPasswordExpiresAt
-                        ? `Temporary password, expires ${formatDateTime(user.tempPasswordExpiresAt)}`
-                        : "Has a temporary password"
-                }
+                temporaryPassword={temporaryPasswordNote(user, now)}
                 isSelf={user.id === admin.id}
               />
             ))}

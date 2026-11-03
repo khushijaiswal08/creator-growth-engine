@@ -18,7 +18,3 @@ export const LANES: Lane[] = [
 
 /** Outcomes that end a journey without content. Counted under Done, never dragged. */
 export const CLOSED_STATUSES: CreatorStatus[] = ["no_content", "no_reply", "not_interested", "rejected", "blacklisted", "unsubscribed", "bounced", "invalid_contact", "duplicate"];
-
-export function laneOf(status: CreatorStatus): Lane | null {
-  return LANES.find((lane) => lane.statuses.includes(status)) ?? null;
-}

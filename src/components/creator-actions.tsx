@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { EditInfluencerForm } from "@/components/influencer-forms";
+import { EditInfluencerForm, type EditableInfluencer } from "@/components/influencer-forms";
 import { LogReplyForm } from "@/components/journey-forms";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -28,7 +28,7 @@ export function LogReplyButton({ campaignCreatorId, campaignName }: { campaignCr
 }
 
 /** "Edit" on the About card: the details form in a dialog. */
-export function EditDetailsButton({ influencer }: { influencer: { id: string; name: string; email: string | null; location: string | null; usSignal: number | null; notes: string | null; affiliateQuote: string | null; } }) {
+export function EditDetailsButton({ influencer }: { influencer: EditableInfluencer }) {
   const [open, setOpen] = useState(false);
   return (
     <>

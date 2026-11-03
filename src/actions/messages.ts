@@ -9,10 +9,10 @@ import { brandName } from "@/lib/brands";
 import type { Channel } from "@/lib/channels";
 import { ensureUploadUrl, uploadLinkExpiry } from "@/lib/content-upload";
 import { db } from "@/lib/db";
-import { displayHandle, PLATFORM_LABELS } from "@/lib/profile-url";
+import { profileLabel } from "@/lib/profile-url";
 import { ensureSelectionUrl } from "@/lib/selection";
 import { requireUser } from "@/lib/session";
-import { CREATOR_STATUS_LABELS, PRE_CONTACT_STATUSES, SEND_BLOCKED_STATUSES } from "@/lib/status";
+import { CREATOR_STATUS_LABELS, PRE_CONTACT_STATUSES, SEND_BLOCKED_STATUSES, statusChangeText } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
 
 type LogMessageInput = {
@@ -25,17 +25,17 @@ type LogMessageInput = {
   body: string;
 };
 
-export type LogMessageResult =
+type LogMessageResult =
   | { ok: true; movedToContacted: boolean }
   | { ok: false; error: string };
+
+/** From the address onwards: a gift is on its way or has arrived, so there will be content to send. */
+const UPLOAD_STAGES: ReadonlySet<CreatorStatus> = new Set(["address_collected", "product_shipped", "content_expected", "content_posted", "completed", "no_content"]);
 
 /**
  * Loads the creator and applies every rule that can forbid contact, the suppression list included.
  * A creator of a brand outside the scope is not found at all.
  */
-/** From the address onwards: a gift is on its way or has arrived, so there will be content to send. */
-const UPLOAD_STAGES: ReadonlySet<CreatorStatus> = new Set(["address_collected", "product_shipped", "content_expected", "content_posted", "completed", "no_content"]);
-
 async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
   const creator = await db.campaignCreator.findFirst({
     where: { id: campaignCreatorId, ...scope.creators },
@@ -58,6 +58,11 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
   return { ok: true as const, creator };
 }
 
+/** What the message dialog needs once the creator may be contacted, or why they may not. */
+export type MessageAllowed =
+  | { ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; amazonUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null }
+  | { ok: false; error: string };
+
 /**
  * Called when the message dialog opens. The copy-and-open button stays
  * disabled until this passes, so the suppression list is checked before the
@@ -67,9 +72,7 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
  * their Amazon tracking link when one is saved, their email and the brand's
  * Creator Connections page.
  */
-export async function checkMessageAllowed(
-  campaignCreatorId: string,
-): Promise<{ ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; amazonUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null } | { ok: false; error: string }> {
+export async function checkMessageAllowed(campaignCreatorId: string): Promise<MessageAllowed> {
   const user = await requireUser();
   const sendable = await loadSendable(campaignCreatorId, allowed(user));
   if (!sendable.ok) return sendable;
@@ -117,7 +120,7 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
   if (input.channel === "dm") {
     const profile = creator.influencer.profiles.find((p) => p.id === input.socialProfileId);
     if (!profile) return { ok: false, error: "That profile does not belong to this creator." };
-    target = `${PLATFORM_LABELS[profile.platform]} ${displayHandle(profile.handle)}`;
+    target = profileLabel(profile.platform, profile.handle);
   } else if (input.channel === "email") {
     if (!creator.influencer.email) return { ok: false, error: "This creator has no email address on record." };
     target = `email ${creator.influencer.email}`;
@@ -175,7 +178,7 @@ export async function logOutboundMessage(input: LogMessageInput): Promise<LogMes
         kind: "status_change",
         campaignCreatorId: creator.id,
         influencerId: creator.influencerId,
-        body: `Status changed from ${CREATOR_STATUS_LABELS[creator.status]} to ${CREATOR_STATUS_LABELS.contacted}.`,
+        body: `${statusChangeText(creator.status, "contacted")}.`,
       });
     }
   });

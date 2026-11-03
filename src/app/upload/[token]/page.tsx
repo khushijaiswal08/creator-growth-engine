@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { brandName } from "@/lib/brands";
 import { CONTENT_STATUS_LABELS, loadUploadTarget, UPLOAD_LINK_DAYS } from "@/lib/content-upload";
 import { storageMode } from "@/lib/content-storage";
+import { describeProduct } from "@/lib/product-list";
 import { callerIp, hitRateLimit, isRateLimited, RATE_LIMITS, recordHit } from "@/lib/rate-limit";
 import { firstName } from "@/lib/template";
 import { UploadForm } from "./upload-form";
@@ -50,7 +51,7 @@ export default async function UploadPage({ params }: { params: Promise<{ token: 
 
   const brand = brandName(creator.campaign.brandId);
   const product = creator.giftOrders[0]?.product ?? null;
-  const productLabel = product ? [product.title, product.color, product.size].filter(Boolean).join(", ") : null;
+  const productLabel = product ? describeProduct(product) : null;
 
   return (
     <Shell brand={brand}>

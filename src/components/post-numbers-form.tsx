@@ -7,7 +7,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { formatCount, formatDay } from "@/lib/format";
 
-export type LatestNumbers = { views: number | null; likes: number | null; comments: number | null; shares: number | null; clicks: number | null; salesUsd: number | null; capturedAt: Date } | null;
+type LatestNumbers = { views: number | null; likes: number | null; comments: number | null; shares: number | null; clicks: number | null; salesUsd: number | null; capturedAt: Date } | null;
 
 const FIELDS = [
   ["views", "Views"],
@@ -37,19 +37,19 @@ export function PostNumbersForm({ postId, latest }: { postId: string; latest: La
 
   return (
     <details className="disclosure mt-1">
-      <summary>{summary.length > 0 ? `${summary.join(", ")} · logged ${formatDay(latest!.capturedAt)} · update` : "Log the numbers"}</summary>
+      <summary>{latest && summary.length > 0 ? `${summary.join(", ")} · logged ${formatDay(latest.capturedAt)} · update` : "Log the numbers"}</summary>
       <form action={action} className="mt-2 grid gap-2">
         <input type="hidden" name="postId" value={postId} />
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
           {FIELDS.map(([name, label]) => (
             <label key={name} className="grid gap-1 text-xs font-medium text-muted-foreground">
               {label}
-              <Input name={name} inputMode="numeric" placeholder={latest?.[name] !== null && latest?.[name] !== undefined ? String(latest[name]) : "0"} className="h-8 text-sm text-foreground" />
+              <Input name={name} inputMode="numeric" placeholder={latest && latest[name] !== null ? String(latest[name]) : "0"} className="h-8 text-sm text-foreground" />
             </label>
           ))}
           <label className="grid gap-1 text-xs font-medium text-muted-foreground">
             Sales (US$)
-            <Input name="salesUsd" inputMode="decimal" placeholder={latest?.salesUsd !== null && latest?.salesUsd !== undefined ? String(latest.salesUsd) : "0"} className="h-8 text-sm text-foreground" />
+            <Input name="salesUsd" inputMode="decimal" placeholder={latest && latest.salesUsd !== null ? String(latest.salesUsd) : "0"} className="h-8 text-sm text-foreground" />
           </label>
         </div>
         <FormError state={state} />

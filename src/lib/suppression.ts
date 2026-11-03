@@ -6,7 +6,7 @@ type Target = {
   profiles: { platform: Platform; handle: string }[];
 };
 
-export type SuppressionIndex = {
+type SuppressionIndex = {
   /** Returns the suppression reason, or null when the target may be contacted. */
   reasonFor(target: Target): string | null;
 };

@@ -8,22 +8,21 @@ import { ReportTabs } from "@/components/report-tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { attributionByInfluencer, conversionRate, EMPTY_TOTALS, unitsByMonth } from "@/lib/amazon-stats";
 import { viewed } from "@/lib/brand-scope";
-import { BRANDS, brandName } from "@/lib/brands";
+import { BRANDS, brandName, brandsLabel } from "@/lib/brands";
 import { db } from "@/lib/db";
-import { formatDateTime } from "@/lib/format";
+import { DAY_MS, formatDateTime, formatDollars, isoDay } from "@/lib/format";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Amazon sales" };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const PERIODS = [
   { key: "30", label: "Last 30 days", days: 30 },
   { key: "90", label: "Last 90 days", days: 90 },
   { key: "all", label: "All time", days: null },
 ] as const;
 const MONTHS_SHOWN = 6;
+const IMPORTS_SHOWN = 6;
 
-const money = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
 const monthLabel = (date: Date) => date.toLocaleString("en-US", { month: "short", year: "2-digit", timeZone: "UTC" });
 
 /**
@@ -52,7 +51,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
       select: { campaignCreator: { select: { campaign: { select: { name: true } }, influencer: { select: { id: true, name: true } } } } },
     }),
     unitsByMonth(brandIds, MONTHS_SHOWN, now),
-    db.reportImport.findMany({ where: { brandId: { in: brandIds } }, orderBy: { createdAt: "desc" }, take: 6, select: { id: true, brandId: true, kind: true, fileName: true, periodStart: true, periodEnd: true, rows: true, matched: true, createdAt: true, importedBy: { select: { name: true } } } }),
+    db.reportImport.findMany({ where: { brandId: { in: brandIds } }, orderBy: { createdAt: "desc" }, take: IMPORTS_SHOWN, select: { id: true, brandId: true, kind: true, fileName: true, periodStart: true, periodEnd: true, rows: true, matched: true, createdAt: true, importedBy: { select: { name: true } } } }),
   ]);
 
   // Every creator with a link, with what their links brought in during the period, best first.
@@ -71,7 +70,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
 
   return (
     <>
-      <PageHeader title="Amazon sales" meta={`${view.brandId ? brandName(view.brandId) : "Both brands"} · ${creators.length} ${creators.length === 1 ? "creator" : "creators"} with a tracking link`} />
+      <PageHeader title="Amazon sales" meta={`${brandsLabel(view.brandId, "Both brands")} ·${creators.length} ${creators.length === 1 ? "creator" : "creators"} with a tracking link`} />
       <ReportTabs current="amazon" />
 
       <div className="mb-6 grid gap-5 lg:grid-cols-2">
@@ -91,7 +90,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-5 py-4">
           <h2 id="creators-title">Creators on Amazon</h2>
           <span className="text-sm text-muted-foreground">
-            {sum.clicks.toLocaleString("en-US")} clicks · {sum.purchases.toLocaleString("en-US")} orders · {money(sum.sales)}
+            {sum.clicks.toLocaleString("en-US")} clicks · {sum.purchases.toLocaleString("en-US")} orders · {formatDollars(sum.sales)}
           </span>
           <nav aria-label="Period" className="ml-auto flex gap-1.5">
             {PERIODS.map((option) => (
@@ -139,7 +138,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
                     <TableCell className="text-right tabular-nums">{row.totals.addToCarts.toLocaleString("en-US")}</TableCell>
                     <TableCell className="text-right font-bold tabular-nums">{row.totals.purchases.toLocaleString("en-US")}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.totals.unitsSold.toLocaleString("en-US")}</TableCell>
-                    <TableCell className="text-right font-bold tabular-nums">{money(row.totals.productSales)}</TableCell>
+                    <TableCell className="text-right font-bold tabular-nums">{formatDollars(row.totals.productSales)}</TableCell>
                     <TableCell className="text-right tabular-nums" title={conversion === null ? "Under 10 clicks: too few to read" : undefined}>
                       {conversion === null ? <span className="text-muted-foreground">–</span> : `${conversion}%`}
                     </TableCell>
@@ -190,7 +189,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
                       {units.imported[at] ? (
                         <>
                           <div>{units.totals.units[at].toLocaleString("en-US")}</div>
-                          <div className="text-xs font-semibold text-muted-foreground">{money(units.totals.sales[at])}</div>
+                          <div className="text-xs font-semibold text-muted-foreground">{formatDollars(units.totals.sales[at])}</div>
                         </>
                       ) : (
                         <span className="text-xs font-semibold text-muted-foreground" title="No Business Report imported for this month">not imported</span>
@@ -219,7 +218,7 @@ export default async function AmazonReportPage({ searchParams }: { searchParams:
               <li key={entry.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 text-sm">
                 <span className="font-bold">{entry.kind === "attribution" ? "Attribution" : "Business Report"}</span>
                 <span className="text-muted-foreground">
-                  {brandName(entry.brandId)} · {entry.periodStart.toISOString().slice(0, 10)} to {entry.periodEnd.toISOString().slice(0, 10)} · {entry.matched} of {entry.rows} rows matched
+                  {brandName(entry.brandId)} · {isoDay(entry.periodStart)} to {isoDay(entry.periodEnd)} · {entry.matched} of {entry.rows} rows matched
                 </span>
                 <span className="ml-auto text-xs text-muted-foreground">
                   {entry.importedBy.name}, {formatDateTime(entry.createdAt)}

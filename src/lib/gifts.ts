@@ -26,6 +26,9 @@ export const GIFT_STATUS_TONES: Record<GiftOrderStatus, StatusTone> = {
 
 export const GIFT_STATUSES = Object.keys(GIFT_STATUS_LABELS) as GiftOrderStatus[];
 
+/** Orders still in flight: not delivered and not cancelled. */
+export const OPEN_GIFT_STATUSES: ReadonlySet<GiftOrderStatus> = new Set(["needs_approval", "approved", "ordered", "shipped", "exception"]);
+
 /** A second gift to the same person inside this window needs a person to agree. From config/gift-rules.json. */
 export const REPEAT_GIFT_DAYS = GIFT_RULES.repeatGiftDays;
 
@@ -82,11 +85,6 @@ export async function approvalChecks(
     select: { createdAt: true },
   });
   return checkGiftRules({ ...order, lastGiftAt: earlier?.createdAt ?? null, now: existing?.createdAt ?? new Date() });
-}
-
-/** The reasons an order needs a person; an empty list means it is within the rules. */
-export async function approvalReasons(order: Parameters<typeof approvalChecks>[0]): Promise<string[]> {
-  return (await approvalChecks(order)).filter((check) => !check.passed).map((check) => check.reason!);
 }
 
 /** Short reference used as the order id in the Amazon bulk file, so tracking can be matched back. */

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { viewed } from "@/lib/brand-scope";
 import { brandName } from "@/lib/brands";
+import { creatorSearchWhere } from "@/lib/creator-search";
 import { db } from "@/lib/db";
 import { formatDay } from "@/lib/format";
 import { GIFT_STATUS_LABELS, GIFT_STATUS_TONES } from "@/lib/gifts";
@@ -30,7 +31,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
           where: {
             ...view.influencers,
             archived: false,
-            OR: [{ name: contains }, { email: contains }, { location: contains }, { profiles: { some: { handle: { contains: q.toLowerCase().replace(/^@/, "") } } } }],
+            ...creatorSearchWhere(q),
           },
           orderBy: { name: "asc" },
           take: LIMIT,

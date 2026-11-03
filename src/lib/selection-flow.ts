@@ -4,12 +4,13 @@ import { db } from "@/lib/db";
 import { describeRuleChecks } from "@/lib/gift-rules";
 import { approvalChecks, giftableProductsWhere, normaliseCountry } from "@/lib/gifts";
 import { TERMINAL_STATUSES } from "@/lib/next-action";
+import { describeProduct } from "@/lib/product-list";
 import { selectionLinkExpired } from "@/lib/selection";
-import { CREATOR_STATUS_LABELS } from "@/lib/status";
+import { statusChangeText } from "@/lib/status";
 
 const LIMITS = { shipName: 100, address1: 150, address2: 150, city: 80, state: 60, postalCode: 20, country: 60, phone: 30, note: 500 };
 
-export type SelectionValues = {
+type SelectionValues = {
   shipName: string;
   address1: string;
   address2: string;
@@ -21,11 +22,11 @@ export type SelectionValues = {
   note: string;
 };
 
-export type SelectionResult =
+type SelectionResult =
   | { ok: false; error: string }
   | { ok: true; approved: boolean; campaignId: string; influencerId: string };
 
-export const LINK_INACTIVE = "This link is no longer active. Please reply to our message and we will send a new one.";
+const LINK_INACTIVE ="This link is no longer active. Please reply to our message and we will send a new one.";
 
 /**
  * Records a creator's product choice and shipping address. The long random
@@ -82,7 +83,7 @@ export async function recordSelection(token: string, productId: string, raw: Sel
   const failed = checks.filter((check) => !check.passed);
   const approved = failed.length === 0;
   const actor = await automationUserId();
-  const productLabel = [product.title, product.color, product.size].filter(Boolean).join(", ");
+  const productLabel = describeProduct(product);
 
   // Personal details are encrypted before they are written.
   const address = sealAddress({
@@ -123,7 +124,7 @@ export async function recordSelection(token: string, productId: string, raw: Sel
           campaignCreatorId: creator.id,
           influencerId: creator.influencerId,
           kind: "status_change",
-          body: `Status changed from ${CREATOR_STATUS_LABELS[creator.status]} to ${CREATOR_STATUS_LABELS.address_collected}: the creator chose ${productLabel} (SKU ${product.sku}) and gave a shipping address.`,
+          body: `${statusChangeText(creator.status, "address_collected")}: the creator chose ${productLabel} (SKU ${product.sku}) and gave a shipping address.`,
         },
         {
           userId: actor,

@@ -2,14 +2,12 @@ import { Prisma } from "@prisma/client";
 import { adGroupKey, codeInAdGroup, creatorCode, readAttributionReport, readBusinessReport, type Grid } from "@/lib/amazon-reports";
 import { brandName, type BrandId } from "@/lib/brands";
 import { db } from "@/lib/db";
+import { DAY_MS, isoDay } from "@/lib/format";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const iso = (date: Date) => date.toISOString().slice(0, 10);
-
-export type UnmatchedAdGroup = { adGroup: string; campaign: string; clicks: number; purchases: number };
+type UnmatchedAdGroup = { adGroup: string; campaign: string; clicks: number; purchases: number };
 
 export type AttributionImportResult =
-  | { ok: true; importId: string; rows: number; matchedRows: number; creators: number; from: string; to: string; unmatched: UnmatchedAdGroup[] }
+  | { ok: true; rows: number; matchedRows: number; creators: number; from: string; to: string; unmatched: UnmatchedAdGroup[] }
   | { ok: false; error: string };
 
 /**
@@ -38,7 +36,10 @@ export async function importAttribution(args: { brandId: BrandId; grid: Grid; fi
   // A key that two links share names nobody (null).
   const index = <K>(list: typeof links, key: (link: (typeof links)[number]) => K) => {
     const map = new Map<K, (typeof links)[number] | null>();
-    for (const link of list) map.set(key(link), map.has(key(link)) && map.get(key(link))?.id !== link.id ? null : link);
+    for (const link of list) {
+      const k = key(link);
+      map.set(k, map.has(k) && map.get(k)?.id !== link.id ? null : link);
+    }
     return map;
   };
   const byName = index(own, (link) => adGroupKey(link.adGroupName));
@@ -78,7 +79,7 @@ export async function importAttribution(args: { brandId: BrandId; grid: Grid; fi
     matchedRows += 1;
     const start = read.daily ? row.date! : args.from!;
     const end = read.daily ? row.date! : args.to!;
-    const key = `${link.id}|${iso(start)}|${iso(end)}`;
+    const key = `${link.id}|${isoDay(start)}|${isoDay(end)}`;
     // One link can appear on several rows for the same day (per publisher or channel): they add up.
     const sum = sums.get(key) ?? { linkId: link.id, periodStart: start, periodEnd: end, clicks: 0, detailPageViews: 0, addToCarts: 0, purchases: 0, unitsSold: 0, productSales: 0, brandReferralBonus: null };
     sum.clicks += row.clicks;
@@ -108,11 +109,11 @@ export async function importAttribution(args: { brandId: BrandId; grid: Grid; fi
   if (straddling) {
     return {
       ok: false,
-      error: `An earlier import holds one total for ${iso(straddling.periodStart)} to ${iso(straddling.periodEnd)}, and this file (${iso(from)} to ${iso(to)}) covers only part of it. Upload a daily report for the whole of ${iso(straddling.periodStart)} to ${iso(straddling.periodEnd)} instead.`,
+      error: `An earlier import holds one total for ${isoDay(straddling.periodStart)} to ${isoDay(straddling.periodEnd)}, and this file (${isoDay(from)} to ${isoDay(to)}) covers only part of it. Upload a daily report for the whole of ${isoDay(straddling.periodStart)} to ${isoDay(straddling.periodEnd)} instead.`,
     };
   }
 
-  const importId = await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     const created = await tx.reportImport.create({
       data: {
         brandId: args.brandId,
@@ -135,16 +136,15 @@ export async function importAttribution(args: { brandId: BrandId; grid: Grid; fi
       data: {
         userId: args.userId,
         kind: "csv_import",
-        body: `Imported an Amazon Attribution report for ${brandName(args.brandId)} (${iso(from)} to ${iso(to)}): ${read.rows.length} rows, ${matchedRows} matched to ${creators} ${creators === 1 ? "creator" : "creators"}${unmatchedList.length ? `, ${unmatchedList.length} ad ${unmatchedList.length === 1 ? "group" : "groups"} not matched` : ""}.`,
+        body: `Imported an Amazon Attribution report for ${brandName(args.brandId)} (${isoDay(from)} to ${isoDay(to)}): ${read.rows.length} rows, ${matchedRows} matched to ${creators} ${creators === 1 ? "creator" : "creators"}${unmatchedList.length ? `, ${unmatchedList.length} ad ${unmatchedList.length === 1 ? "group" : "groups"} not matched` : ""}.`,
       },
     });
-    return created.id;
   });
-  return { ok: true, importId, rows: read.rows.length, matchedRows, creators, from: iso(from), to: iso(to), unmatched: unmatchedList.slice(0, 50) };
+  return { ok: true, rows: read.rows.length, matchedRows, creators, from: isoDay(from), to: isoDay(to), unmatched: unmatchedList.slice(0, 50) };
 }
 
 export type BusinessImportResult =
-  | { ok: true; importId: string; month: string; products: number; matched: number; units: number; sales: number; unmatched: string[] }
+  | { ok: true; month: string; products: number; matched: number; units: number; sales: number; unmatched: string[] }
   | { ok: false; error: string };
 
 /** "2026-10" -> 1 October 2026 (UTC); null when not a real month or in the future. */
@@ -185,9 +185,10 @@ export async function importBusinessReport(args: { brandId: BrandId; grid: Grid;
   const units = rows.reduce((sum, row) => sum + row.unitsOrdered, 0);
   const sales = Math.round(rows.reduce((sum, row) => sum + row.orderedProductSales, 0) * 100) / 100;
   const unmatched = rows.filter((row) => !row.productId).map((row) => row.childAsin);
-  const monthLabel = iso(args.month).slice(0, 7);
+  const matched = rows.length - unmatched.length;
+  const monthLabel = isoDay(args.month).slice(0, 7);
 
-  const importId = await db.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     const created = await tx.reportImport.create({
       data: {
         brandId: args.brandId,
@@ -196,7 +197,7 @@ export async function importBusinessReport(args: { brandId: BrandId; grid: Grid;
         periodStart: args.month,
         periodEnd: end,
         rows: rows.length,
-        matched: rows.length - unmatched.length,
+        matched,
         unmatched: unmatched.length > 0 ? (unmatched as unknown as Prisma.InputJsonArray) : Prisma.DbNull,
         importedById: args.userId,
       },
@@ -224,7 +225,6 @@ export async function importBusinessReport(args: { brandId: BrandId; grid: Grid;
     await tx.activity.create({
       data: { userId: args.userId, kind: "csv_import", body: `Imported the Business Report for ${brandName(args.brandId)}, ${monthLabel}: ${rows.length} products, ${units.toLocaleString("en-US")} units, $${sales.toLocaleString("en-US", { minimumFractionDigits: 2 })} ordered sales.` },
     });
-    return created.id;
   });
-  return { ok: true, importId, month: monthLabel, products: rows.length, matched: rows.length - unmatched.length, units, sales, unmatched: unmatched.slice(0, 50) };
+  return { ok: true, month: monthLabel, products: rows.length, matched, units, sales, unmatched: unmatched.slice(0, 50) };
 }

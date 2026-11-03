@@ -6,12 +6,12 @@ import { db } from "@/lib/db";
 import { clearFailedAttempts, clientIp, isLockedOut, recordFailedAttempt, throttleKey } from "@/lib/login-throttle";
 
 /** Too many failed attempts for this email from this address. */
-export class RateLimitedSignin extends CredentialsSignin {
+class RateLimitedSignin extends CredentialsSignin {
   code = "rate_limited";
 }
 
 /** The temporary password was right but is more than 24 hours old. */
-export class TemporaryPasswordExpired extends CredentialsSignin {
+class TemporaryPasswordExpired extends CredentialsSignin {
   code = "temp_password_expired";
 }
 
