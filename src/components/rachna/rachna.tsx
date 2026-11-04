@@ -636,13 +636,14 @@ function useQuests() {
 function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] }) {
   if (quests.length === 0) return null;
   return (
-    <div className="mt-3 grid gap-3">
+    // grid-cols-1 keeps the column to the card's width; an auto column would grow to the longest quest.
+    <div className="mt-3 grid grid-cols-1 gap-3">
       <Link href="/today#tasks-card" title="Open today's list" aria-label="Open today's list" className="block rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
         <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#f6dbe4]">
           <span className="rachna-quest-bar block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(questProgress(quests) * 100)}%` }} />
         </span>
       </Link>
-      <ul className="grid gap-2">
+      <ul className="grid grid-cols-1 gap-2">
         {quests.map((quest) => {
           const finished = quest.done >= quest.total;
           return (
@@ -651,8 +652,8 @@ function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] 
                 <span aria-hidden className={cn("flex size-[18px] shrink-0 items-center justify-center rounded-full border-2", finished ? "border-primary bg-primary text-on-primary" : "border-[#e3c2cd] bg-surface")}>
                   {finished ? <Check className="size-2.5" strokeWidth={3.5} /> : null}
                 </span>
-                <span className={cn("min-w-0 flex-1 truncate", finished && "text-muted-foreground line-through")}>{quest.label}</span>
-                <span className="text-xs font-bold text-muted-foreground tabular-nums">
+                <span className={cn("min-w-0 flex-1 leading-snug", finished && "text-muted-foreground line-through")}>{quest.label}</span>
+                <span className="shrink-0 text-xs font-bold text-muted-foreground tabular-nums">
                   {quest.done}/{quest.total}
                 </span>
               </Link>
