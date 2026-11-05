@@ -20,6 +20,7 @@ export function bareProfile(source: DataSource, platform: Platform, handle: stri
     lastPostAt: null,
     lastPostUrl: null,
     recentCaptions: [],
+    recentPosts: [],
     fetchNote: null,
     fetchedAt: null,
     source,

@@ -5,6 +5,7 @@ import { RUN_STATUS_LABELS, SOURCE_LABELS, type DiscoverySource } from "@/lib/di
 import { getCreatorSource, NotImplementedError, type Candidate, type DiscoveryStep } from "@/lib/fetching";
 import { lookupInstagramAccount, type MetaReport, type PendingPost } from "@/lib/fetching/adapters/meta-free";
 import { normalizeHandle, profileLabel } from "@/lib/profile-url";
+import { profilePostRows } from "@/lib/public-posts";
 import { SLICE_LOCK_MS, unlocked } from "@/lib/run-lock";
 import { loadSuppressions } from "@/lib/suppression";
 import { youtubeBudget } from "@/lib/youtube-quota";
@@ -71,6 +72,7 @@ async function admitCandidates(
 
   const influencers: Prisma.InfluencerCreateManyInput[] = [];
   const profiles: Prisma.SocialProfileCreateManyInput[] = [];
+  const posts: Prisma.ProfilePostCreateManyInput[] = [];
   const links: Prisma.CampaignCreatorCreateManyInput[] = [];
   const activities: Prisma.ActivityCreateManyInput[] = [];
   const sourceLabel = SOURCE_LABELS[run.source];
@@ -92,8 +94,10 @@ async function admitCandidates(
     const linkId = createId();
     const label = profileLabel(candidate.platform, candidate.handle);
     influencers.push({ id: influencerId, name: candidate.name ?? candidate.handle, email: candidate.email, location: candidate.location ?? candidate.country });
+    const profileId = createId();
+    posts.push(...profilePostRows(profileId, candidate.recentPosts, candidate.fetchedAt ?? new Date()));
     profiles.push({
-      id: createId(),
+      id: profileId,
       influencerId,
       platform: candidate.platform,
       handle: candidate.handle,
@@ -121,6 +125,7 @@ async function admitCandidates(
     await db.$transaction([
       db.influencer.createMany({ data: influencers }),
       db.socialProfile.createMany({ data: profiles }),
+      db.profilePost.createMany({ data: posts }),
       db.campaignCreator.createMany({ data: links }),
       db.activity.createMany({ data: activities }),
     ]);

@@ -195,7 +195,24 @@ function stageLine(s: CreatorStats): { pose: Verdict["pose"]; text: string } | n
   }
 }
 
-export type MonthPoint = { month: string; label: string; gifts: number; posts: number; reach: number; salesUsd: number };
+export type CampaignNumbers = { clicks: number; orders: number | null; salesUsd: number; source: "amazon" | "logged" | null };
+
+/**
+ * One collaboration's clicks and sales. Amazon Attribution's count takes over
+ * from the numbers logged by hand on its posts as soon as a report has counted
+ * anything for it, so nothing is counted twice. Source null: nothing on file.
+ */
+export function campaignNumbers(amazon: { clicks: number; purchases: number; productSales: number } | undefined, posts: readonly { clicks: number | null; salesUsd: number | null }[]): CampaignNumbers {
+  if (amazon && (amazon.clicks > 0 || amazon.purchases > 0 || amazon.productSales > 0)) {
+    return { clicks: amazon.clicks, orders: amazon.purchases, salesUsd: amazon.productSales, source: "amazon" };
+  }
+  const logged = posts.some((post) => post.clicks !== null || post.salesUsd !== null);
+  const clicks = posts.reduce((sum, post) => sum + (post.clicks ?? 0), 0);
+  const salesUsd = Math.round(posts.reduce((sum, post) => sum + (post.salesUsd ?? 0), 0) * 100) / 100;
+  return { clicks, orders: null, salesUsd, source: logged ? "logged" : null };
+}
+
+export type MonthPoint ={ month: string; label: string; gifts: number; posts: number; reach: number; salesUsd: number };
 
 /** The last `months` months, oldest first, with each event counted in its month. */
 export function monthlySeries(events: { at: Date; kind: "gift" | "post"; reach?: number; salesUsd?: number }[], months = 6, now = new Date()): MonthPoint[] {

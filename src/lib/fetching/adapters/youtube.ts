@@ -1,5 +1,5 @@
 import { normalizeHandle } from "@/lib/profile-url";
-import type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStep } from "../types";
+import type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStep, PublicPost } from "../types";
 import { bareProfile, clip, emailInText, mapLimit, matchesNegative } from "./shared";
 
 /**
@@ -13,7 +13,8 @@ import { bareProfile, clip, emailInText, mapLimit, matchesNegative } from "./sha
  *
  * The work is done in resumable steps so each fits a short request:
  *   step 1  searches + channel details   (≤ 5 × 100 + a few units)
- *   step 2+ latest uploads, UPLOADS_PER_STEP channels at a time
+ *   step 2+ latest uploads and their public numbers, UPLOADS_PER_STEP channels at a time
+ *           (playlistItems.list, then videos.list for the views, likes and comments: 2 units a channel)
  */
 // YOUTUBE_API_BASE_URL exists so tests can point the adapter at a recorded-response server.
 const API = process.env.YOUTUBE_API_BASE_URL?.trim() || "https://www.googleapis.com/youtube/v3";
@@ -21,7 +22,9 @@ const MAX_SEARCHES = 5;
 const RESULTS_PER_SEARCH = 25;
 const MAX_CHANNELS = 200;
 const UPLOADS_PER_STEP = 40;
-const COST = { search: 100, channels: 1, playlistItems: 1 } as const;
+/** Recent uploads read per channel for the Review queue insights (one playlistItems page, one videos.list call). */
+const UPLOADS_READ = 30;
+const COST = { search: 100, channels: 1, playlistItems: 1, videos: 1 } as const;
 const QUOTA_REASONS = new Set(["quotaExceeded", "dailyLimitExceeded", "rateLimitExceeded", "userRateLimitExceeded"]);
 
 class QuotaExhausted extends Error {}
@@ -36,6 +39,7 @@ type ChannelsResponse = {
     contentDetails?: { relatedPlaylists?: { uploads?: string } };
   }[];
 };
+type VideosResponse = { items?: { id: string; statistics?: { viewCount?: string; likeCount?: string; commentCount?: string } }[] };
 type PlaylistItemsResponse = {
   items?: { snippet?: { title?: string; publishedAt?: string }; contentDetails?: { videoId?: string; videoPublishedAt?: string } }[];
 };
@@ -180,6 +184,51 @@ async function searchStep(brief: Brief, key: string): Promise<DiscoveryStep> {
   }
 }
 
+const asCount = (raw: string | undefined): number | null => {
+  const value = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+};
+
+/**
+ * Reads a channel's latest uploads into the candidate: the newest upload, five
+ * titles, and up to UPLOADS_READ videos with the public views, likes and
+ * comments YouTube reports (lifetime totals; a hidden count stays null).
+ * Returns the quota units spent, and whether the daily quota ran out.
+ */
+async function readUploads(candidate: Candidate, uploadsPlaylist: string, key: string): Promise<{ units: number; quotaHit: boolean }> {
+  let units = COST.playlistItems;
+  const latest = await call<PlaylistItemsResponse>("playlistItems", { part: "snippet,contentDetails", playlistId: uploadsPlaylist, maxResults: String(UPLOADS_READ) }, key);
+  const items = latest.items ?? [];
+  const newest = items[0];
+  const published = newest?.contentDetails?.videoPublishedAt ?? newest?.snippet?.publishedAt;
+  candidate.lastPostAt = published ? new Date(published) : null;
+  candidate.lastPostUrl = newest?.contentDetails?.videoId ? `https://www.youtube.com/watch?v=${newest.contentDetails.videoId}` : null;
+  candidate.recentCaptions = items.slice(0, 5).flatMap((item) => (item.snippet?.title ? [clip(item.snippet.title, 200)] : []));
+
+  const ids = items.flatMap((item) => (item.contentDetails?.videoId ? [item.contentDetails.videoId] : []));
+  const stats = new Map<string, NonNullable<VideosResponse["items"]>[number]["statistics"]>();
+  let quotaHit = false;
+  if (ids.length > 0) {
+    units += COST.videos;
+    try {
+      const found = await call<VideosResponse>("videos", { part: "statistics", id: ids.join(",") }, key);
+      for (const video of found.items ?? []) stats.set(video.id, video.statistics);
+    } catch (error) {
+      // The uploads are still worth keeping without their numbers.
+      if (error instanceof QuotaExhausted) quotaHit = true;
+    }
+  }
+  candidate.recentPosts = items.flatMap((item): PublicPost[] => {
+    const id = item.contentDetails?.videoId;
+    const at = item.contentDetails?.videoPublishedAt ?? item.snippet?.publishedAt;
+    const postedAt = at ? new Date(at) : null;
+    if (!id || !postedAt || Number.isNaN(postedAt.getTime())) return [];
+    const numbers = stats.get(id);
+    return [{ externalId: id, url: `https://www.youtube.com/watch?v=${id}`, kind: "video", postedAt, views: asCount(numbers?.viewCount), likes: asCount(numbers?.likeCount), comments: asCount(numbers?.commentCount) }];
+  });
+  return { units, quotaHit };
+}
+
 /** Step 2+: the latest uploads of the next UPLOADS_PER_STEP channels become candidates. */
 async function uploadsStep(brief: Brief, cursor: Cursor, key: string): Promise<DiscoveryStep> {
   const negatives = (brief.negativeKeywords ?? []).filter(Boolean);
@@ -210,24 +259,16 @@ async function uploadsStep(brief: Brief, cursor: Cursor, key: string): Promise<D
     };
 
     if (channel.uploads && !quotaHit && !budgetHit) {
-      if (budget !== null && quotaUsed + COST.playlistItems > budget) {
+      if (budget !== null && quotaUsed + COST.playlistItems + COST.videos > budget) {
         budgetHit = true;
       } else {
         try {
-          quotaUsed += COST.playlistItems;
-          const latest = await call<PlaylistItemsResponse>(
-            "playlistItems",
-            { part: "snippet,contentDetails", playlistId: channel.uploads, maxResults: "5" },
-            key,
-          );
-          const items = latest.items ?? [];
-          const newest = items[0];
-          const published = newest?.contentDetails?.videoPublishedAt ?? newest?.snippet?.publishedAt;
-          candidate.lastPostAt = published ? new Date(published) : null;
-          candidate.lastPostUrl = newest?.contentDetails?.videoId ? `https://www.youtube.com/watch?v=${newest.contentDetails.videoId}` : null;
-          candidate.recentCaptions = items.flatMap((item) => (item.snippet?.title ? [clip(item.snippet.title, 200)] : []));
+          const result = await readUploads(candidate, channel.uploads, key);
+          quotaUsed += result.units;
+          if (result.quotaHit) quotaHit = true;
           report.uploadsRead += 1;
         } catch (error) {
+          quotaUsed += COST.playlistItems;
           if (error instanceof QuotaExhausted) quotaHit = true;
           else candidate.fetchNote = "Recent uploads could not be read.";
         }
@@ -288,6 +329,31 @@ async function discover(brief: Brief): Promise<DiscoveryResult> {
     if (step.done) break;
   }
   return { candidates, status, quotaUsed, skipped, note: notes.join(" ") || null, report };
+}
+
+/**
+ * One channel by the handle the portal stores ("name" or "channel/UC..."), with its
+ * public numbers. Used to refresh a creator's insights. Costs about 3 quota units.
+ */
+export async function lookupYoutubeChannel(handle: string): Promise<{ candidate: Candidate; found: boolean | null; units: number }> {
+  const candidate: Candidate = { ...bareProfile("youtube", "youtube", handle), fetchedAt: new Date() };
+  const key = process.env.YOUTUBE_API_KEY?.trim();
+  if (!key) {
+    candidate.fetchedAt = null;
+    candidate.fetchNote = "YouTube is not configured: YOUTUBE_API_KEY is missing.";
+    return { candidate, found: null, units: 0 };
+  }
+  let units = COST.channels;
+  const query: Record<string, string> = handle.startsWith("channel/") ? { id: handle.slice("channel/".length) } : { forHandle: `@${handle}` };
+  const page = await call<ChannelsResponse>("channels", { part: "snippet,statistics,contentDetails", ...query }, key);
+  const channel = page.items?.[0];
+  if (!channel) return { candidate: { ...candidate, fetchedAt: null, fetchNote: "No YouTube channel was found for this handle." }, found: false, units };
+  candidate.name = channel.snippet?.title ?? null;
+  candidate.followers = channel.statistics?.hiddenSubscriberCount || channel.statistics?.subscriberCount === undefined ? null : Number(channel.statistics.subscriberCount);
+  candidate.country = channel.snippet?.country ?? null;
+  const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
+  if (uploads) units += (await readUploads(candidate, uploads, key)).units;
+  return { candidate, found: true, units };
 }
 
 export const youtubeSource: CreatorSource = {

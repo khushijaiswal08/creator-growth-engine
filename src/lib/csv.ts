@@ -66,7 +66,25 @@ export function normalizeHeader(header: string): string {
   return header.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
+/**
+ * Why a file cannot be a CSV at all, or null when it can. A zip or an Excel
+ * workbook (both start with "PK") read as text turns into garbage, and the
+ * garbage then shows up as column names in the "missing columns" error.
+ */
+export function unreadableFileReason(text: string): string | null {
+  if (text.startsWith("PK\u0003\u0004")) {
+    return "This is a zip or Excel file, not a CSV. Unzip it and choose one .csv file from inside, or in Excel use File, Save As, CSV.";
+  }
+  const start = text.slice(0, 2000);
+  if (start.includes("\u0000") || (start.match(/�/g)?.length ?? 0) > 5) {
+    return "This does not look like a text file. Save it as a CSV (comma separated values) and choose that file.";
+  }
+  return null;
+}
+
 export function parseCreatorCsv(text: string): CsvParseResult {
+  const unreadable = unreadableFileReason(text);
+  if (unreadable) return { ok: false, error: unreadable };
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: "greedy",
@@ -78,7 +96,7 @@ export function parseCreatorCsv(text: string): CsvParseResult {
   if (missing.length > 0) {
     return {
       ok: false,
-      error: `Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. Found: ${headers.join(", ") || "none"}.`,
+      error: `Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. Found: ${headers.join(", ") || "none"}. This screen imports creator lists, one row per creator with a handle and a platform; shipment and sales sheets are not loaded here.`,
     };
   }
   if (parsed.data.length > CSV_MAX_ROWS) {

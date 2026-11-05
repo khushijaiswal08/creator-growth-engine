@@ -5,6 +5,7 @@ import { cn } from "cn";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { blacklistFromReview, decideReview, type ReviewDecision, type ReviewResult } from "@/actions/review";
+import { InsightsButton, InsightsLine, type CardInsights } from "@/components/creator-insights";
 import { Pill } from "@/components/status-pill";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,8 @@ export type ReviewCard = {
   duplicates: { influencerId: string; name: string; platform: Platform; handle: string }[];
   /** What they did with earlier gifts, when there were any. */
   trackRecord: { text: string; tone: StatusTone } | null;
+  /** Public activity and creator-supplied numbers, one entry per profile. */
+  insights: CardInsights[];
 };
 
 // Shorter than the shared SOURCE_LABELS in @/lib/discovery: these sit next to each handle on the card.
@@ -195,6 +198,10 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
                   )}
                 </div>
 
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <InsightsLine insights={card.insights} />
+                </div>
+
                 {card.duplicates.length > 0 ? (
                   <p className="rounded-md border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-sm">
                     Possible duplicate of{" "}
@@ -232,6 +239,7 @@ export function ReviewQueue({ cards }: { cards: ReviewCard[] }) {
                 <Button type="button" size="sm" variant="outline" disabled={pending} onClick={() => decide(card, "later")}>
                   Review later <kbd className="ml-auto text-xs opacity-70">L</kbd>
                 </Button>
+                <InsightsButton name={card.name} insights={card.insights} />
                 <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={() => setBlacklisting(card)}>
                   Blacklist
                 </Button>

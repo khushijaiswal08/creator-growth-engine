@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { viewed } from "@/lib/brand-scope";
+import { creatorFiguresFor } from "@/lib/creator-figures";
 import { creatorSearchWhere } from "@/lib/creator-search";
 import { db } from "@/lib/db";
+import { formatCents } from "@/lib/format";
 import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
 
@@ -52,6 +54,14 @@ export default async function InfluencersPage({
     }),
     db.influencer.count({ where }),
   ]);
+  // The creator card's figures for this page of rows, counted the same way.
+  const figures = await creatorFiguresFor(
+    influencers.map((influencer) => influencer.id),
+    view,
+  );
+  const none = <span className="text-faint">–</span>;
+  const whole = (value: number | null | undefined) => (value === null || value === undefined ? none : value.toLocaleString("en-US"));
+  const money = (value: number | null | undefined) => (value === null || value === undefined ? none : formatCents(value));
 
   const pageHref = (target: number) => withQuery("/influencers", { q, archived: showArchived ? "1" : undefined, page: target > 1 ? String(target) : undefined });
   const lastPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -106,37 +116,51 @@ export default async function InfluencersPage({
         <Table id="creators-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
+              {/* The name stays in view while the wide table scrolls sideways. */}
+              <TableHead className="sticky left-0 z-[1]">Name</TableHead>
               <TableHead>Profiles</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Location</TableHead>
-              <TableHead className="text-right">US signal</TableHead>
               <TableHead className="text-right">Campaigns</TableHead>
+              <TableHead className="text-right">Gifts</TableHead>
+              <TableHead className="text-right">Gift value</TableHead>
+              <TableHead className="text-right">Content</TableHead>
+              <TableHead className="text-right">Views</TableHead>
+              <TableHead className="text-right">Clicks</TableHead>
+              <TableHead className="text-right">Orders</TableHead>
+              <TableHead className="text-right">Sales</TableHead>
+              <TableHead>Email</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {influencers.length === 0 ? (
-              <EmptyRow colSpan={6}>
+              <EmptyRow colSpan={11}>
                 {q ? "No creators match that search." : "No creators yet. Add one, or use the import."}
               </EmptyRow>
             ) : (
-              influencers.map((influencer) => (
-                <TableRow key={influencer.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2.5">
-                      <Avatar name={influencer.name} />
-                      <CreatorName id={influencer.id} name={influencer.name} className="font-bold text-foreground hover:text-primary-text" />
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <ProfileLinks profiles={influencer.profiles} />
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{influencer.email}</TableCell>
-                  <TableCell className="text-muted-foreground">{influencer.location}</TableCell>
-                  <TableCell className="text-right tabular-nums">{influencer.usSignal}</TableCell>
-                  <TableCell className="text-right tabular-nums">{influencer._count.campaigns}</TableCell>
-                </TableRow>
-              ))
+              influencers.map((influencer) => {
+                const figure = figures.get(influencer.id);
+                return (
+                  <TableRow key={influencer.id} className="group/row">
+                    <TableCell className="sticky left-0 z-[1] bg-surface group-hover/row:bg-[#fbfbfc]">
+                      <div className="flex items-center gap-2.5">
+                        <Avatar name={influencer.name} />
+                        <CreatorName id={influencer.id} name={influencer.name} className="font-bold text-foreground hover:text-primary-text" />
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <ProfileLinks profiles={influencer.profiles} />
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{influencer._count.campaigns}</TableCell>
+                    <TableCell className="text-right tabular-nums">{whole(figure?.gifts ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{money(figure?.giftValueUsd)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{whole(figure?.content ?? 0)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{whole(figure?.views)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{whole(figure?.clicks)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{whole(figure?.orders)}</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">{money(figure?.salesUsd)}</TableCell>
+                    <TableCell className="text-muted-foreground">{influencer.email}</TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -19,6 +19,9 @@ export async function importCsv(_prev: ImportReport | null, formData: FormData):
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Choose a CSV file." };
+  if (/\.(zip|xlsx?|pdf)$/i.test(file.name)) {
+    return { ok: false, error: `"${file.name}" is not a CSV. Unzip it or, in Excel, use File, Save As, CSV, then choose the .csv file.` };
+  }
   if (file.size > MAX_IMPORT_BYTES) return { ok: false, error: "The file is larger than 3 MB." };
 
   const report = await importCreators(await file.text(), {

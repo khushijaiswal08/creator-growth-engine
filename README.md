@@ -961,6 +961,38 @@ day (2026-10-29: 535 replies from the old sheet and 38 pre-portal parcels with n
 - **Code:** `src/lib/tidy-up-rules.ts`, `src/lib/tidy-up.ts`, `src/actions/tidy-up.ts`,
   `src/components/tidy-up-form.tsx`, `/admin/tidy-up`. Migration `20261030180000_tidy_up`.
 
+## Phase 3L: creator insights in the Review queue
+
+Palak asked for each creator's reach and views over the last 7 and 30 days, week by week, next to
+the Approve and Reject buttons. Reach, impressions and profile views of an account are private to its
+owner on Instagram and YouTube, so there are two kinds of number, kept apart and labelled:
+
+- **Public activity (counted from public posts).** Posts, likes, comments and views in the last 7 days,
+  the last 30 days and four weeks back, with averages per post. Discovery now reads up to 25 recent
+  Instagram posts (Business Discovery: likes, comments, type, and reel views) and up to 30 YouTube
+  uploads (playlistItems, then videos.list for lifetime views, likes and comments). They are kept in
+  `ProfilePost`; a newer look at the same post replaces its numbers. Likes, comments and views are the
+  platform's totals today on posts from that period, not gains within it, and a number a platform
+  does not report (hidden likes, no view count on a photo) stays blank, never zero. If Meta refuses
+  the richer fields the same request is sent without them (no reel views, everything else stays).
+  YouTube now costs 2 quota units a channel for the uploads (was 1). **Needs verification:** YouTube's
+  terms limit how long public statistics may be stored (30 days unless audited); Meta's field names
+  could not be re-read from this machine.
+- **Sent by the creator.** Reach (7 and 30 days), profile views and US audience share, typed in by a
+  person from a creator's own Insights screenshot or media kit (`CreatorInsight`), with the date the
+  figures are for, where they came from and who typed them. Every entry is kept; the card shows the
+  newest by date. This is the only way to hold true reach before a creator connects their account.
+- **Where.** Each Review-queue card has a one-line summary and an **Insights** pop-up (tables, the
+  creator's own numbers, the form, and **Refresh public numbers** for creators already in the portal:
+  Instagram professional accounts and YouTube channels; TikTok has no source yet). Export CSV gained
+  `posts_7d`, `posts_30d`, `likes_30d`, `comments_30d`, `views_30d`, `public_numbers_read_on` and the
+  `creator_*` columns. Nothing is fetched without the Meta or YouTube key; the pop-up says so.
+- **Brand rule.** Saving a creator's numbers and refreshing are checked against the person's own brand
+  (the brand isolation test forges both calls against the other brand and a malformed one).
+- **Code:** `src/lib/creator-insights.ts` (the maths and the checks), `src/lib/creator-insights-data.ts`,
+  `src/lib/public-posts.ts`, `src/actions/creator-insights.ts`, `src/components/creator-insights.tsx`,
+  the two adapters in `src/lib/fetching/adapters/`. Migration `20261105090000_creator_insights`.
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

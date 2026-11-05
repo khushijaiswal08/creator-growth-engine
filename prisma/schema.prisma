@@ -182,6 +182,7 @@ model User {
   reviewedContent    ContentAsset[]    @relation("ContentReviewer")
   attributionLinks   AttributionLink[] @relation("AttributionLinksAdded")
   reportImports      ReportImport[]
+  creatorInsights    CreatorInsight[]  @relation("CreatorInsightsAdded")
 }
 
 model Influencer {
@@ -230,11 +231,80 @@ model SocialProfile {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
 
-  influencer Influencer @relation(fields: [influencerId], references: [id], onDelete: Restrict)
-  posts      Post[]
+  influencer  Influencer       @relation(fields: [influencerId], references: [id], onDelete: Restrict)
+  posts       Post[]
+  publicPosts ProfilePost[]
+  insights    CreatorInsight[]
 
   @@unique([platform, handle])
   @@index([influencerId])
+}
+
+/**
+ * One public post or video of a profile as the platform showed it when we
+ * looked: what the Review queue's "last 7 and 30 days" insights are counted
+ * from. A newer look at the same post replaces the numbers. Views, likes and
+ * comments are the platform's running totals at `capturedAt`, not gains in a
+ * period, and a field is null when the platform did not report it (hidden
+ * likes, a video without a view count).
+ */
+model ProfilePost {
+  id              String   @id @default(cuid())
+  socialProfileId String
+  /**
+   * Instagram shortcode or YouTube video id: the same post is never stored twice.
+   */
+  externalId      String
+  url             String   @db.Text
+  /**
+   * image, video or carousel on Instagram; video on YouTube.
+   */
+  kind            String?
+  postedAt        DateTime
+  views           Int?
+  likes           Int?
+  comments        Int?
+  capturedAt      DateTime
+
+  socialProfile SocialProfile @relation(fields: [socialProfileId], references: [id], onDelete: Restrict)
+
+  @@unique([socialProfileId, externalId])
+  @@index([socialProfileId, postedAt])
+}
+
+/**
+ * Numbers a creator sent us about their own account (a screenshot of their
+ * Instagram Insights, a media kit), typed in by a person. Reach and profile
+ * views are private to the account owner, so this is the only way to hold them
+ * before the creator connects their account. Each entry is kept; the card
+ * shows the newest by `asOf`.
+ */
+model CreatorInsight {
+  id              String   @id @default(cuid())
+  socialProfileId String
+  reach7d         Int?
+  reach30d        Int?
+  profileViews30d Int?
+  /**
+   * Share of the creator's audience in the US, whole percent.
+   */
+  usAudiencePct   Int?
+  /**
+   * What it came from, e.g. "Instagram Insights screenshot" or "media kit".
+   */
+  evidence        String?
+  note            String?  @db.Text
+  /**
+   * The date the creator's figures are for (the date on the screenshot).
+   */
+  asOf            DateTime @db.Date
+  addedById       String
+  createdAt       DateTime @default(now())
+
+  socialProfile SocialProfile @relation(fields: [socialProfileId], references: [id], onDelete: Restrict)
+  addedBy       User          @relation("CreatorInsightsAdded", fields: [addedById], references: [id])
+
+  @@index([socialProfileId, asOf])
 }
 
 model Campaign {

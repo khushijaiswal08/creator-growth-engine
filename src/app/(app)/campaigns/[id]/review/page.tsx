@@ -9,6 +9,7 @@ import { ScoringButton } from "@/components/scoring-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { allowed } from "@/lib/brand-scope";
+import { loadProfileInsights } from "@/lib/creator-insights-data";
 import { db } from "@/lib/db";
 import { pendingPosts, SOURCE_LABELS } from "@/lib/discovery";
 import { formatCount, formatDay } from "@/lib/format";
@@ -51,9 +52,10 @@ export default async function ReviewPage({
   ]);
   const shown = items.slice(0, CARDS_PER_PAGE);
   // Look-alikes are only looked for among creators this person may see.
-  const [duplicates, records] = await Promise.all([
+  const [duplicates, records, insights] = await Promise.all([
     findPossibleDuplicates(shown, scope.influencers),
     trackRecordFor(shown.map((item) => item.influencerId), scope),
+    loadProfileInsights(shown.flatMap((item) => item.profiles.map(({ id, platform }) => ({ id, platform }))), new Date()),
   ]);
 
   const cards: ReviewCard[] = shown.map((item) => ({
@@ -72,6 +74,13 @@ export default async function ReviewPage({
     latestPostUrl: item.latestPostUrl,
     latestPostDay: formatDay(item.latestPostAt),
     duplicates: duplicates.get(item.campaignCreatorId) ?? [],
+    insights: item.profiles.map((profile) => ({
+      profileId: profile.id,
+      platform: profile.platform,
+      handle: profile.handle,
+      activity: insights.get(profile.id)?.activity ?? null,
+      supplied: insights.get(profile.id)?.supplied ?? null,
+    })),
   }));
 
   const query = reviewFilterQuery(filters);

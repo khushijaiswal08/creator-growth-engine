@@ -2,7 +2,7 @@ import type { CollaborationType, CreatorStatus, GiftOrderStatus, Platform, Prism
 import { attributionByCampaignCreator } from "@/lib/amazon-stats";
 import type { BrandScope } from "@/lib/brand-scope";
 import type { MessageTarget } from "@/lib/channels";
-import { contentCount, contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
+import { campaignNumbers, contentCount, contentRate, engagementRate, monthlySeries, rachnaVerdict, reachMultiple, reachPerPost, type CampaignNumbers, type CreatorStats, type MonthPoint, type Verdict } from "@/lib/creator-card";
 import { db } from "@/lib/db";
 import { DAY_MS, latestDate } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
@@ -54,6 +54,8 @@ type CardCampaign = {
   fitScore: number | null;
   gifts: CardGift[];
   posts: CardPost[];
+  /** This campaign's clicks and sales: Amazon Attribution's count when imported, else the numbers logged on its posts. */
+  numbers: CampaignNumbers;
 };
 
 type CardMessageTarget = Required<MessageTarget>;
@@ -79,7 +81,7 @@ export type CreatorCard = {
   months: MonthPoint[];
   message: CardMessageTarget | null;
   /** What the creator's Amazon tracking links brought in, from imported Attribution reports; null when nothing is imported. */
-  fromLinks: { clicks: number; purchases: number; productSales: number } | null;
+  fromLinks: { clicks: number; detailPageViews: number; addToCarts: number; purchases: number; unitsSold: number; productSales: number } | null;
 };
 
 /** A post's most recent numbers: the latest Metric row. */
@@ -143,7 +145,7 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
   });
   if (!row) return null;
 
-  const campaigns: CardCampaign[] = row.campaigns.map((link) => ({
+  const linked = row.campaigns.map((link) => ({
     id: link.id,
     campaignId: link.campaign.id,
     name: link.campaign.name,
@@ -181,23 +183,32 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     }),
   }));
 
-  const gifts = campaigns.flatMap((link) => link.gifts);
-  const posts = campaigns.flatMap((link) => link.posts);
   const sum = (values: (number | null)[]) => values.reduce<number>((total, value) => total + (value ?? 0), 0);
+  const cents = (value: number) => Math.round(value * 100) / 100;
 
   const open = row.campaigns.find((link) => !CLOSED_STATUSES.includes(link.status)) ?? null;
   // Campaign by campaign, Amazon Attribution's own count takes over from numbers logged by hand on that
   // campaign's posts, so nothing is counted twice and other campaigns keep their hand-logged numbers.
   const byCampaign = await attributionByCampaignCreator({ ...scope.creators, influencerId: row.id });
   const measuredTotals = [...byCampaign].filter(([, totals]) => totals.clicks > 0 || totals.purchases > 0 || totals.productSales > 0);
-  const measured = new Set(measuredTotals.map(([id]) => id));
+  const measured = new Map(measuredTotals);
   const fromLinks =
     measuredTotals.length > 0
       ? measuredTotals.reduce(
-          (all, [, totals]) => ({ clicks: all.clicks + totals.clicks, purchases: all.purchases + totals.purchases, productSales: Math.round((all.productSales + totals.productSales) * 100) / 100 }),
-          { clicks: 0, purchases: 0, productSales: 0 },
+          (all, [, totals]) => ({
+            clicks: all.clicks + totals.clicks,
+            detailPageViews: all.detailPageViews + totals.detailPageViews,
+            addToCarts: all.addToCarts + totals.addToCarts,
+            purchases: all.purchases + totals.purchases,
+            unitsSold: all.unitsSold + totals.unitsSold,
+            productSales: cents(all.productSales + totals.productSales),
+          }),
+          { clicks: 0, detailPageViews: 0, addToCarts: 0, purchases: 0, unitsSold: 0, productSales: 0 },
         )
       : null;
+  const campaigns: CardCampaign[] = linked.map((link) => ({ ...link, numbers: campaignNumbers(measured.get(link.id), link.posts) }));
+  const gifts = campaigns.flatMap((link) => link.gifts);
+  const posts = campaigns.flatMap((link) => link.posts);
   const handLogged = campaigns.filter((link) => !measured.has(link.id)).flatMap((link) => link.posts);
 
   const stats: CreatorStats = {

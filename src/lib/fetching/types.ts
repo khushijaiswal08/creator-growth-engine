@@ -15,6 +15,22 @@ export type Brief = {
   quotaBudget?: number;
 };
 
+/**
+ * One public post or video as the platform showed it. `views`, `likes` and
+ * `comments` are the running totals at the time of the look, and null when the
+ * platform did not report them (hidden likes, no view count on a photo).
+ */
+export type PublicPost = {
+  /** Instagram shortcode or YouTube video id. */
+  externalId: string;
+  url: string;
+  kind: "image" | "video" | "carousel" | null;
+  postedAt: Date;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+};
+
 export type ProfileData = {
   platform: Platform;
   handle: string;
@@ -31,6 +47,8 @@ export type ProfileData = {
   lastPostUrl: string | null;
   /** Recent captions or video titles, newest first. */
   recentCaptions: string[];
+  /** The latest public posts with their numbers, newest first. Empty when nothing was fetched. */
+  recentPosts: PublicPost[];
   /** Why stats are missing, e.g. "Not a professional account". */
   fetchNote: string | null;
   /** When the data was fetched from the platform; null when nothing was fetched. */

@@ -116,6 +116,31 @@ before(async () => {
         }
         const fields = url.searchParams.get("fields") ?? "";
         const named = /business_discovery\.username\(([^)]+)\)/.exec(fields)?.[1];
+        if (named?.startsWith("norich_") && fields.includes("view_count")) {
+          return send(400, { error: { code: 100, message: "(#100) Tried accessing nonexisting field (view_count) on node type (IGUser)" } });
+        }
+        if (named?.startsWith("insight_") || named?.startsWith("norich_")) {
+          const ago = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString().replace(/\.\d{3}Z$/, "+0000");
+          const rich = fields.includes("view_count");
+          const post = (id: string, kind: string, path: string, days: number, extra: Record<string, unknown>, media: Record<string, unknown>) => ({ id, caption: id, permalink: `https://www.instagram.com/${path}/${named}-${kind}/`, timestamp: ago(days), comments_count: 1, ...extra, ...(rich ? media : {}) });
+          return send(200, {
+            business_discovery: {
+              username: named,
+              name: `Name of ${named}`,
+              biography: "Home and textiles.",
+              followers_count: 20_000,
+              media: {
+                data: [
+                  { ...post("m1", "r1", "reel", 2, { like_count: 400 }, { media_type: "VIDEO", view_count: 9000 }), comments_count: 20 },
+                  { ...post("m2", "p2", "p", 5, { like_count: 200 }, { media_type: "IMAGE" }), comments_count: 10 },
+                  { ...post("m3", "p3", "p", 12, {}, { media_type: "CAROUSEL_ALBUM" }), comments_count: 4 },
+                  { ...post("m4", "r4", "reel", 20, { like_count: 100 }, { media_type: "VIDEO", view_count: 3000 }), comments_count: 6 },
+                  { ...post("m5", "p5", "p", 40, { like_count: 50 }, { media_type: "IMAGE" }), comments_count: 1 },
+                ],
+              },
+            },
+          });
+        }
         if (named) {
           return send(200, {
             business_discovery: { username: named, name: `Name of ${named}`, biography: "Home and textiles.", followers_count: 5000, media: { data: [{ caption: "Spring table", permalink: "https://www.instagram.com/p/x/", timestamp: "2026-09-30T10:00:00+0000", like_count: 100, comments_count: 10 }] } },
@@ -140,6 +165,15 @@ before(async () => {
               contentDetails: { relatedPlaylists: { uploads: `UU-${id}` } },
             })),
           });
+        }
+        if (path === "playlistItems" && (url.searchParams.get("playlistId") ?? "").includes("many")) {
+          const ago = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString();
+          return send(200, { items: [2, 9, 25].map((days, index) => ({ snippet: { title: `Video ${index + 1}`, publishedAt: ago(days) }, contentDetails: { videoId: `many${index + 1}`, videoPublishedAt: ago(days) } })) });
+        }
+        if (path === "videos") {
+          const ids = (url.searchParams.get("id") ?? "").split(",").filter(Boolean);
+          // many3 has hidden likes and comments: only a view count.
+          return send(200, { items: ids.map((id, index) => ({ id, statistics: id === "many3" ? { viewCount: "1500" } : { viewCount: String(10_000 * (index + 1)), likeCount: String(500 * (index + 1)), commentCount: String(20 * (index + 1)) } })) });
         }
         if (path === "playlistItems") {
           return send(200, { items: [{ snippet: { title: "Table styling", publishedAt: "2026-10-01T00:00:00Z" }, contentDetails: { videoId: "vid1", videoPublishedAt: "2026-10-01T00:00:00Z" } }] });
@@ -1177,11 +1211,11 @@ test("YouTube discovery stops at 80% of the daily quota, counting every run of t
   assert.equal(first.found, 4, "the channels of the two searches were still read");
   assert.equal(first.added, 4);
   assert.equal(report.uploadsRead, 4);
-  assert.equal(first.quotaUsed, 200 + 1 + 4, "two searches, one channels call, four upload reads");
+  assert.equal(first.quotaUsed, 200 + 1 + 4 * 2, "two searches, one channels call, and for each of four channels the uploads read plus the video numbers");
   assert.equal(await db.campaignCreator.count({ where: { campaignId: campaign.id, status: "discovered" } }), 4);
 
   // The ledger counts that run: a second run today has no room for a single search.
-  assert.equal((await youtubeBudget()).remaining, 280 - 205);
+  assert.equal((await youtubeBudget()).remaining, 280 - 209);
   const { campaign: another } = await makeUserAndCampaign("youtube-quota-2", ["napkin"]);
   const second = await runDiscovery({ campaignId: another.id, source: "youtube", userId: user.id });
   assert.equal(second.status, "stopped_quota");
@@ -2587,4 +2621,252 @@ test("the tidy-up offers only old work nobody touched, changes exactly what the 
   const again = await tidyCandidates(scope, 30, now);
   assert.ok(idsOf(again, "replies").has(oldReply.id) && idsOf(again, "parcels").has(oldParcel.id) && !idsOf(again, "replies").has(automationOnly.id));
   assert.equal(await db.campaignCreator.count({ where: { id: { in: [oldReply.id, oldFollow.id, oldParcel.id] } } }), 3, "nothing is ever deleted");
+});
+
+test("the Creators table shows each creator's gifts, content, clicks and sales the same way the creator card counts them, inside the brand", async () => {
+  const { creatorFiguresFor } = await import("@/lib/creator-figures");
+  const { loadCreatorCard } = await import("@/lib/creator-card-data");
+  const { campaignNumbers } = await import("@/lib/creator-card");
+  const { allowed } = await import("@/lib/brand-scope");
+
+  // The rule itself: Amazon's count wins once it has counted anything; otherwise the numbers typed in; otherwise nothing on file.
+  const typed = [{ clicks: 40, salesUsd: 96.5 }, { clicks: null, salesUsd: 10 }];
+  assert.deepEqual(campaignNumbers({ clicks: 300, purchases: 12, productSales: 480 }, typed), { clicks: 300, orders: 12, salesUsd: 480, source: "amazon" });
+  assert.deepEqual(campaignNumbers({ clicks: 0, purchases: 0, productSales: 0 }, typed), { clicks: 40, orders: null, salesUsd: 106.5, source: "logged" });
+  assert.deepEqual(campaignNumbers(undefined, [{ clicks: null, salesUsd: null }]), { clicks: 0, orders: null, salesUsd: 0, source: null });
+
+  const { user, campaign: measured } = await makeUserAndCampaign("figures", ["table linens"]);
+  await db.campaign.update({ where: { id: measured.id }, data: { brandId: "figures" } });
+  const typedIn = await db.campaign.create({ data: { name: "figures typed", brandId: "figures", brief: "x", nicheKeywords: [], negativeKeywords: [] } });
+  const otherBrand = await db.campaign.create({ data: { name: "figures other brand", brandId: "figures-other", brief: "x", nicheKeywords: [], negativeKeywords: [] } });
+  const product = await db.product.create({ data: { brandId: "figures", sku: "FIG-1", title: "Tablecloth", stock: 5, price: 68 } });
+  const unpriced = await db.product.create({ data: { brandId: "figures", sku: "FIG-2", title: "Napkins", stock: 5 } });
+
+  const first = await makeCreator(measured.id, "figures_maya", { status: "completed" });
+  const profileId = (await db.socialProfile.findFirstOrThrow({ where: { influencerId: first.influencerId } })).id;
+  const second = await db.campaignCreator.create({ data: { campaignId: typedIn.id, influencerId: first.influencerId, status: "content_posted" } });
+  const elsewhere = await db.campaignCreator.create({ data: { campaignId: otherBrand.id, influencerId: first.influencerId, status: "completed" } });
+  const quiet = await makeCreator(measured.id, "figures_quiet");
+
+  const giftAddress = { shipName: "Jane Example", address1: "1 Main St", city: "Austin", state: "TX", postalCode: "78701", country: "United States" };
+  const gift = (campaignCreatorId: string, productId: string, quantity = 1, status: "delivered" | "cancelled" = "delivered") =>
+    db.giftOrder.create({ data: { campaignCreatorId, productId, quantity, status, ...giftAddress } });
+  await gift(first.id, product.id, 2);
+  await gift(first.id, product.id, 1, "cancelled");
+  await gift(second.id, unpriced.id);
+  await gift(elsewhere.id, product.id, 5);
+
+  let n = 0;
+  const post = async (campaignCreatorId: string, numbers: { views?: number; clicks?: number; salesUsd?: number } | null) => {
+    const row = await db.post.create({ data: { campaignCreatorId, socialProfileId: profileId, url: `https://www.instagram.com/p/figures${n++}/` } });
+    if (numbers) {
+      await db.metric.create({ data: { postId: row.id, views: 1, clicks: 1, salesUsd: 1, capturedAt: new Date("2026-10-01T00:00:00Z") } });
+      await db.metric.create({ data: { postId: row.id, ...numbers, capturedAt: new Date("2026-10-20T00:00:00Z") } });
+    }
+  };
+  // Typed-in numbers on the measured campaign give way to Amazon's; only the latest reading of each post counts.
+  await post(first.id, { views: 10_000, clicks: 999, salesUsd: 999 });
+  await post(second.id, { views: 5_000, clicks: 40, salesUsd: 96.5 });
+  await post(second.id, null);
+  await post(elsewhere.id, { views: 70_000, clicks: 700, salesUsd: 7_000 });
+
+  const link = await db.attributionLink.create({ data: { campaignCreatorId: first.id, url: "https://www.amazon.com/dp/B0FIGURES1?maas=m_fig&ref_=aa_maas", maas: "m_fig", adGroupName: "fig", addedById: user.id } });
+  const importRow = await db.reportImport.create({ data: { brandId: "figures", kind: "attribution", fileName: "x", periodStart: new Date("2026-10-01T00:00:00Z"), periodEnd: new Date("2026-10-31T00:00:00Z"), rows: 2, matched: 2, importedById: user.id } });
+  for (const day of ["2026-10-10", "2026-10-11"]) {
+    await db.attributionStat.create({ data: { linkId: link.id, periodStart: new Date(`${day}T00:00:00Z`), periodEnd: new Date(`${day}T00:00:00Z`), clicks: 150, purchases: 6, unitsSold: 6, productSales: 240, importId: importRow.id } });
+  }
+
+  const scope = allowed({ id: user.id, brandId: "figures", viewBrand: null });
+  const figures = await creatorFiguresFor([first.influencerId, quiet.influencerId], scope);
+  assert.deepEqual(figures.get(first.influencerId), { gifts: 2, giftValueUsd: 136, content: 3, views: 15_000, clicks: 340, orders: 12, salesUsd: 576.5 }, "the other brand's gift, post and sales stay out");
+  assert.deepEqual(figures.get(quiet.influencerId), { gifts: 0, giftValueUsd: null, content: 0, views: null, clicks: null, orders: null, salesUsd: null });
+  assert.deepEqual(await creatorFiguresFor([], scope), new Map());
+
+  // The card the row opens shows the same totals.
+  const card = await loadCreatorCard(first.influencerId, scope);
+  assert.ok(card);
+  assert.deepEqual([card.stats.gifts, card.stats.giftValueUsd, card.figures.content, card.stats.reach, card.stats.clicks, card.stats.salesUsd], [2, 136, 3, 15_000, 340, 576.5]);
+  assert.deepEqual(card.campaigns.map((row) => row.numbers.source).sort(), ["amazon", "logged"]);
+
+  // Someone who may see both brands but picked one in the sidebar: the row and the card count that brand only, alike.
+  const { viewed } = await import("@/lib/brand-scope");
+  const both = { id: user.id, brandId: null, viewBrand: "figures" };
+  const narrowed = await creatorFiguresFor([first.influencerId], viewed(both));
+  assert.deepEqual(narrowed.get(first.influencerId), figures.get(first.influencerId));
+  const narrowedCard = await loadCreatorCard(first.influencerId, viewed(both));
+  assert.equal(narrowedCard?.stats.gifts, 2);
+  assert.equal(narrowedCard?.stats.salesUsd, 576.5);
+  // With nothing picked, both brands count, in the row and the card.
+  const everything = await creatorFiguresFor([first.influencerId], viewed({ ...both, viewBrand: null }));
+  const fullCard = await loadCreatorCard(first.influencerId, allowed(both));
+  assert.deepEqual([everything.get(first.influencerId)?.gifts, everything.get(first.influencerId)?.salesUsd], [3, 7_576.5]);
+  assert.deepEqual([fullCard?.stats.gifts, fullCard?.stats.salesUsd], [3, 7_576.5]);
+});
+
+test("the CSV import says so plainly when it is given a zip, an Excel file or a sheet that is not a creator list, instead of reading garbage", async () => {
+  const { parseCreatorCsv } = await import("@/lib/csv");
+
+  // A zip (or .xlsx) read as text starts with "PK" and a control character; its bytes must not turn into "column names".
+  const zip = parseCreatorCsv("PK\u0003\u0004\u0014\u0000\u0000\u0000\b\u0000cpc_shipments_all.csv���");
+  assert.equal(zip.ok, false);
+  if (!zip.ok) assert.match(zip.error, /zip or Excel file, not a CSV/);
+
+  // Binary rubbish that is not a zip.
+  const binary = parseCreatorCsv(`handle,platform\n${"�".repeat(20)}\u0000`);
+  assert.equal(binary.ok, false);
+  if (!binary.ok) assert.match(binary.error, /does not look like a text file/);
+
+  // A real sheet that is not a creator list says what this screen is for.
+  const shipments = parseCreatorCsv("Name,instagram id,order id,product link,Date\nmaya,https://instagram.com/maya,Maya P,B0TABLE001,19-Sep-26\n");
+  assert.equal(shipments.ok, false);
+  if (!shipments.ok) assert.match(shipments.error, /Missing required columns: handle, platform.*imports creator lists/);
+
+  // A normal creator list still imports, with or without a byte-order mark.
+  for (const prefix of ["", "﻿"]) {
+    const fine = parseCreatorCsv(`${prefix}handle,platform,name\nmaya_makes,instagram,Maya\n`);
+    assert.ok(fine.ok);
+    if (fine.ok) assert.equal(fine.rows.length, 1);
+  }
+});
+
+test("creator insights count public posts into the last 7 and 30 days and four weeks, and never invent a number a platform did not report", async () => {
+  const { summariseActivity } = await import("@/lib/creator-insights");
+  const now = new Date("2026-11-05T12:00:00Z");
+  const ago = (days: number) => new Date(now.getTime() - days * DAY_MS);
+  const post = (days: number, likes: number | null, comments: number | null, views: number | null) => ({ postedAt: ago(days), likes, comments, views, capturedAt: ago(1) });
+
+  assert.equal(summariseActivity([], now), null, "no posts held, no insights");
+
+  const summary = summariseActivity([post(1, 400, 20, 9000), post(6, 200, 10, null), post(8, null, 4, null), post(29, 100, 6, 3000), post(31, 50, 1, null)], now)!;
+  assert.deepEqual([summary.days7.posts, summary.days7.likes, summary.days7.comments, summary.days7.views], [2, 600, 30, 9000]);
+  assert.deepEqual([summary.days30.posts, summary.days30.likes, summary.days30.comments, summary.days30.views], [4, 700, 40, 12_000], "a post of 31 days ago is outside; a hidden like count adds nothing");
+  assert.deepEqual([summary.days30.avgLikes, summary.days30.avgComments, summary.days30.avgViews], [233, 10, 6000], "averages divide by the posts that reported the number");
+  assert.deepEqual(summary.weeks.map((week) => week.posts), [2, 1, 0, 0], "weeks run back from now; the 29-day post is in the 30 days but in no week");
+  assert.equal(summary.weeks[2].likes, null, "an empty week has no likes figure, not zero");
+  assert.equal(summary.postsHeld, 5);
+  assert.equal(summary.mayBeIncomplete, false);
+
+  // Nothing reported at all stays null rather than turning into zero.
+  const hidden = summariseActivity([post(2, null, null, null)], now)!;
+  assert.deepEqual([hidden.days30.posts, hidden.days30.likes, hidden.days30.comments, hidden.days30.views, hidden.days30.avgLikes], [1, null, null, null, null]);
+
+  // The fetch hit its limit and every post is inside the 30 days: there may be more than were read.
+  const full = [post(1, 1, 1, null), post(2, 1, 1, null), post(3, 1, 1, null)];
+  assert.equal(summariseActivity(full, now, 3)!.mayBeIncomplete, true);
+  assert.equal(summariseActivity(full, now, 25)!.mayBeIncomplete, false);
+  assert.equal(summariseActivity([...full, post(40, 1, 1, null)], now, 4)!.mayBeIncomplete, false, "an older post shows the 30 days were reached");
+});
+
+test("the numbers a creator sends are checked: at least one figure, whole numbers, a US share up to 100, and a real date that is not in the future", async () => {
+  const { parseSuppliedInsight } = await import("@/lib/creator-insights");
+  const now = new Date("2026-11-05T12:00:00Z");
+  const blank = { reach7d: "", reach30d: "", profileViews30d: "", usAudiencePct: "", evidence: "", note: "", asOf: "2026-11-04" };
+
+  const good = parseSuppliedInsight({ ...blank, reach7d: "3,200", reach30d: "12.4k", usAudiencePct: "84%", evidence: " Instagram Insights screenshot ", note: "sent by DM" }, now);
+  assert.ok(good.ok);
+  if (good.ok) {
+    assert.deepEqual([good.value.reach7d, good.value.reach30d, good.value.profileViews30d, good.value.usAudiencePct], [3200, 12_400, null, 84]);
+    assert.equal(good.value.evidence, "Instagram Insights screenshot");
+    assert.equal(good.value.asOf.toISOString().slice(0, 10), "2026-11-04");
+  }
+
+  const error = (input: Partial<typeof blank>) => {
+    const result = parseSuppliedInsight({ ...blank, ...input }, now);
+    return result.ok ? null : result.error;
+  };
+  assert.match(error({}) ?? "", /at least one number/);
+  assert.match(error({ reach30d: "lots" }) ?? "", /Reached, 30 days: use a whole number/);
+  assert.match(error({ reach30d: "-5" }) ?? "", /use a whole number/);
+  assert.match(error({ reach30d: "9999999999" }) ?? "", /use a whole number/);
+  assert.match(error({ usAudiencePct: "101" }) ?? "", /percent from 0 to 100/);
+  assert.match(error({ reach7d: "5", asOf: "" }) ?? "", /date the creator's figures are for/);
+  assert.match(error({ reach7d: "5", asOf: "2026-02-31" }) ?? "", /date the creator's figures are for/);
+  assert.match(error({ reach7d: "5", asOf: "2026-12-25" }) ?? "", /in the future/);
+  assert.equal(error({ reach7d: "0" }), null, "zero is a real figure");
+
+  const long = parseSuppliedInsight({ ...blank, reach7d: "1", evidence: "e".repeat(300), note: "n".repeat(900) }, now);
+  assert.ok(long.ok);
+  if (long.ok) assert.deepEqual([long.value.evidence?.length, long.value.note?.length], [120, 500]);
+});
+
+test("insights: a refresh keeps a profile's public posts once and updates them next time, falls back when Meta refuses the new fields, shows the newest creator-supplied numbers, and stays inside the person's brand", async () => {
+  const { refreshPublicPosts } = await import("@/lib/public-posts");
+  const { loadProfileInsights } = await import("@/lib/creator-insights-data");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { user, campaign } = await makeUserAndCampaign("insights", ["home"]);
+  const elsewhere = await db.campaign.create({ data: { name: "insights-elsewhere", brandId: "elsewhere", brief: "x", nicheKeywords: [], negativeKeywords: [] } });
+  const scope = allowed({ id: user.id, brandId: "test", viewBrand: null });
+  const makeProfile = async (campaignId: string, handle: string, platform: "instagram" | "youtube" = "instagram") => {
+    const person = await db.influencer.create({ data: { name: `Person ${handle}`, profiles: { create: { platform, handle } } }, include: { profiles: true } });
+    await db.campaignCreator.create({ data: { campaignId, influencerId: person.id } });
+    return person.profiles[0];
+  };
+
+  // Instagram: five public posts, the reel with its views, a post whose like count is hidden.
+  const maya = await makeProfile(campaign.id, "insight_maya");
+  graphCalls.length = 0;
+  const first = await refreshPublicPosts(maya.id, scope);
+  assert.deepEqual(first, { ok: true, message: "Instagram @insight_maya: 5 new and 0 updated posts." });
+  assert.ok(graphCalls.some((call) => decodeURIComponent(call).includes("view_count")), "the richer request was sent first");
+  const held = await db.profilePost.findMany({ where: { socialProfileId: maya.id }, orderBy: { postedAt: "desc" } });
+  assert.equal(held.length, 5);
+  assert.deepEqual([held[0].externalId, held[0].kind, held[0].views, held[0].likes, held[0].comments], ["insight_maya-r1", "video", 9000, 400, 20]);
+  assert.deepEqual([held[2].kind, held[2].likes, held[2].comments], ["carousel", null, 4], "a hidden like count stays unknown");
+  // The same look again changes nothing but the readings.
+  await db.profilePost.updateMany({ where: { socialProfileId: maya.id }, data: { likes: 1 } });
+  assert.deepEqual(await refreshPublicPosts(maya.id, scope), { ok: true, message: "Instagram @insight_maya: 0 new and 5 updated posts." });
+  assert.equal(await db.profilePost.count({ where: { socialProfileId: maya.id } }), 5, "never stored twice");
+  assert.equal((await db.profilePost.findFirstOrThrow({ where: { externalId: "insight_maya-r1" } })).likes, 400, "the newer reading replaced the old one");
+  assert.ok((await db.socialProfile.findUniqueOrThrow({ where: { id: maya.id } })).lastFetchedAt, "the profile records when it was read");
+
+  // The insights are counted from what is held, newest creator-supplied figures win.
+  const noon = new Date();
+  const mayaInsights = (await loadProfileInsights([{ id: maya.id, platform: "instagram" }], noon)).get(maya.id)!;
+  assert.deepEqual([mayaInsights.activity!.days7.posts, mayaInsights.activity!.days30.posts, mayaInsights.activity!.days30.likes, mayaInsights.activity!.days30.comments, mayaInsights.activity!.days30.views], [2, 4, 700, 40, 12_000]);
+  assert.deepEqual(mayaInsights.activity!.weeks.map((week) => week.posts), [2, 1, 1, 0]);
+  assert.equal(mayaInsights.supplied, null);
+  await db.creatorInsight.create({ data: { socialProfileId: maya.id, addedById: user.id, reach30d: 8000, usAudiencePct: 84, evidence: "screenshot", asOf: new Date("2026-10-20T00:00:00Z") } });
+  await db.creatorInsight.create({ data: { socialProfileId: maya.id, addedById: user.id, reach30d: 5000, asOf: new Date("2026-10-01T00:00:00Z") } });
+  const supplied = (await loadProfileInsights([{ id: maya.id, platform: "instagram" }], noon)).get(maya.id)!.supplied!;
+  assert.deepEqual([supplied.reach30d, supplied.usAudiencePct, supplied.evidence, supplied.addedBy], [8000, 84, "screenshot", "insights admin"], "the figures for the later date win, not the later entry");
+
+  // Meta refusing the richer fields: the same request without them still gives the posts, minus reel views.
+  const sam = await makeProfile(campaign.id, "norich_sam");
+  graphCalls.length = 0;
+  assert.deepEqual(await refreshPublicPosts(sam.id, scope), { ok: true, message: "Instagram @norich_sam: 5 new and 0 updated posts." });
+  const samCalls = graphCalls.map((call) => decodeURIComponent(call)).filter((call) => call.includes("norich_sam"));
+  assert.deepEqual(samCalls.map((call) => call.includes("view_count")), [true, false], "asked with the new fields, then without");
+  const samPosts = await db.profilePost.findMany({ where: { socialProfileId: sam.id } });
+  assert.ok(samPosts.every((row) => row.views === null && row.kind === null), "no view counts or types without the new fields");
+  assert.equal(samPosts.find((row) => row.externalId === "norich_sam-r1")?.likes, 400, "likes and comments still came through");
+
+  // YouTube: each video with its lifetime numbers; a video whose likes and comments are hidden keeps them unknown.
+  const tube = await makeProfile(campaign.id, "channel/UC-many-1", "youtube");
+  assert.deepEqual(await refreshPublicPosts(tube.id, scope), { ok: true, message: "YouTube channel/UC-many-1: 3 new and 0 updated posts." });
+  const videos = await db.profilePost.findMany({ where: { socialProfileId: tube.id }, orderBy: { postedAt: "desc" } });
+  assert.deepEqual(videos.map((row) => [row.externalId, row.kind, row.views, row.likes, row.comments]), [["many1", "video", 10_000, 500, 20], ["many2", "video", 20_000, 1000, 40], ["many3", "video", 1500, null, null]]);
+
+  // Another brand's creator is not reachable, and a platform with no source says so.
+  const stranger = await makeProfile(elsewhere.id, "insight_stranger");
+  assert.deepEqual(await refreshPublicPosts(stranger.id, scope), { ok: false, error: "That profile is not one you can open." });
+  assert.equal(await db.profilePost.count({ where: { socialProfileId: stranger.id } }), 0);
+  const tok = await db.influencer.create({ data: { name: "Tok", profiles: { create: { platform: "tiktok", handle: "insight_tok" } } }, include: { profiles: true } });
+  await db.campaignCreator.create({ data: { campaignId: campaign.id, influencerId: tok.id } });
+  const refused = await refreshPublicPosts(tok.profiles[0].id, scope);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.match(refused.error, /TikTok public numbers cannot be fetched yet/);
+});
+
+test("insights: discovery keeps each new channel's recent uploads with their public numbers, and the extra video call is counted in the quota", async () => {
+  const { runDiscovery } = await import("@/lib/discovery");
+  // The quota test above used up the day's allowance on purpose; this test needs room.
+  await db.discoveryRun.updateMany({ data: { quotaUsed: 0 } });
+  const { user, campaign } = await makeUserAndCampaign("insights-discovery", ["damask"]);
+
+  const run = await runDiscovery({ campaignId: campaign.id, source: "youtube", userId: user.id });
+  assert.equal(run.added, 2);
+  assert.equal(run.quotaUsed, 100 + 1 + 2 * 2, "one search, one channels call, and two calls (uploads, then video numbers) for each of two channels");
+  const posts = await db.profilePost.findMany({ where: { socialProfile: { influencer: { campaigns: { some: { campaignId: campaign.id } } } } } });
+  assert.equal(posts.length, 2, "each new channel kept its recent upload");
+  assert.ok(posts.every((row) => row.externalId === "vid1" && row.kind === "video" && row.views === 10_000 && row.likes === 500 && row.comments === 20));
 });

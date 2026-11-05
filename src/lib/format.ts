@@ -25,6 +25,8 @@ export const formatCalendarDay = (date: Date | null) => (date ? calendarDay.form
 export const formatCount = (value: number | null) => (value === null ? "" : compact.format(value));
 /** "$1,250": whole US dollars with thousands separators. (formatUsd in model-prices.ts shows cents, for AI costs.) */
 export const formatDollars = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
+/** With cents, for tables people copy into a spreadsheet, so the rows add up to their total. */
+export const formatCents = (value: number) => `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 /** "reel" -> "Reel". For a word that is never empty. */
 export const capitalize = (word: string) => word[0].toUpperCase() + word.slice(1);
 /** "1 gift", "3 gifts". */

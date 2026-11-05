@@ -1,6 +1,6 @@
 import { reserveHashtag, toHashtag } from "@/lib/hashtag-quota";
 import { normalizeHandle } from "@/lib/profile-url";
-import type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStep } from "../types";
+import type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStep, PublicPost } from "../types";
 import { bareProfile, clip, emailInText, matchesNegative } from "./shared";
 
 /**
@@ -27,6 +27,8 @@ const POSTS_PER_TAG = 25;
 const POSTS_PER_STEP = 8;
 const DEFAULT_CANDIDATE_LIMIT = 60;
 const MAX_PENDING = 60;
+/** Recent posts read per account for the Review queue's insights (Meta's default page size). */
+const MEDIA_LIMIT = 25;
 
 // Graph error codes: https://developers.facebook.com/docs/graph-api/guides/error-handling
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80002]);
@@ -40,6 +42,17 @@ type GraphErrorBody = { error?: { message?: string; code?: number; error_subcode
 type HashtagSearch = { data?: { id: string }[] };
 type HashtagMedia = { data?: { id: string; caption?: string; permalink?: string; timestamp?: string }[] };
 type OEmbed = { author_name?: string; html?: string };
+type BusinessDiscoveryMedia = {
+  id?: string;
+  caption?: string;
+  permalink?: string;
+  timestamp?: string;
+  like_count?: number;
+  comments_count?: number;
+  media_type?: string;
+  /** Views of a reel; public through Business Discovery. */
+  view_count?: number;
+};
 type BusinessDiscovery = {
   business_discovery?: {
     username?: string;
@@ -47,7 +60,7 @@ type BusinessDiscovery = {
     biography?: string;
     website?: string;
     followers_count?: number;
-    media?: { data?: { caption?: string; permalink?: string; timestamp?: string; like_count?: number; comments_count?: number }[] };
+    media?: { data?: BusinessDiscoveryMedia[] };
   };
 };
 
@@ -111,11 +124,34 @@ function makeCaller(token: string): Caller {
   };
 }
 
-/** Public stats for one account through Business Discovery. Null when the account is not professional. */
+const MEDIA_FIELDS = "caption,permalink,timestamp,like_count,comments_count";
+const discoveryFields = (handle: string, media: string, limit: number) =>
+  `business_discovery.username(${handle}){username,name,biography,website,followers_count,media.limit(${limit}){${media}}}`;
+/** Set once Meta turns the richer media fields down, so later accounts go straight to the plain request. */
+let richMediaRefused = false;
+
+/**
+ * Public stats for one account through Business Discovery, with up to
+ * MEDIA_LIMIT recent posts. The richer request also asks for each post's
+ * media type and a reel's view count; if Meta refuses those fields the same
+ * request without them is sent, so a field Meta renames costs the reel views
+ * and nothing else. Null when the account is not professional.
+ */
 async function businessDiscovery(caller: Caller, businessId: string, handle: string): Promise<BusinessDiscovery["business_discovery"] | null> {
-  const fields = `business_discovery.username(${handle}){username,name,biography,website,followers_count,media.limit(5){caption,permalink,timestamp,like_count,comments_count}}`;
+  const read = async (media: string, limit: number) => (await caller.call<BusinessDiscovery>(businessId, { fields: discoveryFields(handle, media, limit) })).business_discovery ?? null;
   try {
-    return (await caller.call<BusinessDiscovery>(businessId, { fields })).business_discovery ?? null;
+    if (!richMediaRefused) {
+      try {
+        return await read(`${MEDIA_FIELDS},media_type,view_count`, MEDIA_LIMIT);
+      } catch (error) {
+        if (error instanceof RateLimited || error instanceof TokenInvalid) throw error;
+        // Either the account is not professional, or Meta refused the richer fields: the plain request tells which.
+        const plain = await read(MEDIA_FIELDS, MEDIA_LIMIT);
+        richMediaRefused = true;
+        return plain;
+      }
+    }
+    return await read(MEDIA_FIELDS, MEDIA_LIMIT);
   } catch (error) {
     if (error instanceof RateLimited || error instanceof TokenInvalid) throw error;
     // Business Discovery only works for professional (business or creator) accounts.
@@ -123,8 +159,24 @@ async function businessDiscovery(caller: Caller, businessId: string, handle: str
   }
 }
 
+const KINDS: Record<string, PublicPost["kind"]> = { IMAGE: "image", VIDEO: "video", CAROUSEL_ALBUM: "carousel" };
+const count = (value: number | undefined): number | null => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null);
+
+/** The public posts Business Discovery returned, newest first, with the numbers it reported. */
+function postsFrom(media: BusinessDiscoveryMedia[]): PublicPost[] {
+  return media.flatMap((item) => {
+    const postedAt = item.timestamp ? new Date(item.timestamp) : null;
+    if (!item.permalink || !postedAt || Number.isNaN(postedAt.getTime())) return [];
+    const code = /instagram\.com\/(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/.exec(item.permalink)?.[1] ?? item.id ?? item.permalink;
+    return [{ externalId: code, url: item.permalink, kind: (item.media_type && KINDS[item.media_type]) || null, postedAt, views: count(item.view_count), likes: count(item.like_count), comments: count(item.comments_count) }];
+  });
+}
+
 function fillFromDiscovery(candidate: Candidate, found: NonNullable<BusinessDiscovery["business_discovery"]>): void {
-  const media = found.media?.data ?? [];
+  // The captions, latest post and engagement rate keep using the five newest posts, as before; the insights use them all.
+  const all = found.media?.data ?? [];
+  const media = all.slice(0, 5);
+  candidate.recentPosts = postsFrom(all);
   candidate.name = found.name ?? null;
   candidate.bio = found.biography ? clip(found.biography, 1000) : null;
   candidate.website = found.website ?? null;

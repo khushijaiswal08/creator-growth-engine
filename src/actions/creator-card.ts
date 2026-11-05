@@ -2,17 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
-import { allowed } from "@/lib/brand-scope";
+import { allowed, viewed } from "@/lib/brand-scope";
 import { loadCreatorCard, type CreatorCard } from "@/lib/creator-card-data";
 import { db } from "@/lib/db";
 import { field, type FormState } from "@/lib/form";
 import { capitalize } from "@/lib/format";
 import { requireUser } from "@/lib/session";
 
-/** The creator card, for a creator the person may see. */
+/**
+ * The creator card, for a creator the person may see. Its figures follow the
+ * brand picked in the sidebar, like the list it was opened from, so a row and
+ * its card show the same totals. The view is never wider than what the person
+ * may open; a creator outside the view still opens, counted in full.
+ */
 export async function getCreatorCard(influencerId: string): Promise<CreatorCard | null> {
   const user = await requireUser();
-  return loadCreatorCard(influencerId, allowed(user));
+  return (await loadCreatorCard(influencerId, viewed(user))) ?? loadCreatorCard(influencerId, allowed(user));
 }
 
 const COUNTS = ["views", "likes", "comments", "shares", "clicks"] as const;

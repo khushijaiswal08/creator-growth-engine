@@ -38,6 +38,7 @@ type BrandFixture = {
   user: { email: string };
   campaignId: string;
   influencerId: string;
+  profileId: string;
   creatorId: string;
   giftId: string;
   assetId: string;
@@ -135,6 +136,7 @@ before(async () => {
     const influencer = await db.influencer.create({
       data: { name: `${brand} creator`, profiles: { create: { platform: "instagram", handle: `${brand}_creator` } } },
     });
+    const profile = await db.socialProfile.findFirstOrThrow({ where: { influencerId: influencer.id } });
     const creator = await db.campaignCreator.create({
       data: { campaignId: campaign.id, influencerId: influencer.id, status: "address_collected", ownerId: user.id },
     });
@@ -174,7 +176,7 @@ before(async () => {
     const link = await db.attributionLink.create({ data: { campaignCreatorId: creator.id, url: `https://www.amazon.com/dp/B0ISOLATION?maas=m_${brand}&ref_=aa_maas`, maas: `m_${brand}`, asin: "B0ISOLATION", adGroupName: `${brand}-adgroup`, addedById: user.id } });
     const reportImport = await db.reportImport.create({ data: { brandId: brand, kind: "attribution", fileName: `${brand}.csv`, periodStart: new Date(), periodEnd: new Date(), rows: 1, matched: 1, importedById: user.id } });
     await db.attributionStat.create({ data: { linkId: link.id, periodStart: new Date(Date.now() - 3 * 86_400_000), periodEnd: new Date(Date.now() - 3 * 86_400_000), clicks: brand === "ridhi" ? 111 : 222, purchases: 3, productSales: 99, importId: reportImport.id } });
-    fixtures[brand] = { user, campaignId: campaign.id, influencerId: influencer.id, creatorId: creator.id, giftId: gift.id, assetId: asset.id, uploadToken, linkId: link.id };
+    fixtures[brand] = { user, campaignId: campaign.id, influencerId: influencer.id, profileId: profile.id, creatorId: creator.id, giftId: gift.id, assetId: asset.id, uploadToken, linkId: link.id };
   }
 
   server = spawn("pnpm", ["exec", "next", "start", "-p", String(APP_PORT), "-H", "127.0.0.1"], { env, shell: true, stdio: "ignore" });
@@ -263,7 +265,7 @@ for (const [mine, theirs] of [
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign", "applyTidyUp", "undoTidy"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign", "applyTidyUp", "undoTidy", "saveCreatorInsight", "refreshPublicNumbers"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
@@ -273,6 +275,8 @@ for (const [mine, theirs] of [
       otherSales: await db.productMonthlySales.count({ where: { brandId: theirs } }),
       activity: await db.activity.count(),
       links: await db.campaignCreator.count(),
+      insights: await db.creatorInsight.count(),
+      publicPosts: await db.profilePost.count(),
     };
     await callAction(cookie, ids.get("updateCreatorStatus")!, [other.creatorId, "completed"]);
     // Invite back: into the other brand's campaign, and the other brand's creator into an own campaign.
@@ -293,6 +297,11 @@ for (const [mine, theirs] of [
     await callAction(cookie, ids.get("decideGift")!, [other.giftId, "cancel"]);
     await callAction(cookie, ids.get("markDelivered")!, [other.giftId]);
     await callAction(cookie, ids.get("setInfluencerArchived")!, [other.influencerId, true]);
+    // Creator-supplied numbers and a refresh of public numbers aimed at the other brand's profile.
+    await callAction(cookie, ids.get("saveCreatorInsight")!, [other.profileId, { reach7d: "100", reach30d: "9999", profileViews30d: "5", usAudiencePct: "50", evidence: "forged", note: "forged", asOf: "2026-10-01" }]);
+    await callAction(cookie, ids.get("refreshPublicNumbers")!, [other.profileId]);
+    // A forged call with the wrong shape must not crash the action or write anything.
+    await callAction(cookie, ids.get("saveCreatorInsight")!, [other.profileId, 12345]);
     const afterwards = {
       creator: await db.campaignCreator.findUniqueOrThrow({ where: { id: other.creatorId } }),
       gift: await db.giftOrder.findUniqueOrThrow({ where: { id: other.giftId } }),
@@ -302,7 +311,11 @@ for (const [mine, theirs] of [
       otherSales: await db.productMonthlySales.count({ where: { brandId: theirs } }),
       activity: await db.activity.count(),
       links: await db.campaignCreator.count(),
+      insights: await db.creatorInsight.count(),
+      publicPosts: await db.profilePost.count(),
     };
+    assert.equal(afterwards.insights, before.insights, "no creator numbers saved on the other brand's profile by a forged call");
+    assert.equal(afterwards.publicPosts, before.publicPosts, "no public posts written for the other brand's profile");
     assert.equal(afterwards.links, before.links, "nobody invited into or out of the other brand by a forged call");
     assert.equal(await db.tidyUp.count(), 0, "no tidy-up opened by a marketer's forged call");
     assert.equal(await db.attributionLink.count({ where: { maas: "m_forged" } }), 0, "no link saved on the other brand's creator");
@@ -326,6 +339,13 @@ for (const [mine, theirs] of [
     assert.equal(kept.campaignCreatorId, other.creatorId, "the other brand's removed tag stays with its creator");
     assert.equal(kept.archived, true);
     await db.attributionLink.update({ where: { id: other.linkId }, data: { archived: false } });
+
+    // The same call against an own profile does work, so the test is not passing by accident.
+    await callAction(cookie, ids.get("saveCreatorInsight")!, [me.profileId, { reach7d: "", reach30d: "12,400", profileViews30d: "", usAudiencePct: "84", evidence: "screenshot", note: "", asOf: "2026-10-20" }]);
+    const ownInsight = await db.creatorInsight.findFirstOrThrow({ where: { socialProfileId: me.profileId } });
+    const meUser = await db.user.findUniqueOrThrow({ where: { email: me.user.email } });
+    assert.deepEqual([ownInsight.reach30d, ownInsight.usAudiencePct, ownInsight.addedById], [12_400, 84, meUser.id]);
+    assert.equal(await db.creatorInsight.count({ where: { socialProfileId: other.profileId, evidence: "forged" } }), 0);
 
     // The same forged call against an own record does work, so the test is not passing by accident.
     await callAction(cookie, ids.get("updateCreatorStatus")!, [me.creatorId, "product_shipped"]);

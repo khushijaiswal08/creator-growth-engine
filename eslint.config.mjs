@@ -8,7 +8,8 @@ const __dirname = dirname(__filename);
 const compat = new FlatCompat({ baseDirectory: __dirname });
 
 const eslintConfig = [
-  { ignores: ["node_modules/**", ".next/**", "next-env.d.ts"] },
+  // data/ is local-only (test kit, one-off loaders, handover copies) and git-ignored: it never ships.
+  { ignores: ["node_modules/**", ".next/**", "next-env.d.ts", "data/**"] },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
 ];
 
