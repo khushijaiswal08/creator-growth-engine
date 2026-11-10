@@ -123,6 +123,7 @@ enum DataSource {
   csv
   manual
   meta_free
+  meta_marketplace // Instagram Creator Marketplace (Meta), through a Page access token
   vendor
   youtube
 }
@@ -974,4 +975,38 @@ model TidyChange {
 
   @@index([tidyUpId, undoneAt])
   @@index([campaignCreatorId])
+}
+
+/**
+ * One request the portal sent to an outside API, kept so Admin › Connected
+ * services can show the requests in the last hour and the last error. Never
+ * holds a token, a full URL or anything the API returned beyond a short,
+ * secret-free error message.
+ */
+model ApiCall {
+  id        String   @id @default(cuid())
+  /**
+   * Which integration, e.g. "creator_marketplace".
+   */
+  service   String
+  /**
+   * What was asked, in words, e.g. "creators page" or "creator fields".
+   */
+  label     String
+  /**
+   * The HTTP status, or null when no answer came back (timeout, network).
+   */
+  status    Int?
+  ok        Boolean
+  /**
+   * The API's own error code, e.g. Meta's 190 for a bad token.
+   */
+  errorCode Int?
+  /**
+   * Short message with any secret removed.
+   */
+  error     String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([service, createdAt])
 }

@@ -1,4 +1,5 @@
 import type { DataSource } from "@prisma/client";
+import { creatorMarketplaceSource } from "./adapters/creator-marketplace";
 import { csvSource } from "./adapters/csv";
 import { manualSource } from "./adapters/manual";
 import { metaFreeSource } from "./adapters/meta-free";
@@ -13,6 +14,7 @@ const SOURCES: Record<DataSource, CreatorSource> = {
   csv: csvSource,
   manual: manualSource,
   meta_free: metaFreeSource,
+  meta_marketplace: creatorMarketplaceSource,
   vendor: vendorSource,
   youtube: youtubeSource,
 };

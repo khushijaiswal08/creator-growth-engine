@@ -13,6 +13,7 @@ import {
   type DiscoverySource,
   type DiscoverySummary,
 } from "@/lib/discovery";
+import { checkMarketplaceFields, type FieldCheck } from "@/lib/fetching/adapters/creator-marketplace";
 import { requireUser } from "@/lib/session";
 
 type DiscoveryActionResult ={ ok: true; summary: DiscoverySummary } | { ok: false; error: string };
@@ -35,6 +36,13 @@ export async function startDiscoveryAction(campaignId: string, source: string): 
   const summary = await startDiscovery({ campaignId, source: source as DiscoverySource, userId: user.id });
   revalidateCampaign(campaignId);
   return { ok: true, summary };
+}
+
+/** Admin only: which fields Meta offers for a Creator Marketplace creator. Names only; the token never leaves the server. */
+export async function checkMarketplaceFieldsAction(): Promise<FieldCheck> {
+  const user = await requireUser();
+  if (user.role !== "admin") return { ok: false, error: "Only an admin can check the Creator Marketplace fields." };
+  return checkMarketplaceFields();
 }
 
 /** Continues a running discovery by one slice, for the screen that started it. */

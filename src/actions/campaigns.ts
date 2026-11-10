@@ -6,6 +6,7 @@ import { z } from "zod";
 import { logActivity } from "@/lib/activity";
 import { allowed } from "@/lib/brand-scope";
 import { brandName, isBrandId } from "@/lib/brands";
+import { deleteEmptyCampaign, setCampaignArchived as archiveOrRestore, type RemovalResult } from "@/lib/campaign-removal";
 import { db } from "@/lib/db";
 import { field, splitKeywords, type FormState } from "@/lib/form";
 import { requireUser } from "@/lib/session";
@@ -19,6 +20,26 @@ const campaignSchema = z.object({
   deadline: z.date().nullable(),
   status: z.enum(CAMPAIGN_STATUSES),
 });
+
+/** Deletes a campaign with no creators in it (admins only). The rules are in src/lib/campaign-removal.ts. */
+export async function deleteCampaign(campaignId: string): Promise<RemovalResult> {
+  const user = await requireUser();
+  const result = await deleteEmptyCampaign(typeof campaignId === "string" ? campaignId : "", { userId: user.id, role: user.role, scope: allowed(user) });
+  if (result.ok) revalidatePath("/campaigns");
+  return result;
+}
+
+/** Archives a campaign, or restores it as Paused (admins only). Creators and their history always stay. */
+export async function setCampaignArchived(campaignId: string, archived: boolean): Promise<RemovalResult> {
+  const user = await requireUser();
+  const result = await archiveOrRestore(typeof campaignId === "string" ? campaignId : "", archived === true, { userId: user.id, role: user.role, scope: allowed(user) });
+  if (result.ok) {
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/today");
+  }
+  return result;
+}
 
 export async function createCampaign(_prev: FormState, formData: FormData): Promise<FormState> {
   const user = await requireUser();

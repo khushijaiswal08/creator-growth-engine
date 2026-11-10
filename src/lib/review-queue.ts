@@ -5,7 +5,7 @@ import { emailStatusFor, LOW_FIT_SCORE } from "@/lib/scoring";
 import { normaliseForMatch, similarHandles } from "@/lib/similar";
 import { REVIEW_STATUSES, US_SIGNALS } from "@/lib/status";
 
-const SOURCES: DataSource[] = ["youtube", "meta_free", "vendor", "csv", "manual"];
+const SOURCES: DataSource[] = ["youtube", "meta_free", "meta_marketplace", "vendor", "csv", "manual"];
 const MAX_QUEUE = 1000;
 
 type ReviewFilters = {

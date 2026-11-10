@@ -265,7 +265,7 @@ for (const [mine, theirs] of [
 
     // Forged Server Actions against the other brand's records change nothing.
     const ids = actionIds();
-    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign", "applyTidyUp", "undoTidy", "saveCreatorInsight", "refreshPublicNumbers"]) {
+    for (const name of ["updateCreatorStatus", "decideGift", "markDelivered", "setInfluencerArchived", "reviewContent", "archiveContent", "saveAttributionLink", "archiveAttributionLink", "uploadBusinessReport", "sendToAmazon", "previewForAmazon", "inviteBackToCampaign", "applyTidyUp", "undoTidy", "saveCreatorInsight", "refreshPublicNumbers", "deleteCampaign", "setCampaignArchived", "checkMarketplaceFieldsAction"]) {
       assert.ok(ids.has(name), `action id for ${name} found in the build`);
     }
     const before = {
@@ -300,6 +300,12 @@ for (const [mine, theirs] of [
     // Creator-supplied numbers and a refresh of public numbers aimed at the other brand's profile.
     await callAction(cookie, ids.get("saveCreatorInsight")!, [other.profileId, { reach7d: "100", reach30d: "9999", profileViews30d: "5", usAudiencePct: "50", evidence: "forged", note: "forged", asOf: "2026-10-01" }]);
     await callAction(cookie, ids.get("refreshPublicNumbers")!, [other.profileId]);
+    // Deleting or archiving the other brand's campaign.
+    await callAction(cookie, ids.get("deleteCampaign")!, [other.campaignId]);
+    await callAction(cookie, ids.get("setCampaignArchived")!, [other.campaignId, true]);
+    // The Creator Marketplace field check is for admins only.
+    const fieldCheck = await callAction(cookie, ids.get("checkMarketplaceFieldsAction")!, []);
+    assert.match(await fieldCheck.text(), /Only an admin can check the Creator Marketplace fields/);
     // A forged call with the wrong shape must not crash the action or write anything.
     await callAction(cookie, ids.get("saveCreatorInsight")!, [other.profileId, 12345]);
     const afterwards = {
@@ -317,6 +323,7 @@ for (const [mine, theirs] of [
     assert.equal(afterwards.insights, before.insights, "no creator numbers saved on the other brand's profile by a forged call");
     assert.equal(afterwards.publicPosts, before.publicPosts, "no public posts written for the other brand's profile");
     assert.equal(afterwards.links, before.links, "nobody invited into or out of the other brand by a forged call");
+    assert.equal((await db.campaign.findUniqueOrThrow({ where: { id: other.campaignId } })).status, "active", "the other brand's campaign neither deleted nor archived by a forged call");
     assert.equal(await db.tidyUp.count(), 0, "no tidy-up opened by a marketer's forged call");
     assert.equal(await db.attributionLink.count({ where: { maas: "m_forged" } }), 0, "no link saved on the other brand's creator");
     assert.equal(afterwards.link.archived, false, "the other brand's link not removed by a forged call");

@@ -4,6 +4,7 @@ import { Check, ChevronRight, GripVertical, Plus, Search } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CampaignRemoval } from "@/components/campaign-removal";
 import { ActionMenu, MENU_ITEM_CLASS } from "@/components/action-menu";
 import { Avatar } from "@/components/avatar";
 import { BoardFilter, type BoardFilters } from "@/components/board-filter";
@@ -12,6 +13,7 @@ import { AutomationSettingsForm } from "@/components/journey-forms";
 import { MessageButton, MessageComposer } from "@/components/message-button";
 import { EmptyRow } from "@/components/panel";
 import { PipelineBoard, type BoardCard } from "@/components/pipeline-board";
+import { marketplaceFields, missingMarketplaceSettings } from "@/lib/fetching/adapters/creator-marketplace";
 import { isWarmth } from "@/lib/reply-reader";
 import { ProfileLinks } from "@/components/profile-links";
 import { ScoringButton } from "@/components/scoring-button";
@@ -159,6 +161,11 @@ export default async function CampaignPage({ params, searchParams }: { params: P
                 Run discovery or scoring
               </Link>
             ) : null}
+            {isAdmin ? (
+              <Link href={`${tabHref("settings")}#remove`} className={MENU_ITEM_CLASS}>
+                {campaign.status === "archived" ? "Restore campaign" : total === 0 ? "Delete campaign" : "Archive campaign"}
+              </Link>
+            ) : null}
           </ActionMenu>
         </div>
       </header>
@@ -223,7 +230,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
       {view === "board" ? <BoardView campaignId={id} base={base} influencer={influencerWhere} keep={keep} templates={templates} senderName={user.name} now={now} /> : null}
       {view === "list" ? <ListView campaignId={id} base={base} keep={keep} filter={filter} page={page} countByStatus={countByStatus} total={total} templates={templates} senderName={user.name} now={now} /> : null}
       {view === "discovery" && isAdmin ? <DiscoveryView campaign={campaign} /> : null}
-      {view === "settings" && isAdmin ? <SettingsView campaign={campaign} /> : null}
+      {view === "settings" && isAdmin ? <SettingsView campaign={campaign} creators={total} /> : null}
     </>
   );
 }
@@ -489,7 +496,7 @@ async function DiscoveryView({ campaign }: { campaign: { id: string; nicheKeywor
             {campaign.negativeKeywords.length > 0 ? `; avoiding ${campaign.negativeKeywords.join(", ")}` : ""}.
           </p>
         </div>
-        <DiscoveryPanel campaignId={campaign.id} hasKeywords={campaign.nicheKeywords.length > 0} />
+        <DiscoveryPanel campaignId={campaign.id} hasKeywords={campaign.nicheKeywords.length > 0} marketplace={{ missing: missingMarketplaceSettings(), fields: marketplaceFields() }} />
         <div className="border-t p-4">
           <ScoringButton campaignId={campaign.id} unscored={unscored} />
         </div>
@@ -540,9 +547,13 @@ async function DiscoveryView({ campaign }: { campaign: { id: string; nicheKeywor
 
 async function SettingsView({
   campaign,
+  creators,
 }: {
+  creators: number;
   campaign: {
     id: string;
+    name: string;
+    status: string;
     brandId: string;
     brief: string;
     nicheKeywords: string[];
@@ -559,7 +570,10 @@ async function SettingsView({
     noContentAfterDays: number;
   };
 }) {
-  const articles = await db.product.findMany({ where: { ...OFFER_STATUS_WHERE.offered, brandId: campaign.brandId }, distinct: ["title"], orderBy: { title: "asc" }, select: { title: true } });
+  const [articles, discoveryRuns] = await Promise.all([
+    db.product.findMany({ where: { ...OFFER_STATUS_WHERE.offered, brandId: campaign.brandId }, distinct: ["title"], orderBy: { title: "asc" }, select: { title: true } }),
+    db.discoveryRun.count({ where: { campaignId: campaign.id } }),
+  ]);
   return (
     <div className="grid gap-5">
       <section className="card p-5">
@@ -598,6 +612,7 @@ async function SettingsView({
           chosenArticles={campaign.giftArticles}
         />
       </section>
+      <CampaignRemoval campaignId={campaign.id} name={campaign.name} creators={creators} discoveryRuns={discoveryRuns} archived={campaign.status === "archived"} />
     </div>
   );
 }

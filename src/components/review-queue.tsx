@@ -48,6 +48,7 @@ export type ReviewCard = {
 const CARD_SOURCE_LABELS: Record<DataSource, string> = {
   youtube: "YouTube discovery",
   meta_free: "Instagram discovery",
+  meta_marketplace: "Creator Marketplace",
   vendor: "Data vendor",
   csv: "CSV import",
   manual: "Added by hand",

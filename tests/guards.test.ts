@@ -34,6 +34,14 @@ let db: PrismaClient;
 
 /** Every request the stand-in Graph API received. */
 const graphCalls: string[] = [];
+/** The stand-in Instagram Creator Marketplace: how it answers next, and every request it received (with the auth header). */
+const marketplace = {
+  mode: "ok" as "ok" | "token" | "permission" | "permission-270" | "rate-once" | "rate-always" | "rate-403" | "retry-after-long" | "bad-json-once" | "slow-503" | "server-echo",
+  rateOnceDone: false,
+  /** A careless API: echo the token back in paging.next and in error messages. */
+  echoToken: false,
+  requests: [] as { path: string; query: string; auth: string | null; status: number }[],
+};
 /** Runs before the stand-in Anthropic API answers; lets a test change the database mid-flight. */
 let beforeAnthropicAnswers: (prompt: string) => Promise<void> = async () => {};
 let anthropicRequests = 0;
@@ -94,6 +102,62 @@ before(async () => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(payload));
       };
+
+      // Instagram Creator Marketplace: GET {ig}/creator_marketplace_creators and GET {creator}?metadata=1.
+      const graphPath = url.pathname.startsWith("/graph/") ? url.pathname.slice("/graph/".length) : "";
+      const marketplaceList = /^v[\d.]+\/\d+\/creator_marketplace_creators$/.test(graphPath);
+      const marketplaceCreator = /^v[\d.]+\/(c\d+)$/.exec(graphPath);
+      if (marketplaceList || marketplaceCreator) {
+        const auth = req.headers.authorization ?? null;
+        const echo = marketplace.echoToken ? (auth ?? "").replace(/^Bearer /, "") : "abc123def456";
+        const answer = (status: number, payload: unknown) => {
+          marketplace.requests.push({ path: graphPath, query: url.search.slice(1), auth, status });
+          return send(status, payload);
+        };
+        if (marketplace.mode === "token") return answer(400, { error: { message: `Invalid OAuth access token - Cannot parse access token ${echo}`, type: "OAuthException", code: 190 } });
+        if (marketplace.mode === "permission") return answer(403, { error: { message: "(#10) Application does not have permission for this action", type: "OAuthException", code: 10 } });
+        if (marketplace.mode === "permission-270") return answer(400, { error: { message: "(#270) This Ads API request is not allowed", code: 270 } });
+        // Meta sends some rate limits as HTTP 403: the code decides.
+        if (marketplace.mode === "rate-403") return answer(403, { error: { message: "(#4) Application request limit reached", code: 4 } });
+        if (marketplace.mode === "retry-after-long") {
+          marketplace.requests.push({ path: graphPath, query: url.search.slice(1), auth, status: 429 });
+          res.writeHead(429, { "content-type": "application/json", "retry-after": "60" });
+          return res.end(JSON.stringify({ error: { message: "(#4) Application request limit reached", code: 4 } }));
+        }
+        if (marketplace.mode === "bad-json-once" && !marketplace.rateOnceDone) {
+          marketplace.rateOnceDone = true;
+          marketplace.requests.push({ path: graphPath, query: url.search.slice(1), auth, status: 200 });
+          res.writeHead(200, { "content-type": "text/html" });
+          return res.end("<html>a proxy page, not JSON</html>");
+        }
+        if (marketplace.mode === "slow-503") {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return answer(503, { error: { message: "Service temporarily unavailable", code: 2 } });
+        }
+        if (marketplace.mode === "rate-always" || (marketplace.mode === "rate-once" && !marketplace.rateOnceDone)) {
+          marketplace.rateOnceDone = true;
+          return answer(429, { error: { message: "(#4) Application request limit reached", code: 4 } });
+        }
+        if (marketplace.mode === "server-echo") return answer(500, { error: { message: `Unexpected error for https://graph.facebook.com/v27.0/1789/creator_marketplace_creators?access_token=${echo}&limit=25`, code: 1 } });
+        if (marketplaceCreator) return answer(200, { id: marketplaceCreator[1], metadata: { fields: [{ name: "username" }, { name: "followers_count" }, { name: "biography" }, { name: "name" }, { name: "username" }] } });
+        // Ids only unless fields were asked for, like the Graph API Explorer test of 6 Nov 2026.
+        const asked = (url.searchParams.get("fields") ?? "").split(",");
+        const shape = (creator: Record<string, unknown>) => (asked.includes("username") ? creator : { id: creator.id });
+        const pageOne = [
+          { id: "c1", username: "mk_maya", name: "Maya Market", biography: "Table linens and slow living", followers_count: 12_000 },
+          { id: "c2" },
+          { id: "c3", username: "mk_known", name: "Known Person" },
+        ];
+        const pageTwo = [
+          { id: "c4", username: "mk_blocked", name: "Blocked" },
+          { id: "c5", username: "mk_maya", name: "Maya Market" },
+          { id: "c6", username: "mk_noah", name: "Noah", biography: "giveaway only account" },
+        ];
+        if (!url.searchParams.get("after")) {
+          return answer(200, { data: pageOne.map(shape), paging: { cursors: { before: "B1", after: "AFTER1" }, next: `https://graph.facebook.com/v27.0/1789/creator_marketplace_creators?access_token=${echo}&limit=25&after=AFTER1` } });
+        }
+        return answer(200, { data: pageTwo.map(shape), paging: { cursors: { before: "B2", after: "AFTER2" } } });
+      }
 
       if (url.pathname.startsWith("/graph/")) {
         graphCalls.push(url.pathname + url.search);
@@ -2869,4 +2933,268 @@ test("insights: discovery keeps each new channel's recent uploads with their pub
   const posts = await db.profilePost.findMany({ where: { socialProfile: { influencer: { campaigns: { some: { campaignId: campaign.id } } } } } });
   assert.equal(posts.length, 2, "each new channel kept its recent upload");
   assert.ok(posts.every((row) => row.externalId === "vid1" && row.kind === "video" && row.views === 10_000 && row.likes === 500 && row.comments === 20));
+});
+
+test("an admin deletes only a campaign with no creators, archives one that has them (keeping everything), restores it as Paused, and stays inside the brand", async () => {
+  const { deleteEmptyCampaign, setCampaignArchived } = await import("@/lib/campaign-removal");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { user, campaign: empty } = await makeUserAndCampaign("removal-empty", ["tablecloth"]);
+  const admin = { userId: user.id, role: "admin", scope: allowed({ id: user.id, brandId: "test", viewBrand: null }) };
+
+  // A test campaign: discovery was tried twice, nothing was found.
+  for (const note of ["Instagram discovery is not configured: META_ACCESS_TOKEN missing.", "Instagram discovery is not configured: META_ACCESS_TOKEN missing."]) {
+    await db.discoveryRun.create({ data: { campaignId: empty.id, startedById: user.id, source: "meta_free", query: {}, status: "not_configured", note } });
+  }
+  const before = await db.activity.count();
+  assert.deepEqual(await deleteEmptyCampaign(empty.id, { ...admin, role: "marketer" }), { ok: false, error: "Only an admin can delete a campaign." });
+  assert.deepEqual(await deleteEmptyCampaign(empty.id, admin), { ok: true, message: 'Deleted "removal-empty".' });
+  assert.equal(await db.campaign.count({ where: { id: empty.id } }), 0);
+  assert.equal(await db.discoveryRun.count({ where: { campaignId: empty.id } }), 0, "its discovery tries went with it");
+  const logged = await db.activity.findFirstOrThrow({ where: { kind: "campaign_deleted" }, orderBy: { createdAt: "desc" } });
+  assert.equal(logged.body, 'Deleted campaign "removal-empty". It had no creators; its 2 discovery tries went with it.');
+  assert.equal(await db.activity.count(), before + 1);
+
+  // A campaign with creators is never deleted: archive it instead, and nothing is lost.
+  const { campaign: busy } = await makeUserAndCampaign("removal-busy", ["napkins"]);
+  const creator = await makeCreator(busy.id, "removal_maya", { status: "product_shipped" });
+  const refused = await deleteEmptyCampaign(busy.id, admin);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.match(refused.error, /has 1 creator in it, so it cannot be deleted\. Archive it instead/);
+  assert.equal(await db.campaign.count({ where: { id: busy.id } }), 1);
+
+  assert.deepEqual(await setCampaignArchived(busy.id, true, { ...admin, role: "marketer" }), { ok: false, error: "Only an admin can archive a campaign." });
+  assert.equal((await setCampaignArchived(busy.id, true, admin)).ok, true);
+  assert.equal((await db.campaign.findUniqueOrThrow({ where: { id: busy.id } })).status, "archived");
+  assert.equal((await db.campaignCreator.findUniqueOrThrow({ where: { id: creator.id } })).status, "product_shipped", "the creator and their stage are kept");
+  assert.deepEqual(await setCampaignArchived(busy.id, true, admin), { ok: true, message: '"removal-busy" is already archived.' });
+  assert.equal((await setCampaignArchived(busy.id, false, admin)).ok, true);
+  assert.equal((await db.campaign.findUniqueOrThrow({ where: { id: busy.id } })).status, "paused", "restored as Paused, so nothing restarts by itself");
+
+  // Another brand's campaign does not exist for this admin.
+  const elsewhere = await db.campaign.create({ data: { name: "removal-elsewhere", brandId: "elsewhere", brief: "x", nicheKeywords: [], negativeKeywords: [] } });
+  assert.deepEqual(await deleteEmptyCampaign(elsewhere.id, admin), { ok: false, error: "That campaign is not one you can change." });
+  assert.deepEqual(await setCampaignArchived(elsewhere.id, true, admin), { ok: false, error: "That campaign is not one you can change." });
+  assert.equal((await db.campaign.findUniqueOrThrow({ where: { id: elsewhere.id } })).status, "draft");
+});
+
+/** Runs `work` with the Creator Marketplace settings in place, then puts the environment back. */
+async function withMarketplaceEnv<T>(settings: Record<string, string | undefined>, work: () => Promise<T>): Promise<T> {
+  const names = ["META_ACCESS_TOKEN", "IG_BUSINESS_ID", "META_MARKETPLACE_FIELDS", "META_RETRY_BASE_MS"];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  Object.assign(process.env, { META_RETRY_BASE_MS: "1" });
+  for (const [name, value] of Object.entries(settings)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  try {
+    return await work();
+  } finally {
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+  }
+}
+const PAGE_TOKEN = "EAAtestPAGEtoken1234567890abcdefXYZ";
+const FIELDS = "username,name,biography,followers_count";
+
+test("Creator Marketplace: reads pages with the after cursor, adds new creators as Discovered, and leaves out ids-only results, duplicates, negatives and the do-not-contact list", async () => {
+  const { runDiscovery } = await import("@/lib/discovery");
+  const { user, campaign } = await makeUserAndCampaign("marketplace-ok", ["table linens"]);
+  await db.campaign.update({ where: { id: campaign.id }, data: { negativeKeywords: ["giveaway only"] } });
+  await db.suppression.create({ data: { platform: "instagram", handle: "mk_blocked", reason: "asked us to stop" } });
+  const known = await db.influencer.create({ data: { name: "Already here", profiles: { create: { platform: "instagram", handle: "mk_known" } } } });
+
+  marketplace.mode = "ok";
+  marketplace.requests.length = 0;
+  const summary = await withMarketplaceEnv({ META_ACCESS_TOKEN: PAGE_TOKEN, META_MARKETPLACE_FIELDS: FIELDS }, () => runDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id }));
+
+  assert.equal(summary.status, "completed");
+  assert.deepEqual([summary.found, summary.added, summary.alreadyKnown, summary.skipped], [4, 1, 2, 2], "maya added; mk_known and maya's second appearance known; mk_blocked (do-not-contact) and mk_noah (negative keyword) skipped");
+  const report = summary.report as { pages: number; creatorsSeen: number; withoutUsername: number; sampleIdsWithoutUsername: string[]; fieldsRequested: string[]; moreAvailable: boolean };
+  assert.deepEqual([report.pages, report.creatorsSeen, report.withoutUsername, report.sampleIdsWithoutUsername, report.moreAvailable], [2, 6, 1, ["c2"], false]);
+  assert.match(summary.note ?? "", /Not filtered by the campaign's keywords/);
+
+  // Two requests, the second with the after cursor; the token only ever in the header.
+  const calls = marketplace.requests.filter((call) => call.path.endsWith("/creator_marketplace_creators"));
+  assert.equal(calls.length, 2);
+  assert.equal(new URLSearchParams(calls[0].query).get("after"), null);
+  assert.equal(new URLSearchParams(calls[1].query).get("after"), "AFTER1", "paged with the cursor, not paging.next");
+  assert.equal(new URLSearchParams(calls[0].query).get("fields"), "id,username,name,biography,followers_count");
+  assert.equal(new URLSearchParams(calls[0].query).get("limit"), "25");
+  assert.ok(calls.every((call) => call.path.startsWith("v27.0/1789/") && call.auth === `Bearer ${PAGE_TOKEN}` && !call.query.includes(PAGE_TOKEN) && !/access_token/i.test(call.query)));
+
+  // The new creator went into the normal flow: Discovered, waiting for AI scoring and a person.
+  const maya = await db.socialProfile.findUniqueOrThrow({ where: { platform_handle: { platform: "instagram", handle: "mk_maya" } }, include: { influencer: { include: { campaigns: true } } } });
+  assert.deepEqual([maya.source, maya.followers, maya.influencer.name, maya.influencer.campaigns[0].status], ["meta_marketplace", 12_000, "Maya Market", "discovered"]);
+  assert.equal(await db.socialProfile.count({ where: { handle: { in: ["mk_blocked", "mk_noah"] } } }), 0);
+  assert.equal(await db.campaignCreator.count({ where: { campaignId: campaign.id, influencerId: known.id } }), 0, "a known creator is not merged or re-added");
+  assert.equal(await db.apiCall.count({ where: { service: "creator_marketplace", ok: true } }) >= 2, true);
+
+  // Without a field list Meta returns ids only: nobody can be added, and the run says what to do.
+  marketplace.requests.length = 0;
+  const { campaign: idsOnly } = await makeUserAndCampaign("marketplace-ids", ["table linens"]);
+  const bare = await withMarketplaceEnv({ META_ACCESS_TOKEN: PAGE_TOKEN, META_MARKETPLACE_FIELDS: undefined }, () => runDiscovery({ campaignId: idsOnly.id, source: "meta_marketplace", userId: user.id }));
+  assert.deepEqual([bare.status, bare.found, bare.added], ["completed", 0, 0]);
+  assert.equal(marketplace.requests.some((call) => new URLSearchParams(call.query).has("fields")), false, "no fields asked for");
+  assert.match(bare.note ?? "", /returned 6 creators as ids only\. Use "Check available fields"/);
+});
+
+test("Creator Marketplace: a bad token (190), missing permission, missing settings and Meta's rate limit each stop with a clear message", async () => {
+  const { runDiscovery } = await import("@/lib/discovery");
+  const { user, campaign } = await makeUserAndCampaign("marketplace-errors", ["table linens"]);
+  const run = (settings: Record<string, string | undefined>) => withMarketplaceEnv({ META_MARKETPLACE_FIELDS: FIELDS, ...settings }, () => runDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id }));
+
+  // Settings missing: nothing is sent to Meta.
+  marketplace.requests.length = 0;
+  const none = await run({ META_ACCESS_TOKEN: "", IG_BUSINESS_ID: "1789" });
+  assert.equal(none.status, "not_configured");
+  assert.equal(none.note, "Instagram Creator Marketplace is not configured: META_ACCESS_TOKEN is missing.");
+  const neither = await run({ META_ACCESS_TOKEN: undefined, IG_BUSINESS_ID: undefined });
+  assert.equal(neither.note, "Instagram Creator Marketplace is not configured: META_ACCESS_TOKEN and IG_BUSINESS_ID are missing.");
+  assert.equal(marketplace.requests.length, 0);
+
+  // A user token instead of a Page token: Meta's code 190, not retried.
+  marketplace.mode = "token";
+  marketplace.requests.length = 0;
+  const bad = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(bad.status, "failed");
+  assert.match(bad.note ?? "", /Meta refused the access token \(code 190\).*not a Page access token/);
+  assert.equal(marketplace.requests.length, 1, "a bad token is not asked again");
+  const logged = await db.apiCall.findFirstOrThrow({ where: { service: "creator_marketplace", errorCode: 190 }, orderBy: { createdAt: "desc" } });
+  assert.deepEqual([logged.ok, logged.status], [false, 400]);
+
+  // Missing permission.
+  marketplace.mode = "permission";
+  const denied = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(denied.status, "failed");
+  assert.match(denied.note ?? "", /does not have permission .*\(code 10\)/);
+
+  // Rate limit once: waited and asked again, and the run completes.
+  marketplace.mode = "rate-once";
+  marketplace.rateOnceDone = false;
+  marketplace.requests.length = 0;
+  const recovered = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(recovered.status, "completed");
+  assert.equal(marketplace.requests.filter((call) => call.status === 429).length, 1);
+
+  // Rate limit every time: three tries, then the run stops as "quota reached" and keeps nothing half-done.
+  marketplace.mode = "rate-always";
+  marketplace.requests.length = 0;
+  const limited = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(limited.status, "stopped_quota");
+  assert.match(limited.note ?? "", /Meta's rate limit was reached/);
+  assert.equal(marketplace.requests.length, 3, "three attempts with growing waits");
+  assert.equal(limited.quotaUsed, 3, "the run's API calls count every request Meta received");
+
+  // A rate limit sent as HTTP 403 is still a rate limit: retried, then "quota reached", not a permission error.
+  marketplace.mode = "rate-403";
+  marketplace.requests.length = 0;
+  const limited403 = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(limited403.status, "stopped_quota");
+  assert.doesNotMatch(limited403.note ?? "", /permission/);
+  assert.equal(marketplace.requests.length, 3);
+
+  // Meta asks for a 60-second wait, longer than a slice may take: no early retry, the run stops and says why.
+  marketplace.mode = "retry-after-long";
+  marketplace.requests.length = 0;
+  const later = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(later.status, "stopped_quota");
+  assert.equal(marketplace.requests.length, 1);
+
+  // A permission code in Meta's 200-299 range, sent as HTTP 400.
+  marketplace.mode = "permission-270";
+  const denied270 = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(denied270.status, "failed");
+  assert.match(denied270.note ?? "", /does not have permission .*\(code 270\)/);
+
+  // An unreadable "OK" answer counts as a failed request and is asked again.
+  marketplace.mode = "bad-json-once";
+  marketplace.rateOnceDone = false;
+  marketplace.requests.length = 0;
+  const unreadable = await run({ META_ACCESS_TOKEN: PAGE_TOKEN });
+  assert.equal(unreadable.status, "completed");
+  assert.equal(unreadable.quotaUsed, 3, "the unreadable answer, its retry, and page two");
+  assert.ok(await db.apiCall.findFirst({ where: { service: "creator_marketplace", ok: false, status: 200, error: { contains: "could not be read" } } }));
+
+  // The time budget holds the whole call, retries included.
+  const { metaGraphGet, MetaGraphError } = await import("@/lib/meta-graph");
+  marketplace.mode = "slow-503";
+  marketplace.requests.length = 0;
+  const counter = { attempts: 0 };
+  const started = Date.now();
+  await assert.rejects(
+    withMarketplaceEnv({ META_ACCESS_TOKEN: PAGE_TOKEN }, () => metaGraphGet(PAGE_TOKEN, "1789/creator_marketplace_creators", {}, { service: "creator_marketplace", label: "the list", budgetMs: 500, timeoutMs: 400, counter })),
+    (error: unknown) => error instanceof MetaGraphError && error.kind === "server",
+  );
+  assert.ok(Date.now() - started < 1_000, "no attempt started that the budget could not cover");
+  assert.equal(counter.attempts, 1);
+  marketplace.mode = "ok";
+});
+
+test("Creator Marketplace: the token never appears in logs, stored runs, the request log, activity, field checks or the admin status, even when Meta echoes it back", async () => {
+  const { runDiscovery, startDiscovery, discoverySlice } = await import("@/lib/discovery");
+  const { checkMarketplaceFields } = await import("@/lib/fetching/adapters/creator-marketplace");
+  const { marketplaceStatus } = await import("@/lib/marketplace-status");
+  const { user, campaign } = await makeUserAndCampaign("marketplace-secret", ["table linens"]);
+
+  // Between slices the run keeps its cursor: Meta's paging.next (which carries the token) must not be in it.
+  marketplace.echoToken = true;
+  marketplace.mode = "ok";
+  const midway = await withMarketplaceEnv({ META_ACCESS_TOKEN: PAGE_TOKEN, META_MARKETPLACE_FIELDS: FIELDS }, async () => {
+    const first = await startDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id });
+    assert.equal(first.done, false, "a second page is waiting");
+    const row = await db.discoveryRun.findUniqueOrThrow({ where: { id: first.runId } });
+    await discoverySlice(first.runId);
+    return JSON.stringify([first, row]);
+  });
+  assert.ok(midway.includes("AFTER1"), "the cursor is kept between slices");
+  assert.equal(midway.includes(PAGE_TOKEN), false, "no token in the stored run or the summary between slices");
+  assert.equal(/access_token=/i.test(midway), false, "no paging.next link kept");
+
+  const printed: string[] = [];
+  const original = { log: console.log, error: console.error, warn: console.warn, info: console.info };
+  for (const name of ["log", "error", "warn", "info"] as const) console[name] = (...args: unknown[]) => printed.push(args.map((arg) => (arg instanceof Error ? `${arg.message} ${arg.stack}` : typeof arg === "string" ? arg : JSON.stringify(arg))).join(" "));
+  marketplace.echoToken = true;
+  let results: unknown[];
+  try {
+    results = await withMarketplaceEnv({ META_ACCESS_TOKEN: PAGE_TOKEN, META_MARKETPLACE_FIELDS: FIELDS }, async () => {
+      marketplace.mode = "ok";
+      const good = await runDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id });
+      const fields = await checkMarketplaceFields();
+      marketplace.mode = "token";
+      const bad = await runDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id });
+      marketplace.mode = "server-echo";
+      const broken = await runDiscovery({ campaignId: campaign.id, source: "meta_marketplace", userId: user.id });
+      const status = await marketplaceStatus();
+      return [good, fields, bad, broken, status];
+    });
+  } finally {
+    Object.assign(console, original);
+    marketplace.echoToken = false;
+    marketplace.mode = "ok";
+  }
+
+  const [good, fields, bad, broken, status] = results as [{ status: string }, { ok: boolean; fields?: string[] }, { status: string; note: string | null }, { status: string; note: string | null }, { lastError: { message: string } | null; requestsLastHour: number; configured: boolean }];
+  assert.equal(good.status, "completed");
+  assert.deepEqual(fields, { ok: true, fields: ["biography", "followers_count", "name", "username"], creatorId: "c1" }, "field names only, never values");
+  assert.equal(bad.status, "failed");
+  assert.match(bad.note ?? "", /code 190/);
+  assert.equal(broken.status, "failed");
+  assert.equal(status.configured, true);
+  assert.ok(status.requestsLastHour > 0);
+  assert.ok(status.lastError);
+
+  const stored = JSON.stringify([
+    await db.discoveryRun.findMany({ where: { campaignId: campaign.id } }),
+    await db.apiCall.findMany(),
+    await db.activity.findMany({ where: { body: { contains: "marketplace-secret" } } }),
+  ]);
+  const everything = [JSON.stringify(results), stored, printed.join("\n")];
+  for (const [index, text] of everything.entries()) {
+    assert.equal(text.includes(PAGE_TOKEN), false, `token found in ${["the returned results", "the database", "the console"][index]}`);
+    assert.equal(/access_token=(?!\[hidden\])/i.test(text), false, `an access_token query string found in ${["the returned results", "the database", "the console"][index]}`);
+  }
+  assert.match(stored, /\[hidden/, "Meta's echo was replaced, not stored");
+  assert.ok(marketplace.requests.every((call) => !call.query.includes(PAGE_TOKEN)), "the token was never put in a URL");
 });

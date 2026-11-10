@@ -26,7 +26,7 @@ export const metadata: Metadata = { title: "Review queue" };
 export const maxDuration = 300;
 
 const CARDS_PER_PAGE = 30;
-const FILTER_SOURCES = ["youtube", "meta_free", "csv", "manual"] as const;
+const FILTER_SOURCES = ["youtube", "meta_free", "meta_marketplace", "csv", "manual"] as const;
 
 export default async function ReviewPage({
   params,

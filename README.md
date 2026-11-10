@@ -993,6 +993,44 @@ owner on Instagram and YouTube, so there are two kinds of number, kept apart and
   `src/lib/public-posts.ts`, `src/actions/creator-insights.ts`, `src/components/creator-insights.tsx`,
   the two adapters in `src/lib/fetching/adapters/`. Migration `20261105090000_creator_insights`.
 
+## Phase 3M: Instagram Creator Marketplace search
+
+A third discovery source next to YouTube and Instagram hashtags: Meta's Instagram Creator Marketplace,
+`GET /{IG_BUSINESS_ID}/creator_marketplace_creators` (Graph API v27.0). Campaign › Discovery ›
+Source "Instagram Creator Marketplace (Meta)".
+
+- **Token.** It needs a Facebook **Page** access token in `META_ACCESS_TOKEN` (a user token gets code
+  190) and `IG_BUSINESS_ID`. Server only. The token travels in the Authorization header, never in a
+  URL; Meta's `paging.next` link carries the token in its query string, so it is never followed or
+  stored: pages are read with the `after` cursor. Anything Meta sends back is passed through
+  `redactSecrets` before it is stored or shown.
+- **Client** (`src/lib/meta-graph.ts`). 8-second timeout per attempt, up to 3 attempts with growing
+  waits (or Meta's Retry-After) on 429, 5xx, Meta's rate-limit codes and network failures, inside a
+  9-second budget so a discovery slice stays short. Plain messages for code 190 (bad, expired or not a
+  Page token), missing permission, the rate limit and Meta failing. Every attempt is recorded in
+  `ApiCall` (service, what was asked, status, Meta's code, a secret-free message).
+- **Fields.** What a creator object offers is not known yet, so `MARKETPLACE_FIELDS` (empty) is the
+  one list to fill in, or `META_MARKETPLACE_FIELDS` without a code change. Until a username field is
+  requested Meta returns ids only, and those creators cannot be added (no handle to dedupe on): the
+  run counts them and says what to do. Admin › Connected services › **Check available fields** asks
+  Meta once (`GET /{creator-id}?metadata=1`) and lists the field names, never values. Known names
+  (username, name, biography, followers_count, website, country) are mapped when present.
+- **Keywords.** A keyword filter for this endpoint is not confirmed, so none is sent
+  (`MARKETPLACE_KEYWORD_PARAM` is null) and the Discovery tab and each run say so. A run reads up to
+  4 pages of 25; negative keywords still drop creators whose name or bio match; AI fit scoring sorts
+  the rest against the brief.
+- **Flow.** Results go through the same path as every source: duplicate check against the portal's
+  creators (a known handle is counted, never merged or re-added; look-alikes show on the review card),
+  the do-not-contact list, status Discovered, AI fit scoring (recommends only), and a person's
+  decision in the Review queue. Nobody is contacted.
+- **Connected services.** "Instagram Creator Marketplace": configured or not (token and business id
+  present), the last run, the last error (secret-free), requests in the last hour, and the fields
+  requested. Hashtag search is unchanged and stays available as the fallback.
+- **Code:** `src/lib/meta-graph.ts`, `src/lib/fetching/adapters/creator-marketplace.ts`,
+  `src/lib/marketplace-status.ts`, `src/components/marketplace-fields.tsx`, the Discovery panel and
+  Admin page. Migration `20261110090000_creator_marketplace` (DataSource `meta_marketplace`, table
+  `ApiCall`).
+
 ## Phase 1 discovery and scoring
 
 Nothing in this section contacts a creator. Discovery finds people, scoring recommends, and a

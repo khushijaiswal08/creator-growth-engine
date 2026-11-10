@@ -6,6 +6,7 @@ import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
 import type { DiscoverySummary } from "@/lib/discovery";
 import { DISCOVERY_SOURCES, SOURCE_LABELS } from "@/lib/discovery-labels";
+import type { MarketplaceReport } from "@/lib/fetching/adapters/creator-marketplace";
 import type { MetaReport as MetaReportFull } from "@/lib/fetching/adapters/meta-free";
 import type { YoutubeReport as YoutubeReportFull } from "@/lib/fetching/adapters/youtube";
 
@@ -25,6 +26,20 @@ type YoutubeReport = Partial<YoutubeReportFull>;
 /** What the live service answered, step by step, in plain words. */
 function ReportLines({ source, report }: { source: string; report: Record<string, unknown> | null }) {
   if (!report) return null;
+  if (source === "meta_marketplace") {
+    const r = report as Partial<MarketplaceReport>;
+    return (
+      <ul className="grid gap-0.5 border-t px-3 py-2 text-xs text-muted-foreground">
+        <li>
+          Pages read: {r.pages ?? 0}. Creators returned: {r.creatorsSeen ?? 0}
+          {r.withoutUsername ? `, of which ${r.withoutUsername} without a username (not added)` : ""}.
+        </li>
+        <li>Fields asked for: {r.fieldsRequested && r.fieldsRequested.length > 0 ? r.fieldsRequested.join(", ") : "none yet (Meta returns ids only)"}.</li>
+        {r.fieldsReturned && r.fieldsReturned.length > 0 ? <li>Fields Meta returned: {r.fieldsReturned.join(", ")}.</li> : null}
+        <li>{r.keywordFilter ? `Filtered by: ${r.keywordFilter}.` : "Not filtered by the campaign's keywords: Meta's filter for this list is not confirmed yet."}</li>
+      </ul>
+    );
+  }
   if (source === "youtube") {
     const r = report as YoutubeReport;
     const skipped = r.searchesSkippedForBudget ?? [];
@@ -68,7 +83,7 @@ function ReportLines({ source, report }: { source: string; report: Record<string
 }
 
 /** Admin-only control on the campaign page. Starts a run and follows it slice by slice. */
-export function DiscoveryPanel({ campaignId, hasKeywords }: { campaignId: string; hasKeywords: boolean }) {
+export function DiscoveryPanel({ campaignId, hasKeywords, marketplace }: { campaignId: string; hasKeywords: boolean; marketplace: { missing: string[]; fields: string[] } }) {
   const [source, setSource] = useState("youtube");
   const [summary, setSummary] = useState<DiscoverySummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +120,7 @@ export function DiscoveryPanel({ campaignId, hasKeywords }: { campaignId: string
             ))}
           </NativeSelect>
         </div>
-        <Button type="button" onClick={run} disabled={pending || !hasKeywords}>
+        <Button type="button" onClick={run} disabled={pending || (!hasKeywords && source !== "meta_marketplace")}>
           {pending ? "Searching..." : "Run discovery"}
         </Button>
         {pending ? (
@@ -114,9 +129,11 @@ export function DiscoveryPanel({ campaignId, hasKeywords }: { campaignId: string
           </Button>
         ) : null}
         <p className="text-muted-foreground">
-          {hasKeywords
-            ? "Searches with this campaign's niche keywords and adds new creators as Discovered. Nobody is contacted. A run continues by itself if you leave the page."
-            : "Add niche keywords to this campaign before running discovery."}
+          {source === "meta_marketplace"
+            ? `Meta's Creator Marketplace list for the connected Instagram business account. Not filtered by this campaign's keywords yet (Meta's filter is not confirmed): a run reads up to 100 creators and AI fit scoring sorts them against the brief. New creators are added as Discovered; nobody is contacted.${marketplace.missing.length === 0 ? "" : ` Not configured yet: ${marketplace.missing.join(" and ")} ${marketplace.missing.length > 1 ? "are" : "is"} missing on the server (the token must be a Page access token).`}${marketplace.fields.length === 0 ? " No creator fields are requested yet, so Meta returns ids only and nobody can be added until the username field is listed." : ""}`
+            : hasKeywords
+              ? "Searches with this campaign's niche keywords and adds new creators as Discovered. Nobody is contacted. A run continues by itself if you leave the page."
+              : "Add niche keywords to this campaign before running discovery."}
         </p>
       </div>
 

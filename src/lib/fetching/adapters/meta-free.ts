@@ -1,4 +1,5 @@
 import { reserveHashtag, toHashtag } from "@/lib/hashtag-quota";
+import { redactSecrets } from "@/lib/meta-graph";
 import { normalizeHandle } from "@/lib/profile-url";
 import type { Brief, Candidate, CreatorSource, DiscoveryResult, DiscoveryStep, PublicPost } from "../types";
 import { bareProfile, clip, emailInText, matchesNegative } from "./shared";
@@ -113,13 +114,21 @@ function makeCaller(token: string): Caller {
       for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
       count += 1;
       // The token travels in a header, never in the URL, so it cannot end up in logs.
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
+      let response: Response;
+      try {
+        response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
+      } catch {
+        // A fetch error can quote the request headers (a token with a line break in it does), so its text is never kept.
+        throw new GraphError("Meta could not be reached.");
+      }
       if (response.ok) return (await response.json()) as T;
       const body = (await response.json().catch(() => ({}))) as GraphErrorBody;
       const code = body.error?.code;
-      if (code !== undefined && RATE_LIMIT_CODES.has(code)) throw new RateLimited(body.error?.message);
-      if (code === TOKEN_CODE) throw new TokenInvalid(body.error?.message);
-      throw new GraphError(body.error?.message ?? `Graph ${path} failed (${response.status})`);
+      // Meta's own text is stored as the run note, so anything token-like in it is removed first.
+      const said = body.error?.message ? redactSecrets(body.error.message, token) : undefined;
+      if (code !== undefined && RATE_LIMIT_CODES.has(code)) throw new RateLimited(said);
+      if (code === TOKEN_CODE) throw new TokenInvalid(said);
+      throw new GraphError(said ?? `Graph ${path} failed (${response.status})`);
     },
   };
 }
