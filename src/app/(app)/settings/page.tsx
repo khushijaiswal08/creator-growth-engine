@@ -85,7 +85,7 @@ export default async function SettingsPage() {
 
               <Panel plain title="Message targets">
                 <p className="pt-3 text-sm font-medium text-muted-foreground">What each person aims for. Home and the Monday email track it.</p>
-                <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} creatorConnectionsUrl={target.creatorConnectionsUrl} />
+                <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} weeklyGifts={target.weeklyGifts} creatorConnectionsUrl={target.creatorConnectionsUrl} />
               </Panel>
 
               {isAdmin ? (

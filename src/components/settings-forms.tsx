@@ -20,7 +20,7 @@ function FormMessage({ state }: { state: FormState }) {
   );
 }
 
-export function TargetsForm({ brandId, daily, weekly, creatorConnectionsUrl }: { brandId: string; daily: number; weekly: number; creatorConnectionsUrl: string | null }) {
+export function TargetsForm({ brandId, daily, weekly, weeklyGifts, creatorConnectionsUrl }: { brandId: string; daily: number; weekly: number; weeklyGifts: number; creatorConnectionsUrl: string | null }) {
   const [state, action] = useActionState(saveBrandTargets, null);
   return (
     <form action={action} className="grid gap-3 pt-3">
@@ -33,6 +33,10 @@ export function TargetsForm({ brandId, daily, weekly, creatorConnectionsUrl }: {
         <div className="grid gap-1.5">
           <Label htmlFor={`weekly-${brandId}`}>Messages a week, per person</Label>
           <Input id={`weekly-${brandId}`} name="weekly" type="number" min={0} max={1000} step={1} defaultValue={weekly} className="w-28" />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor={`gifts-${brandId}`}>Gifts a week, whole team</Label>
+          <Input id={`gifts-${brandId}`} name="weeklyGifts" type="number" min={0} max={1000} step={1} defaultValue={weeklyGifts} className="w-28" />
         </div>
       </div>
       <div className="grid gap-1.5">

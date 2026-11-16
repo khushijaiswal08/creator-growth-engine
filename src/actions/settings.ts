@@ -12,7 +12,7 @@ import { requireAdmin, requireUser } from "@/lib/session";
 
 const TARGET_MAX = 1000;
 
-/** Daily and weekly message targets for a brand. Anyone on that brand may set them. */
+/** Daily and weekly message targets (per person) and the weekly gift target (whole team) for a brand. Anyone on that brand may set them. */
 export async function saveBrandTargets(_prev: FormState, formData: FormData): Promise<FormState> {
   const user = await requireUser();
   const brandId = field(formData, "brandId");
@@ -20,7 +20,8 @@ export async function saveBrandTargets(_prev: FormState, formData: FormData): Pr
 
   const daily = Number(field(formData, "daily"));
   const weekly = Number(field(formData, "weekly"));
-  for (const value of [daily, weekly]) {
+  const gifts = Number(field(formData, "weeklyGifts"));
+  for (const value of [daily, weekly, gifts]) {
     if (!Number.isInteger(value) || value < 0 || value > TARGET_MAX) return { error: `Targets must be whole numbers from 0 to ${TARGET_MAX}.` };
   }
   // The brand's Creator Connections page: empty means the Amazon Ads console home.
@@ -31,10 +32,10 @@ export async function saveBrandTargets(_prev: FormState, formData: FormData): Pr
   await db.$transaction(async (tx) => {
     await tx.brandSettings.upsert({
       where: { brandId },
-      update: { dailyMessageTarget: daily, weeklyMessageTarget: weekly, creatorConnectionsUrl, updatedById: user.id },
-      create: { brandId, dailyMessageTarget: daily, weeklyMessageTarget: weekly, creatorConnectionsUrl, updatedById: user.id },
+      update: { dailyMessageTarget: daily, weeklyMessageTarget: weekly, weeklyGiftTarget: gifts, creatorConnectionsUrl, updatedById: user.id },
+      create: { brandId, dailyMessageTarget: daily, weeklyMessageTarget: weekly, weeklyGiftTarget: gifts, creatorConnectionsUrl, updatedById: user.id },
     });
-    await logActivity(tx, { userId: user.id, kind: "note", body: `Set ${brandName(brandId)} message targets to ${daily} a day and ${weekly} a week${creatorConnectionsUrl ? ", and the Creator Connections link" : ""}.` });
+    await logActivity(tx, { userId: user.id, kind: "note", body: `Set ${brandName(brandId)} targets to ${daily} messages a day and ${weekly} a week per person, and ${gifts} gifts a week for the team${creatorConnectionsUrl ? ", and the Creator Connections link" : ""}.` });
   });
   revalidatePath("/settings");
   revalidatePath("/today");

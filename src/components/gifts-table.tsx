@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { decideGift, markDelivered } from "@/actions/gifts";
 import { SendToAmazon } from "@/components/send-to-amazon";
+import { SendToErp } from "@/components/send-to-erp";
 import { Avatar } from "@/components/avatar";
 import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
@@ -54,6 +55,8 @@ export type GiftRow = {
   /** True when no gift in this campaign has been delivered yet: delivering this one is a milestone. */
   firstDeliveryInCampaign: boolean;
   amazon: { enabled: boolean; sentAt: Date | null; status: string | null; error: string | null; trackingLink: string | null };
+  /** The company ERP: a Content Creators order made from this gift. */
+  erp: { enabled: boolean; sentAt: Date | null; url: string | null; error: string | null };
   /** The gifting rules, each passed or not. Empty for closed orders. */
   checks: { rule: string; passed: boolean; reason: string | null }[];
 };
@@ -394,6 +397,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
               </div>
             ) : null}
 
+            {open.erp.enabled && (open.status === "approved" || open.erp.sentAt) ? <SendToErp key={`erp-${open.id}`} gift={{ id: open.id, reference: open.reference, giftStatus: open.status, sentAt: open.erp.sentAt, url: open.erp.url, error: open.erp.error }} /> : null}
             {open.amazon.enabled && (open.status === "approved" || open.amazon.sentAt) ? <SendToAmazon key={open.id} gift={{ id: open.id, reference: open.reference, giftStatus: open.status, sentAt: open.amazon.sentAt, amazonStatus: open.amazon.status, error: open.amazon.error }} /> : null}
 
             {open.status !== "needs_approval" && open.status !== "cancelled" ? (

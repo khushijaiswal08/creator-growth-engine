@@ -9,5 +9,5 @@ export const config = {
   // addresses (large uploads must not pass through it), /logout (the middleware re-issues the session
   // cookie on every request it sees, and on Netlify that re-issue outlived the sign-out's deletion, so
   // nobody could sign out), Next internals and static files.
-  matcher: ["/((?!api/auth|api/cron|api/content-store|logout|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|rachna/|.*\\.(?:png|jpg|svg|ico|webp)$).*)"],
+  matcher: ["/((?!api/auth|api/cron|api/content-store|api/erp|logout|_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|rachna/|.*\\.(?:png|jpg|svg|ico|webp)$).*)"],
 };

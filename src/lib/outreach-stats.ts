@@ -24,17 +24,19 @@ import { TIDY_NOTE } from "@/lib/tidy-up-rules";
 type Targets = {
   daily: number;
   weekly: number;
+  /** Gift orders the whole brand team aims for each week. */
+  weeklyGifts: number;
   /** The brand's Creator Connections page in the Amazon Ads console, which the Message button opens. */
   creatorConnectionsUrl: string | null;
 };
-const DEFAULT_TARGETS: Targets = { daily: 20, weekly: 100, creatorConnectionsUrl: null };
+const DEFAULT_TARGETS: Targets = { daily: 20, weekly: 100, weeklyGifts: 100, creatorConnectionsUrl: null };
 
 export async function brandTargets(brandIds: string[]): Promise<Map<string, Targets>> {
   const rows = await db.brandSettings.findMany({ where: { brandId: { in: brandIds } } });
   const map = new Map<string, Targets>();
   for (const brandId of brandIds) {
     const row = rows.find((item) => item.brandId === brandId);
-    map.set(brandId, row ? { daily: row.dailyMessageTarget, weekly: row.weeklyMessageTarget, creatorConnectionsUrl: row.creatorConnectionsUrl } : { ...DEFAULT_TARGETS });
+    map.set(brandId, row ? { daily: row.dailyMessageTarget, weekly: row.weeklyMessageTarget, weeklyGifts: row.weeklyGiftTarget, creatorConnectionsUrl: row.creatorConnectionsUrl } : { ...DEFAULT_TARGETS });
   }
   return map;
 }

@@ -1450,9 +1450,9 @@ test("the outreach figures mean the same thing everywhere", async () => {
   assert.equal(replyRate(benRow), 0);
   assert.equal(replyRate({ replies: 0, creators: 0 }), null);
 
-  assert.deepEqual(await brandTargets(["test"]), new Map([["test", { daily: 20, weekly: 100, creatorConnectionsUrl: null }]]), "defaults until the team sets targets");
+  assert.deepEqual(await brandTargets(["test"]), new Map([["test", { daily: 20, weekly: 100, weeklyGifts: 100, creatorConnectionsUrl: null }]]), "defaults until the team sets targets");
   await db.brandSettings.create({ data: { brandId: "test", dailyMessageTarget: 15, weeklyMessageTarget: 60 } });
-  assert.deepEqual((await brandTargets(["test"])).get("test"), { daily: 15, weekly: 60, creatorConnectionsUrl: null });
+  assert.deepEqual((await brandTargets(["test"])).get("test"), { daily: 15, weekly: 60, weeklyGifts: 100, creatorConnectionsUrl: null });
 
   const weeks = await weeklyStats({ id: campaign.id }, 8);
   assert.equal(weeks.length, 8);
@@ -3401,4 +3401,90 @@ test("automatic Amazon orders: off by default, only brands with keys an admin sw
   assert.ok(save.indexOf("requireAdmin()") > 0 && save.indexOf("requireAdmin()") < save.indexOf("brandSettings.upsert"), "admin only");
   assert.match(save, /if \(on && !mcfConfigured\(brandId\)\)/, "cannot be switched on without the brand's keys");
   await db.brandSettings.update({ where: { brandId: "cotton-print-club" }, data: { mcfAutoSend: false } });
+});
+
+test("Targets: messages a day per person, gifts a week for the whole brand team (default 100), counted on Home within the brand", async () => {
+  const settings = await db.brandSettings.upsert({ where: { brandId: "ridhi" }, update: {}, create: { brandId: "ridhi" } });
+  assert.equal(typeof settings.weeklyGiftTarget, "number");
+  const { brandTargets } = await import("@/lib/outreach-stats");
+  const fresh = (await brandTargets(["cotton-print-club"])).get("cotton-print-club");
+  assert.ok(fresh && fresh.weeklyGifts >= 0);
+  const action = readFileSync("src/actions/settings.ts", "utf8");
+  assert.match(action, /const gifts = Number\(field\(formData, "weeklyGifts"\)\);/);
+  assert.match(action, /for \(const value of \[daily, weekly, gifts\]\)/, "the gift target is checked like the others (0 to 1,000)");
+  assert.equal((action.match(/weeklyGiftTarget: gifts/g) ?? []).length, 2, "saved on create and on update");
+  const home = readFileSync("src/app/(app)/today/page.tsx", "utf8");
+  assert.ok(home.includes('db.giftOrder.count({ where: { ...view.gifts, createdAt: { gte: weekStart, lt: now }, status: { not: "cancelled" } } })'), "this week's gifts, inside the brand view, cancelled ones left out");
+  assert.match(home, /label="Messages today" value=\{mine\.todayMessages\} of=\{target\.daily > 0 \? target\.daily : undefined\}/, "the daily message target on Home");
+  assert.match(home, /label="Gifts this week" value=\{giftsThisWeek\} of=\{giftTarget > 0 \? giftTarget : undefined\}/, "the weekly gift target on Home");
+});
+
+test("ERP: an approved gift goes to the ERP server to server (address never in a link), once, only within the brand; the ERP's report-back needs the key", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { allowed } = await import("@/lib/brand-scope");
+  const { sendGiftToErp, erpCallerAllowed, giftIdForReference } = await import("@/lib/erp");
+  const { giftReference } = await import("@/lib/gifts");
+  const received: { auth: string | undefined; body: Record<string, unknown> }[] = [];
+  const server = http.createServer((req, res) => {
+    let raw = "";
+    req.on("data", (c) => (raw += c));
+    req.on("end", () => {
+      const body = JSON.parse(raw || "{}");
+      received.push({ auth: req.headers.authorization, body });
+      if (req.headers.authorization !== "Bearer erp-test-key") { res.writeHead(401); res.end(JSON.stringify({ ok: false })); return; }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true, reference: body.reference, url: `https://erp.example/#creators?ref=${body.reference}` }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  const saved = { url: process.env.ERP_ORDERS_URL, secret: process.env.ERP_SECRET };
+  process.env.ERP_ORDERS_URL = `http://127.0.0.1:${port}/creator-orders`;
+  process.env.ERP_SECRET = "erp-test-key";
+  try {
+    const { user, campaign } = await makeUserAndCampaign("erp", ["home decor"]);
+    await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+    const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-ERP-01", title: "Tablecloth", color: "Ruby Red", size: "60x60", stock: 5 } });
+    const creator = await makeCreator(campaign.id, "erp_maya", { status: "address_collected" });
+    const gift = await db.giftOrder.create({ data: { campaignCreatorId: creator.id, productId: product.id, status: "approved", approvedAt: new Date(), ...sealAddress({ shipName: "Maya Erp", address1: "12 Pine St", address2: null, city: "Portland", state: "or", postalCode: "97205", country: "United States", phone: "5035550100" }) } });
+    const both = allowed({ id: user.id, brandId: null, viewBrand: null });
+    const cpcOnly = allowed({ id: user.id, brandId: "cotton-print-club", viewBrand: null });
+
+    assert.deepEqual(await sendGiftToErp(gift.id, cpcOnly, user.id), { ok: false, error: "That gift order is not available." }, "another brand's gift cannot be sent");
+    const first = await sendGiftToErp(gift.id, both, user.id);
+    assert.ok(first.ok && first.url.endsWith(giftReference(gift.id)) && !first.alreadySent);
+    assert.equal(received.length, 1);
+    const body = received[0].body as { reference: string; brand: string; shipTo: Record<string, string>; lines: { sku: string; quantity: number }[] };
+    assert.equal(received[0].auth, "Bearer erp-test-key", "the key travels in the header");
+    assert.deepEqual([body.reference, body.brand, body.shipTo.line1, body.shipTo.state, body.shipTo.zip, body.shipTo.country, body.lines[0].sku, body.lines[0].quantity], [giftReference(gift.id), "ridhi", "12 Pine St", "OR", "97205", "US", "BR-ERP-01", 1]);
+    assert.ok(!first.ok || !first.url.includes("Pine"), "the address never goes in the link");
+    const again = await sendGiftToErp(gift.id, both, user.id);
+    assert.ok(again.ok && again.alreadySent);
+    assert.equal(received.length, 1, "sending again only reopens it: no second order");
+
+    // A wrong key on our side: plain error, nothing recorded as sent.
+    const other = await db.giftOrder.create({ data: { campaignCreatorId: (await makeCreator(campaign.id, "erp_lily", { status: "address_collected" })).id, productId: product.id, status: "approved", approvedAt: new Date(), ...sealAddress({ shipName: "Lily Erp", address1: "1 Elm St", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null }) } });
+    process.env.ERP_SECRET = "wrong";
+    const refused = await sendGiftToErp(other.id, both, user.id);
+    assert.deepEqual(refused, { ok: false, error: "The ERP refused Creator Setu's key. ERP_SECRET must be the same on both sides." });
+    assert.equal((await db.giftOrder.findUniqueOrThrow({ where: { id: other.id } })).erpSentAt, null);
+    process.env.ERP_SECRET = "erp-test-key";
+    const waiting = await db.giftOrder.create({ data: { campaignCreatorId: (await makeCreator(campaign.id, "erp_june", { status: "address_collected" })).id, productId: product.id, status: "needs_approval", ...sealAddress({ shipName: "June", address1: "2 Oak", address2: null, city: "Austin", state: "TX", postalCode: "78701", country: "US", phone: null }) } });
+    assert.equal((await sendGiftToErp(waiting.id, both, user.id)).ok, false, "a gift still waiting for approval never goes");
+
+    // The report-back: only with the key, and references map back to the gift.
+    assert.equal(erpCallerAllowed(new Request("http://x", { headers: { authorization: "Bearer erp-test-key" } })), true);
+    assert.equal(erpCallerAllowed(new Request("http://x", { headers: { authorization: "Bearer nope" } })), false);
+    assert.equal(erpCallerAllowed(new Request("http://x")), false);
+    assert.equal(await giftIdForReference(giftReference(gift.id)), gift.id);
+    assert.equal(await giftIdForReference("CGE-NOTREAL"), null);
+    const route = readFileSync("src/app/api/erp/orders/[reference]/route.ts", "utf8");
+    assert.ok(route.indexOf("erpCallerAllowed(request)") < route.indexOf("await giftIdForReference("), "the key is checked before anything is read");
+    assert.match(route, /applyTracking\(giftId, update, await automationUserId\(\)\)/, "shipped and delivered move the creator on like a tracking file");
+    assert.match(readFileSync("src/middleware.ts", "utf8"), /\|api\/erp\|/, "the ERP's server is not sent to the sign-in page");
+  } finally {
+    process.env.ERP_ORDERS_URL = saved.url;
+    process.env.ERP_SECRET = saved.secret;
+    server.close();
+  }
 });

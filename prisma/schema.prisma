@@ -664,6 +664,8 @@ model BrandSettings {
   brandId               String   @unique
   dailyMessageTarget    Int      @default(20)
   weeklyMessageTarget   Int      @default(100)
+  // Gift orders the whole brand team aims for each week (Home's "Gifts this week" card).
+  weeklyGiftTarget      Int      @default(100)
   // Where the Message button opens Amazon Creator Connections for this brand (each brand has its own Ads account).
   creatorConnectionsUrl String?
   // Automatic Amazon orders (src/lib/mcf-auto.ts): off until an admin switches them on for the brand. Approved gifts
@@ -809,6 +811,11 @@ model GiftOrder {
   mcfPackageNumber  Int?
   // The parcel status Amazon last reported, so a problem is raised only when it changes.
   mcfPackageStatus  String?
+  // The company ERP (src/lib/erp.ts): when the gift was sent there as a Content Creators order, the link to
+  // open it in the ERP, and the last problem sending it.
+  erpSentAt         DateTime?
+  erpUrl            String?
+  erpError          String?         @db.Text
   trackingLink      String?
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt

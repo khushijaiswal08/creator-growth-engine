@@ -86,7 +86,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
   const narrowed = { ...(amazonOnly ? { influencer: amazonInfluencer } : {}), ...(hotOnly ? { replyWarmth: "hot" } : {}) };
 
-  const [dueCounts, queueItems, groups, templates, lastRun, activities, mine, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccByStatus, ccDue, amazonHotTotal] = await Promise.all([
+  const [dueCounts, queueItems, groups, templates, lastRun, activities, mine, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccByStatus, ccDue, amazonHotTotal, giftsThisWeek] = await Promise.all([
     // Every queue's count from one query: the queues never share a status, so each count is the sum of its own statuses.
     db.campaignCreator.groupBy({ by: ["status", "replyWarmth"], where: { ...dueAny, ...narrowed }, _count: { _all: true } }),
     Promise.all(
@@ -136,6 +136,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
     db.campaignCreator.count({ where: { ...dueAny, influencer: amazonInfluencer } }),
     // The Hot count is never narrowed to Amazon creators, so with that filter on it needs its own count; otherwise the grouped counts give it.
     amazonOnly ? db.campaignCreator.count({ where: { ...dueAny, replyWarmth: "hot" } }) : null,
+    // The team's gifts this week (the weekly gift target): every gift order made since Monday, except cancelled ones.
+    db.giftOrder.count({ where: { ...view.gifts, createdAt: { gte: weekStart, lt: now }, status: { not: "cancelled" } } }),
   ]);
 
   const sumOf = (rows: { _count: { _all: number } }[]) => rows.reduce((sum, row) => sum + row._count._all, 0);
@@ -145,6 +147,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const ccPosted = sumOf(ccByStatus.filter((row) => row.status === "content_posted" || row.status === "completed"));
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
   const target = targets.get(view.brandId ?? DEFAULT_BRAND) ?? { daily: 0, weekly: 0 };
+  // The gift target is per brand team, so "Both" adds the brands' targets together.
+  const giftTarget = [...targets.values()].reduce((sum, row) => sum + row.weeklyGifts, 0);
   // This person's own week, the way the sidebar and the weekly email count it.
   const sent = mine.weekMessages;
   const replies = mine.weekReplies;
@@ -256,22 +260,22 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         weekKey={isoDay(weekStart)}
       />
       <section id="home-tiles" aria-label="This week at a glance" className="mb-6 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
-        <Kpi icon={<MessageCircle className="size-[19px]" strokeWidth={2} />} tint="bg-primary-faint text-primary" label="Messages" value={sent} of={target.weekly > 0 ? target.weekly : undefined}>
-          {target.weekly > 0 ? <Bar value={sent} target={target.weekly} /> : null}
-          <span>This week · {mine.todayMessages} today</span>
+        <Kpi icon={<MessageCircle className="size-[19px]" strokeWidth={2} />} tint="bg-primary-faint text-primary" label="Messages today" value={mine.todayMessages} of={target.daily > 0 ? target.daily : undefined}>
+          {target.daily > 0 ? <Bar value={mine.todayMessages} target={target.daily} /> : null}
+          <span>{sent} this week</span>
         </Kpi>
         <Kpi icon={<Reply className="size-[19px]" strokeWidth={2} />} tint="bg-info-soft text-info-text" label="Replies" value={replies}>
           <Delta value={replies - mine.lastWeekReplies} />
           <span>vs last week</span>
         </Kpi>
-        <Kpi icon={<Truck className="size-[19px]" strokeWidth={2} />} tint="bg-warning-soft text-warning-text" label="In transit" value={inTransit}>
+        <Kpi icon={<Truck className="size-[19px]" strokeWidth={2} />} tint="bg-warning-soft text-warning-text" label="Gifts this week" value={giftsThisWeek} of={giftTarget > 0 ? giftTarget : undefined}>
+          {giftTarget > 0 ? <Bar value={giftsThisWeek} target={giftTarget} /> : null}
+          <span>{inTransit} in transit</span>
           {toApprove > 0 ? (
             <Link href="/orders?status=needs_approval" className="inline-flex h-6 items-center rounded-full bg-warning-soft px-2.5 text-xs font-extrabold text-warning-text hover:underline">
               {toApprove} to approve
             </Link>
-          ) : (
-            <span>none to approve</span>
-          )}
+          ) : null}
         </Kpi>
         <Kpi icon={<Clapperboard className="size-[19px]" strokeWidth={2} />} tint="bg-success-soft text-success-text" label="Content rate" value={month.contentRate === null ? "–" : `${month.contentRate}%`}>
           {contentOverdue > 0 ? (

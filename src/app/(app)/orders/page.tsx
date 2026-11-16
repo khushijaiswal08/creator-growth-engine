@@ -11,6 +11,7 @@ import { brandsIn, viewed } from "@/lib/brand-scope";
 import { brandsLabel } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { approvalChecksForOrders, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference, OPEN_GIFT_STATUSES } from "@/lib/gifts";
+import { erpConfigured } from "@/lib/erp";
 import { mcfConfigured } from "@/lib/mcf";
 import { requireUser } from "@/lib/session";
 
@@ -116,6 +117,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       firstDeliveryInCampaign: !campaignsWithDelivery.has(order.campaignCreator.campaign.id),
       // One-click Amazon orders, when the brand's SP-API keys are set; otherwise the Amazon file.
       amazon: { enabled: mcfConfigured(order.campaignCreator.campaign.brandId), sentAt: order.mcfSentAt, status: order.mcfStatus, error: order.mcfError, trackingLink: order.trackingLink },
+      // The company ERP: send the gift there as a Content Creators order (when ERP_ORDERS_URL and ERP_SECRET are set).
+      erp: { enabled: erpConfigured(), sentAt: order.erpSentAt, url: order.erpUrl, error: order.erpError },
       checks: checks.get(order.id) ?? [],
     };
   });
