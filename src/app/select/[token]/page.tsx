@@ -67,7 +67,8 @@ export default async function SelectPage({ params }: { params: Promise<{ token: 
       <Shell brand="Product selection">
         <h1 className="text-2xl">This link is no longer active</h1>
         <p className="mt-2 text-muted-foreground">
-          Links work for 14 days and once. Please reply to our message and we will send you a new one.
+          Each link works once, for 14 days. If you have already chosen your gift, your choice is in and there is
+          nothing more to do. Otherwise, reply to our message and we will send you a new one.
         </p>
       </Shell>
     );

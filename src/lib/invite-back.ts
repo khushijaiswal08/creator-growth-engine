@@ -1,4 +1,4 @@
-import type { CampaignStatus, CreatorStatus, Platform } from "@prisma/client";
+import type { CampaignStatus, CreatorStatus, Platform, Prisma } from "@prisma/client";
 import { logActivity } from "@/lib/activity";
 import { attributionByInfluencer } from "@/lib/amazon-stats";
 import { refreshNextAction } from "@/lib/automation";
@@ -10,7 +10,7 @@ import { REPEAT_GIFT_DAYS } from "@/lib/gifts";
 import { topFollowers } from "@/lib/profile-url";
 import { CREATOR_STATUS_LABELS, SEND_BLOCKED_STATUSES } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
-import { LATEST_POST_AND_GIFT, trackRecordFor } from "@/lib/track-record";
+import { LATEST_POST_AND_GIFT, trackRecordWhere } from "@/lib/track-record";
 
 /**
  * The Invite back list: creators who already delivered content for us and
@@ -79,42 +79,51 @@ export async function inviteBackList(viewer: BrandScope, campaign: { id: string;
   const scope = campaign ? withinBrand(viewer, campaign.brandId) : viewer;
   if (!scope) return [];
   const campaignId = campaign?.id ?? null;
-  const influencers = await db.influencer.findMany({
-    where: { ...scope.influencers, archived: false, campaigns: { some: { ...scope.creators, status: { in: ["content_posted", "completed"] } } } },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      location: true,
-      amazonTier: true,
-      profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } },
-      campaigns: {
-        where: scope.creators,
-        select: {
-          campaignId: true,
-          status: true,
-          campaign: { select: { name: true } },
-          ...LATEST_POST_AND_GIFT,
+  const proven = { ...scope.influencers, archived: false, campaigns: { some: { ...scope.creators, status: { in: ["content_posted", "completed"] } } } } satisfies Prisma.InfluencerWhereInput;
+  // The track records and link sales need only the filter, not the list, so they run alongside it.
+  const [influencers, records, fromLinks] = await Promise.all([
+    db.influencer.findMany({
+      where: proven,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        location: true,
+        amazonTier: true,
+        profiles: { select: { id: true, platform: true, handle: true, followers: true }, orderBy: { platform: "asc" } },
+        campaigns: {
+          where: scope.creators,
+          select: {
+            campaignId: true,
+            status: true,
+            campaign: { select: { name: true } },
+            ...LATEST_POST_AND_GIFT,
+          },
         },
       },
-    },
-  });
+    }),
+    trackRecordWhere({ influencer: proven }, scope),
+    attributionByInfluencer(scope.creators),
+  ]);
   if (influencers.length === 0) return [];
   const ids = influencers.map((row) => row.id);
 
-  const [records, fromLinks, suppressions, everyLink, latestGifts] = await Promise.all([
-    trackRecordFor(ids, scope),
-    attributionByInfluencer(scope.creators),
+  const [suppressions, everyLink, { latestGifts, linkOwners }] = await Promise.all([
     loadSuppressions(influencers.map((row) => ({ email: row.email, profiles: row.profiles }))),
     // A block in any brand's campaign stops an invite; the screen only says "do not contact".
     db.campaignCreator.findMany({ where: { influencerId: { in: ids }, status: { in: [...SEND_BLOCKED_STATUSES] } }, select: { influencerId: true } }),
-    // The repeat-gift rule counts every brand's gifts, so the date shown here does too.
-    db.giftOrder.groupBy({ by: ["campaignCreatorId"], where: { status: { not: "cancelled" }, campaignCreator: { influencerId: { in: ids } } }, _max: { createdAt: true } }),
+    // The repeat-gift rule counts every brand's gifts, so the date shown here does too. Whose each
+    // gift was is looked up straight after, while the other lookups are still running.
+    db.giftOrder
+      .groupBy({ by: ["campaignCreatorId"], where: { status: { not: "cancelled" }, campaignCreator: { influencerId: { in: ids } } }, _max: { createdAt: true } })
+      .then(async (latestGifts) => ({
+        latestGifts,
+        linkOwners: latestGifts.length
+          ? new Map((await db.campaignCreator.findMany({ where: { id: { in: latestGifts.map((row) => row.campaignCreatorId) } }, select: { id: true, influencerId: true } })).map((link) => [link.id, link.influencerId]))
+          : new Map<string, string>(),
+      })),
   ]);
   const blockedIds = new Set(everyLink.map((link) => link.influencerId));
-  const linkOwners = latestGifts.length
-    ? new Map((await db.campaignCreator.findMany({ where: { id: { in: latestGifts.map((row) => row.campaignCreatorId) } }, select: { id: true, influencerId: true } })).map((link) => [link.id, link.influencerId]))
-    : new Map<string, string>();
   const lastGiftAnyBrand = new Map<string, Date>();
   for (const row of latestGifts) {
     const influencerId = linkOwners.get(row.campaignCreatorId);

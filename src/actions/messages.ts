@@ -11,6 +11,7 @@ import { ensureUploadUrl, uploadLinkExpiry } from "@/lib/content-upload";
 import { db } from "@/lib/db";
 import { profileLabel } from "@/lib/profile-url";
 import { ensureSelectionUrl } from "@/lib/selection";
+import { distinctLabels, productLabel, productPhrase } from "@/lib/template";
 import { requireUser } from "@/lib/session";
 import { CREATOR_STATUS_LABELS, PRE_CONTACT_STATUSES, SEND_BLOCKED_STATUSES, statusChangeText } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
@@ -60,7 +61,20 @@ async function loadSendable(campaignCreatorId: string, scope: BrandScope) {
 
 /** What the message dialog needs once the creator may be contacted, or why they may not. */
 export type MessageAllowed =
-  | { ok: true; brand: string; selectionUrl: string; uploadUrl: string | null; amazonUrl: string | null; email: string | null; amazonCreator: boolean; creatorConnectionsUrl: string | null }
+  | {
+      ok: true;
+      brand: string;
+      selectionUrl: string;
+      uploadUrl: string | null;
+      amazonUrl: string | null;
+      email: string | null;
+      amazonCreator: boolean;
+      creatorConnectionsUrl: string | null;
+      /** The campaign brand's giftable product types, the most-stocked first, for the Product dropdown. */
+      productTypes: string[];
+      /** The products of the type the dialog will preselect, fetched here so opening it costs one request, not two. */
+      initialProducts: { type: string; items: MessageProduct[] } | null;
+    }
   | { ok: false; error: string };
 
 /**
@@ -70,28 +84,70 @@ export type MessageAllowed =
  * what the templates and the channels need: the brand, the creator's
  * product-selection link, their content-upload link once a gift is on its way,
  * their Amazon tracking link when one is saved, their email and the brand's
- * Creator Connections page.
+ * Creator Connections page. `initialType` is the product type the dialog
+ * remembers from last time; its products come back too when the brand still
+ * offers that type.
  */
-export async function checkMessageAllowed(campaignCreatorId: string): Promise<MessageAllowed> {
+export async function checkMessageAllowed(campaignCreatorId: string, initialType?: string): Promise<MessageAllowed> {
   const user = await requireUser();
   const sendable = await loadSendable(campaignCreatorId, allowed(user));
   if (!sendable.ok) return sendable;
-  const [settings, amazonLink] = await Promise.all([
-    db.brandSettings.findUnique({ where: { brandId: sendable.creator.campaign.brandId }, select: { creatorConnectionsUrl: true } }),
+  const brandId = sendable.creator.campaign.brandId;
+  const now = new Date();
+  // The links are made here, after loadSendable has passed the suppression list, and in parallel with the reads:
+  // the creator row already holds their current tokens, and the two links write different columns.
+  const wantedType = typeof initialType === "string" && initialType.trim() ? initialType : null;
+  const [settings, amazonLink, types, selectionUrl, uploadUrl, wantedProducts] = await Promise.all([
+    db.brandSettings.findUnique({ where: { brandId }, select: { creatorConnectionsUrl: true } }),
     // The newest live link, when a creator has more than one.
     db.attributionLink.findFirst({ where: { campaignCreatorId, archived: false }, orderBy: { createdAt: "desc" }, select: { url: true } }),
+    // Only this brand's products that can be gifted and are live on Amazon.
+    db.product.groupBy({ by: ["title"], where: { brandId, giftable: true, archived: false }, _count: { title: true }, orderBy: [{ _count: { title: "desc" } }, { title: "asc" }] }),
+    ensureSelectionUrl(campaignCreatorId, now, sendable.creator),
+    // Only once there is content to send: before that, an upload link would mean nothing to the creator.
+    UPLOAD_STAGES.has(sendable.creator.status) ? ensureUploadUrl(campaignCreatorId, now, sendable.creator) : null,
+    wantedType ? productsOfType(sendable, wantedType) : null,
   ]);
+  const productTypes = types.map((row) => row.title).filter((title) => title.trim() !== "");
   return {
     ok: true,
     brand: brandName(sendable.creator.campaign.brandId),
-    selectionUrl: await ensureSelectionUrl(campaignCreatorId),
-    // Only once there is content to send: before that, an upload link would mean nothing to the creator.
-    uploadUrl: UPLOAD_STAGES.has(sendable.creator.status) ? await ensureUploadUrl(campaignCreatorId) : null,
+    selectionUrl,
+    uploadUrl,
     amazonUrl: amazonLink?.url ?? null,
     email: sendable.creator.influencer.email,
     amazonCreator: sendable.creator.influencer.amazonTier !== null,
     creatorConnectionsUrl: settings?.creatorConnectionsUrl ?? null,
+    productTypes,
+    // Only for a type the dropdown offers, exactly as the dialog would preselect it.
+    initialProducts: wantedType && wantedProducts && productTypes.includes(wantedType) ? { type: wantedType, items: wantedProducts } : null,
   };
+}
+
+export type MessageProduct = { id: string; label: string; phrase: string };
+
+/**
+ * The exact products of one type for the Product dropdown: only the creator's campaign brand, only pieces
+ * that can be gifted and are live on Amazon, sorted by colour so a colour's sizes and styles sit together.
+ */
+export async function productsForMessage(campaignCreatorId: string, type: string): Promise<MessageProduct[]> {
+  const user = await requireUser();
+  const sendable = await loadSendable(campaignCreatorId, allowed(user));
+  if (!sendable.ok || !type.trim()) return [];
+  return productsOfType(sendable, type);
+}
+
+/** The query behind productsForMessage, shared with checkMessageAllowed. Only ever called after loadSendable passed. */
+async function productsOfType(sendable: { creator: { campaign: { brandId: string } } }, type: string): Promise<MessageProduct[]> {
+  const rows = await db.product.findMany({
+    where: { brandId: sendable.creator.campaign.brandId, title: type, giftable: true, archived: false },
+    select: { id: true, sku: true, title: true, color: true, size: true, listingName: true },
+    orderBy: [{ color: "asc" }, { size: "asc" }, { sku: "asc" }],
+    take: 2000,
+  });
+  return distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, label: productLabel(row), phrase: productPhrase(row) }))).map(
+    ({ id, label, phrase }) => ({ id, label, phrase }),
+  );
 }
 
 /**

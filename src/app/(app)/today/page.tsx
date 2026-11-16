@@ -21,8 +21,8 @@ import { db } from "@/lib/db";
 import { DUE_STATUSES, QUEUES, dueWhere, openCampaignIn } from "@/lib/due";
 import { DAY_MS, isoDay, startOfWeekInZone, timeAgo } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
-import { brandTargets, personStats, todayStats } from "@/lib/outreach-stats";
-import { figuresFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
+import { giftsToApprove, ownOutreach, sharedBrandTargets } from "@/lib/outreach-stats";
+import { contentRateFor, previousPeriod, resolvePeriod } from "@/lib/performance-stats";
 import { pickFor } from "@/lib/rachna";
 import { isWarmth, warmthRank } from "@/lib/reply-reader";
 import { requireUser } from "@/lib/session";
@@ -81,35 +81,34 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const showAll = params.all === "1" || filtered;
   const amazonInfluencer = { archived: false, amazonTier: { not: null } };
   const ccWhere = { campaign: openCampaign, influencer: amazonInfluencer };
-  // Everything due in any queue, for the Creator Connections and Hot counts.
+  // Everything due in any queue, for the queue, Creator Connections and Hot counts.
   const dueAny = dueWhere(view, DUE_STATUSES, now);
 
-  const [queues, groups, templates, lastRun, activities, outreachStats, lastWeek, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccTotal, ccPosted, ccDue, hotTotal] = await Promise.all([
+  const narrowed = { ...(amazonOnly ? { influencer: amazonInfluencer } : {}), ...(hotOnly ? { replyWarmth: "hot" } : {}) };
+
+  const [dueCounts, queueItems, groups, templates, lastRun, activities, mine, targets, inTransit, toApprove, contentOverdue, month, monthBefore, openCampaigns, amazonWaiting, ccByStatus, ccDue, amazonHotTotal] = await Promise.all([
+    // Every queue's count from one query: the queues never share a status, so each count is the sum of its own statuses.
+    db.campaignCreator.groupBy({ by: ["status", "replyWarmth"], where: { ...dueAny, ...narrowed }, _count: { _all: true } }),
     Promise.all(
-      QUEUES.map(async (queue) => {
-        const where = { ...dueWhere(view, queue.statuses, now), ...(amazonOnly ? { influencer: amazonInfluencer } : {}), ...(hotOnly ? { replyWarmth: "hot" } : {}) };
-        const [count, items] = await Promise.all([
-          db.campaignCreator.count({ where }),
-          activeQueue && activeQueue !== queue.key
-            ? []
-            : db.campaignCreator.findMany({
-                where,
-                orderBy: { nextActionDueAt: "asc" },
-                take: showAll ? ALL : PER_QUEUE,
-                select: {
-                  id: true,
-                  status: true,
-                  nextAction: true,
-                  nextActionDueAt: true,
-                  replyWarmth: true,
-                  replyRead: true,
-                  campaign: { select: { name: true } },
-                  influencer: { select: REACHABLE_INFLUENCER_SELECT },
-                },
-              }),
-        ]);
-        return { ...queue, count, items };
-      }),
+      QUEUES.map((queue) =>
+        activeQueue && activeQueue !== queue.key
+          ? []
+          : db.campaignCreator.findMany({
+              where: { ...dueWhere(view, queue.statuses, now), ...narrowed },
+              orderBy: { nextActionDueAt: "asc" },
+              take: showAll ? ALL : PER_QUEUE,
+              select: {
+                id: true,
+                status: true,
+                nextAction: true,
+                nextActionDueAt: true,
+                replyWarmth: true,
+                replyRead: true,
+                campaign: { select: { name: true } },
+                influencer: { select: REACHABLE_INFLUENCER_SELECT },
+              },
+            }),
+      ),
     ),
     db.campaignCreator.groupBy({ by: ["status"], where: notArchived, _count: { _all: true } }),
     db.template.findMany({ where: { archived: false }, orderBy: { name: "asc" }, select: { id: true, name: true, purpose: true, body: true } }),
@@ -120,34 +119,35 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       take: RECENT,
       select: { id: true, body: true, createdAt: true, automated: true, user: { select: { name: true } }, campaignCreator: { select: { campaign: { select: { name: true } } } } },
     }),
-    todayStats(openCampaign, now),
-    personStats(resolvePeriod("last-week", undefined, undefined, now), openCampaign),
-    brandTargets(brandsIn(view).map((brand) => brand.id)),
+    ownOutreach(user.id, openCampaign, resolvePeriod("last-week", undefined, undefined, now), now),
+    sharedBrandTargets(brandsIn(view).map((brand) => brand.id)),
     db.giftOrder.count({ where: { ...view.gifts, status: { in: ["approved", "ordered", "shipped"] } } }),
-    db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
+    giftsToApprove(view.brandId),
     db.campaignCreator.count({ where: { ...notArchived, status: "content_expected", contentDueAt: { lt: now } } }),
-    figuresFor(thisMonth, openCampaign),
-    figuresFor(lastMonth, openCampaign),
+    contentRateFor(thisMonth, openCampaign),
+    contentRateFor(lastMonth, openCampaign),
     db.campaign.findMany({ where: openCampaign, orderBy: { updatedAt: "desc" }, select: { id: true, name: true } }),
     // Creators written to inside Amazon Creator Connections who may have answered there: Amazon never tells us.
     db.campaignCreator.count({
       where: { ...ccWhere, status: { in: ["contacted", "follow_up_due", "replied", "interested", "negotiating", "agreed"] }, messages: { some: { channel: "amazon" } } },
     }),
     // The Creator Connections column: where the Amazon creators stand.
-    db.campaignCreator.count({ where: ccWhere }),
-    db.campaignCreator.count({ where: { ...ccWhere, status: { in: ["content_posted", "completed"] } } }),
+    db.campaignCreator.groupBy({ by: ["status"], where: ccWhere, _count: { _all: true } }),
     db.campaignCreator.count({ where: { ...dueAny, influencer: amazonInfluencer } }),
-    db.campaignCreator.count({ where: { ...dueAny, replyWarmth: "hot" } }),
+    // The Hot count is never narrowed to Amazon creators, so with that filter on it needs its own count; otherwise the grouped counts give it.
+    amazonOnly ? db.campaignCreator.count({ where: { ...dueAny, replyWarmth: "hot" } }) : null,
   ]);
 
+  const sumOf = (rows: { _count: { _all: number } }[]) => rows.reduce((sum, row) => sum + row._count._all, 0);
+  const queues = QUEUES.map((queue, index) => ({ ...queue, count: sumOf(dueCounts.filter((row) => queue.statuses.includes(row.status))), items: queueItems[index] }));
+  const hotTotal = amazonHotTotal ?? sumOf(dueCounts.filter((row) => row.replyWarmth === "hot"));
+  const ccTotal = sumOf(ccByStatus);
+  const ccPosted = sumOf(ccByStatus.filter((row) => row.status === "content_posted" || row.status === "completed"));
   const total = queues.reduce((sum, queue) => sum + queue.count, 0);
   const target = targets.get(view.brandId ?? DEFAULT_BRAND) ?? { daily: 0, weekly: 0 };
   // This person's own week, the way the sidebar and the weekly email count it.
-  const mineWeek = outreachStats.week.find((row) => row.userId === user.id);
-  const mineToday = outreachStats.today.find((row) => row.userId === user.id);
-  const mineLastWeek = lastWeek.find((row) => row.userId === user.id);
-  const sent = mineWeek?.messages ?? 0;
-  const replies = mineWeek?.replies ?? 0;
+  const sent = mine.weekMessages;
+  const replies = mine.weekReplies;
 
   const byStatus = new Map(groups.map((group) => [group.status, group._count._all]));
   const atStage = STAGES.map((stage) => stage.statuses.reduce((count, status) => count + (byStatus.get(status) ?? 0), 0));
@@ -258,10 +258,10 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <section id="home-tiles" aria-label="This week at a glance" className="mb-6 grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
         <Kpi icon={<MessageCircle className="size-[19px]" strokeWidth={2} />} tint="bg-primary-faint text-primary" label="Messages" value={sent} of={target.weekly > 0 ? target.weekly : undefined}>
           {target.weekly > 0 ? <Bar value={sent} target={target.weekly} /> : null}
-          <span>This week · {mineToday?.messages ?? 0} today</span>
+          <span>This week · {mine.todayMessages} today</span>
         </Kpi>
         <Kpi icon={<Reply className="size-[19px]" strokeWidth={2} />} tint="bg-info-soft text-info-text" label="Replies" value={replies}>
-          <Delta value={replies - (mineLastWeek?.replies ?? 0)} />
+          <Delta value={replies - mine.lastWeekReplies} />
           <span>vs last week</span>
         </Kpi>
         <Kpi icon={<Truck className="size-[19px]" strokeWidth={2} />} tint="bg-warning-soft text-warning-text" label="In transit" value={inTransit}>

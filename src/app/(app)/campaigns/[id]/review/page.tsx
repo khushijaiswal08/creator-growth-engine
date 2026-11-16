@@ -14,7 +14,7 @@ import { db } from "@/lib/db";
 import { pendingPosts, SOURCE_LABELS } from "@/lib/discovery";
 import { formatCount, formatDay } from "@/lib/format";
 import { PLATFORM_LABELS, PLATFORMS } from "@/lib/profile-url";
-import { findPossibleDuplicates, loadReviewQueue, parseReviewFilters, reviewFilterQuery } from "@/lib/review-queue";
+import { findPossibleDuplicates, loadReviewQueuePage, parseReviewFilters, reviewFilterQuery } from "@/lib/review-queue";
 import { unscoredWhere } from "@/lib/scoring";
 import { requireUser } from "@/lib/session";
 import { US_SIGNAL_LABELS, US_SIGNALS } from "@/lib/status";
@@ -40,17 +40,17 @@ export default async function ReviewPage({
   const filters = parseReviewFilters(await searchParams);
 
   const scope = allowed(user);
-  const campaign = await db.campaign.findFirst({ where: { id, ...scope.campaigns }, select: { id: true, name: true } });
-  if (!campaign) notFound();
-
-  const [items, waitingPosts, unscored] = await Promise.all([
-    loadReviewQueue(id, filters),
+  // The queue reads start with the access check; for a campaign this person may not see,
+  // they are thrown away by notFound() before anything renders.
+  const [campaign, { items: shown, waiting }, waitingPosts, unscored] = await Promise.all([
+    db.campaign.findFirst({ where: { id, ...scope.campaigns }, select: { id: true, name: true } }),
+    loadReviewQueuePage(id, filters, CARDS_PER_PAGE),
     pendingPosts(id),
     user.role === "admin"
       ? db.campaignCreator.count({ where: unscoredWhere(id) })
       : 0,
   ]);
-  const shown = items.slice(0, CARDS_PER_PAGE);
+  if (!campaign) notFound();
   // Look-alikes are only looked for among creators this person may see.
   const [duplicates, records, insights] = await Promise.all([
     findPossibleDuplicates(shown, scope.influencers),
@@ -95,8 +95,8 @@ export default async function ReviewPage({
             <Link href={`/campaigns/${campaign.id}`} className="link">
               {campaign.name}
             </Link>
-            {`, ${items.length} waiting${filtered ? " with these filters" : ""}`}
-            {items.length > cards.length ? `, showing the first ${cards.length}` : ""}
+            {`, ${waiting} waiting${filtered ? " with these filters" : ""}`}
+            {waiting > cards.length ? `, showing the first ${cards.length}` : ""}
           </>
         }
       >

@@ -29,23 +29,21 @@ export async function creatorFiguresFor(influencerIds: string[], scope: BrandSco
   if (influencerIds.length === 0) return figures;
 
   const where = { ...scope.creators, influencerId: { in: influencerIds } };
-  const [links, amazon] = await Promise.all([
-    db.campaignCreator.findMany({
-      where,
-      select: {
-        id: true,
-        influencerId: true,
-        status: true,
-        giftOrders: { where: { status: { not: "cancelled" } }, select: { quantity: true, product: { select: { price: true } } } },
-        posts: { select: { metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, clicks: true, salesUsd: true } } } },
-      },
-    }),
+  // Gifts and posts are read flat beside the links, each filtered by the same links, rather than
+  // nested under them, so Prisma does not wait for one level before asking for the next.
+  const [links, giftRows, postRows, amazon] = await Promise.all([
+    db.campaignCreator.findMany({ where, select: { id: true, influencerId: true, status: true } }),
+    db.giftOrder.findMany({ where: { status: { not: "cancelled" }, campaignCreator: where }, select: { campaignCreatorId: true, quantity: true, product: { select: { price: true } } } }),
+    db.post.findMany({ where: { campaignCreator: where }, select: { campaignCreatorId: true, metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, clicks: true, salesUsd: true } } } }),
     attributionByCampaignCreator(where),
   ]);
+  const giftsOf = groupByLink(giftRows);
+  const postsOf = groupByLink(postRows);
 
   const tallies = new Map<string, { gifts: number; giftValue: number | null; posts: number; delivered: number; views: number | null; clicks: number | null; orders: number | null; sales: number | null }>();
   const add = (total: number | null, value: number | null) => (value === null ? total : (total ?? 0) + value);
-  for (const link of links) {
+  for (const { id, influencerId, status } of links) {
+    const link = { influencerId, status, giftOrders: giftsOf.get(id) ?? [], posts: postsOf.get(id) ?? [] };
     const tally = tallies.get(link.influencerId) ?? { gifts: 0, giftValue: null, posts: 0, delivered: 0, views: null, clicks: null, orders: null, sales: null };
     tally.gifts += link.giftOrders.length;
     for (const gift of link.giftOrders) tally.giftValue = add(tally.giftValue, gift.product.price === null ? null : gift.product.price.toNumber() * gift.quantity);
@@ -54,7 +52,7 @@ export async function creatorFiguresFor(influencerIds: string[], scope: BrandSco
     const latest = link.posts.map((post) => post.metrics[0]).filter((metric) => metric !== undefined);
     for (const metric of latest) tally.views = add(tally.views, metric.views);
     const numbers = campaignNumbers(
-      amazon.get(link.id),
+      amazon.get(id),
       latest.map((metric) => ({ clicks: metric.clicks, salesUsd: metric.salesUsd === null ? null : metric.salesUsd.toNumber() })),
     );
     if (numbers.source !== null) {
@@ -78,4 +76,14 @@ export async function creatorFiguresFor(influencerIds: string[], scope: BrandSco
     });
   }
   return figures;
+}
+
+function groupByLink<T extends { campaignCreatorId: string }>(rows: T[]): Map<string, T[]> {
+  const byLink = new Map<string, T[]>();
+  for (const row of rows) {
+    const list = byLink.get(row.campaignCreatorId);
+    if (list) list.push(row);
+    else byLink.set(row.campaignCreatorId, [row]);
+  }
+  return byLink;
 }

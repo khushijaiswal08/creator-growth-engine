@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { field, type FormState } from "@/lib/form";
 import { callerIp, hitRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
@@ -33,9 +32,9 @@ export async function submitSelection(_prev: FormState, formData: FormData): Pro
   });
   if (!result.ok) return { error: result.error };
 
-  revalidatePath("/orders");
-  revalidatePath("/today");
-  revalidatePath(`/campaigns/${result.campaignId}`);
-  revalidatePath(`/influencers/${result.influencerId}`);
+  // No revalidatePath here. Revalidating from a Server Action makes Next.js re-render the page the
+  // caller is on, and this caller is the creator on /select/<token>: recordSelection has just spent
+  // that token, so the re-render answered "This link is no longer active" in place of this thank-you.
+  // The team's pages need nothing: they are rendered fresh for every signed-in request.
   return { message: "Thank you! Your choice is in. We will send your tracking details as soon as it ships." };
 }

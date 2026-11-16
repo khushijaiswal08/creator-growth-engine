@@ -4,7 +4,7 @@ import { BRANDS, isBrandId } from "@/lib/brands";
 import { csvLine, csvResponse } from "@/lib/csv-out";
 import { db } from "@/lib/db";
 import { isoDay } from "@/lib/format";
-import { giftReference } from "@/lib/gifts";
+import { amazonPhoneNumber, giftReference } from "@/lib/gifts";
 import { requireUser } from "@/lib/session";
 
 // Column names follow Amazon's Multi-Channel Fulfillment bulk order template.
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       AddressCountryCode: COUNTRY_CODES[order.country] ?? order.country,
       AddressStateOrRegion: order.state,
       AddressPostalCode: order.postalCode,
-      AddressPhoneNumber: order.phone,
+      AddressPhoneNumber: amazonPhoneNumber(order.phone),
     };
     lines.push(csvLine(COLUMNS.map((column) => row[column])));
   }

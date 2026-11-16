@@ -242,7 +242,7 @@ function Grid({ head, rows }: { head: string[]; rows: string[][] }) {
     <div className="overflow-x-auto rounded-xl border">
       <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="bg-[#f8f9fb]">
+          <tr className="bg-[#f8f9fb] dark:bg-surface-2">
             {head.map((label, column) => (
               <th key={label} scope="col" className={cn("border-b border-l px-2.5 py-2 text-[11px] font-bold tracking-[0.05em] whitespace-nowrap text-muted-foreground uppercase first:border-l-0", column === 0 ? "text-left" : "text-right")}>
                 {label}
@@ -252,7 +252,7 @@ function Grid({ head, rows }: { head: string[]; rows: string[][] }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={index} className="border-b last:border-b-0 even:bg-[#fcfcfd]">
+            <tr key={index} className="border-b last:border-b-0 even:bg-[#fcfcfd] dark:even:bg-surface-2/40">
               {row.map((cell, column) => (
                 <td key={column} className={cn("border-l px-2.5 py-2 whitespace-nowrap first:border-l-0", column === 0 ? "text-left font-semibold text-foreground" : "text-right tabular-nums", cell === NONE && "text-faint")}>
                   {cell}

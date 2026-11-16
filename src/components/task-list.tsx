@@ -121,8 +121,8 @@ export function TaskList({ rows }: { rows: TaskRow[] }) {
             id={index === 0 ? "task-first" : undefined}
             data-rachna-point={`${row.verb}: ${row.name}`}
             className={cn(
-              "group/row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-b border-[#f1f3f6] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-[#fbfbfc] md:px-[22px] @min-[34rem]:grid-cols-[minmax(0,1.5fr)_118px_minmax(0,1.3fr)_104px]",
-              hot && "bg-gradient-to-r from-[#fff5f7] to-surface",
+              "group/row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-b border-[#f1f3f6] px-5 py-3.5 transition-colors last:border-b-0 hover:bg-[#fbfbfc] dark:border-border dark:hover:bg-surface-2 md:px-[22px] @min-[34rem]:grid-cols-[minmax(0,1.5fr)_118px_minmax(0,1.3fr)_104px]",
+              hot && "bg-gradient-to-r from-[#fff5f7] to-surface dark:from-primary-faint",
               ticked && "bg-primary-faint",
             )}
           >

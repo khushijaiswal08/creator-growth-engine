@@ -48,8 +48,7 @@ export function RachnaPick({ row }: { row: TaskRow | null }) {
   const facts = [row.followers !== null ? `${formatCount(row.followers)} followers` : null, row.lateDays > 0 ? daysLateText(row.lateDays) : "due today"].filter(Boolean).join(" · ");
   return (
     <section
-      className="grid min-w-0 gap-3.5 rounded-[20px] border border-[#f3cdd9] p-5 shadow-[0_10px_28px_rgba(178,74,107,0.12)]"
-      style={{ background: "radial-gradient(120% 90% at 0% 0%, #ffe1ec 0%, #fff6f9 45%, #fff 100%)" }}
+      className="grid min-w-0 gap-3.5 rounded-[20px] border border-[color:var(--rachna-line)] bg-[radial-gradient(120%_90%_at_0%_0%,#ffe1ec_0%,#fff6f9_45%,#fff_100%)] p-5 shadow-[0_10px_28px_rgba(178,74,107,0.12)] dark:bg-[radial-gradient(120%_90%_at_0%_0%,var(--primary-faint)_0%,var(--surface)_60%)]"
       aria-labelledby="pick-title"
     >
       <div className="flex items-center gap-3">

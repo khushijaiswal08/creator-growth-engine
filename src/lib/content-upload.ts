@@ -52,9 +52,15 @@ export const uploadLinkExpiry = (now = new Date()) => new Date(now.getTime() + U
  * The creator's private upload link. Like the selection link the token is 192
  * random bits, but it is not spent on use: creators often send files in more
  * than one go, so it stays valid until it expires and is then replaced.
+ * A caller that has just loaded the creator row passes its link fields as
+ * `known`, which saves re-reading them.
  */
-export async function ensureUploadUrl(campaignCreatorId: string, now = new Date()): Promise<string> {
-  const existing = await db.campaignCreator.findUnique({ where: { id: campaignCreatorId }, select: { uploadToken: true, uploadExpiresAt: true } });
+export async function ensureUploadUrl(
+  campaignCreatorId: string,
+  now = new Date(),
+  known?: { uploadToken: string | null; uploadExpiresAt: Date | null },
+): Promise<string> {
+  const existing = known ?? (await db.campaignCreator.findUnique({ where: { id: campaignCreatorId }, select: { uploadToken: true, uploadExpiresAt: true } }));
   let token = existing?.uploadToken ?? null;
   if (!token || !existing || uploadLinkExpired(existing, now)) {
     token = randomBytes(24).toString("base64url");

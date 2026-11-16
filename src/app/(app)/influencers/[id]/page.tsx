@@ -91,55 +91,56 @@ export default async function InfluencerPage({
   // brand's work with the same creator never appears on a one-brand screen.
   const scope = allowed(user);
   const view = viewed(user);
-  const influencer = await db.influencer.findFirst({
-    where: { id, ...scope.influencers },
-    include: {
-      profiles: { orderBy: { platform: "asc" } },
-      campaigns: {
-        where: view.creators,
-        orderBy: { createdAt: "desc" },
-        include: {
-          campaign: {
-            select: {
-              id: true,
-              name: true,
-              ...CAMPAIGN_TIMINGS_SELECT,
+  // Everything that needs only the id and the brand in view is read alongside the creator. The
+  // access decision below still comes first: for a creator this person may not open, these
+  // results are dropped and nothing of them is shown.
+  const [influencer, activities, messages, allCampaigns, templates, elsewhere, postsSoFar, trackRecords] = await Promise.all([
+    db.influencer.findFirst({
+      where: { id, ...scope.influencers },
+      include: {
+        profiles: { orderBy: { platform: "asc" } },
+        campaigns: {
+          where: view.creators,
+          orderBy: { createdAt: "desc" },
+          include: {
+            campaign: {
+              select: {
+                id: true,
+                name: true,
+                ...CAMPAIGN_TIMINGS_SELECT,
+              },
             },
-          },
-          owner: { select: { name: true } },
-          giftOrders: {
-            where: { status: { not: "cancelled" } },
-            orderBy: { createdAt: "desc" },
-            include: { product: { select: { title: true, color: true, size: true, sku: true, imageUrl: true, price: true } } },
-          },
-          posts: {
-            orderBy: { createdAt: "desc" },
-            select: {
-              id: true,
-              url: true,
-              format: true,
-              postedAt: true,
-              createdAt: true,
-              hasDisclosure: true,
-              mentionsBrand: true,
-              productShown: true,
-              metrics: LATEST_METRICS,
+            owner: { select: { name: true } },
+            giftOrders: {
+              where: { status: { not: "cancelled" } },
+              orderBy: { createdAt: "desc" },
+              include: { product: { select: { title: true, color: true, size: true, sku: true, imageUrl: true, price: true } } },
             },
-          },
-          attributionLinks: { where: { archived: false }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, adGroupName: true, asin: true } },
-          contentAssets: {
-            where: { archived: false, status: { not: "uploading" } },
-            orderBy: { receivedAt: "desc" },
-            take: 30,
-            select: { id: true, fileName: true, kind: true, contentType: true, storageKey: true, status: true, usageRights: true, receivedAt: true },
+            posts: {
+              orderBy: { createdAt: "desc" },
+              select: {
+                id: true,
+                url: true,
+                format: true,
+                postedAt: true,
+                createdAt: true,
+                hasDisclosure: true,
+                mentionsBrand: true,
+                productShown: true,
+                metrics: LATEST_METRICS,
+              },
+            },
+            attributionLinks: { where: { archived: false }, orderBy: { createdAt: "asc" }, select: { id: true, url: true, adGroupName: true, asin: true } },
+            contentAssets: {
+              where: { archived: false, status: { not: "uploading" } },
+              orderBy: { receivedAt: "desc" },
+              take: 30,
+              select: { id: true, fileName: true, kind: true, contentType: true, storageKey: true, status: true, usageRights: true, receivedAt: true },
+            },
           },
         },
       },
-    },
-  });
-  if (!influencer) notFound();
-
-  const [activities, messages, allCampaigns, templates, suppressions, elsewhere, postsSoFar] = await Promise.all([
+    }),
     db.activity.findMany({
       where: activityOfInfluencer(view, id),
       orderBy: { createdAt: "desc" },
@@ -175,20 +176,20 @@ export default async function InfluencerPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, purpose: true, body: true },
     }),
-    loadSuppressions([influencer]),
     // Campaigns of the brand not on screen. Only the number is used, never their details.
     view.brandId ? db.campaignCreator.count({ where: { influencerId: id, NOT: view.creators } }) : 0,
     // Posts recorded so far across the brand in view, so Rachna can cheer the tenth.
     db.post.count({ where: { campaignCreator: view.creators } }),
+    trackRecordFor([id], view),
   ]);
+  if (!influencer) notFound();
   // Archiving hides a creator from everyone, so someone tied to one brand cannot do it to a shared creator.
   const mayArchive = scope.brandId === null || elsewhere === 0;
 
   const joined = new Set(influencer.campaigns.map((link) => link.campaignId));
   const openCampaigns = allCampaigns.filter((campaign) => !joined.has(campaign.id));
   const baseUrl = await appBaseUrl();
-  const suppressed = suppressions.reasonFor(influencer);
-  const trackRecord = (await trackRecordFor([id], view)).get(id);
+  const trackRecord = trackRecords.get(id);
   const record = describeTrackRecord(trackRecord);
   const messageProfiles = influencer.profiles.map(({ id, platform, handle }) => ({ id, platform, handle }));
 
@@ -196,18 +197,21 @@ export default async function InfluencerPage({
   const active = links[0] ?? null;
   const gifts = links.flatMap((link) => link.giftOrders.map((gift) => ({ ...gift, campaignName: link.campaign.name })));
   const posts = links.flatMap((link) => link.posts.map((post) => ({ ...post, campaignName: link.campaign.name })));
-  // What Amazon Attribution counted for each of the active campaign's links, all time.
-  const linkStats = active
-    ? new Map(
-        (
-          await db.attributionStat.groupBy({ by: ["linkId"], where: { linkId: { in: active.attributionLinks.map((link) => link.id) } }, _sum: { clicks: true, purchases: true, productSales: true } })
-        ).map((row) => [row.linkId, { clicks: row._sum.clicks ?? 0, purchases: row._sum.purchases ?? 0, sales: row._sum.productSales === null ? 0 : Number(row._sum.productSales) }]),
-      )
-    : new Map<string, { clicks: number; purchases: number; sales: number }>();
-  // Signed view addresses, made only for this creator's files on a page the person may open; they expire within the hour.
-  const files = await Promise.all(
-    links.flatMap((link) => link.contentAssets.map(async (asset) => ({ ...asset, campaignName: link.campaign.name, viewUrl: await presignView(asset.storageKey, asset.contentType) }))),
-  );
+  // The lookups that need the loaded creator, run together.
+  const [suppressions, linkStats, files] = await Promise.all([
+    loadSuppressions([influencer]),
+    // What Amazon Attribution counted for each of the active campaign's links, all time.
+    active
+      ? db.attributionStat
+          .groupBy({ by: ["linkId"], where: { linkId: { in: active.attributionLinks.map((link) => link.id) } }, _sum: { clicks: true, purchases: true, productSales: true } })
+          .then((rows) => new Map(rows.map((row) => [row.linkId, { clicks: row._sum.clicks ?? 0, purchases: row._sum.purchases ?? 0, sales: row._sum.productSales === null ? 0 : Number(row._sum.productSales) }])))
+      : new Map<string, { clicks: number; purchases: number; sales: number }>(),
+    // Signed view addresses, made only for this creator's files on a page the person may open; they expire within the hour.
+    Promise.all(
+      links.flatMap((link) => link.contentAssets.map(async (asset) => ({ ...asset, campaignName: link.campaign.name, viewUrl: await presignView(asset.storageKey, asset.contentType) }))),
+    ),
+  ]);
+  const suppressed = suppressions.reasonFor(influencer);
 
   const followers = influencer.profiles.reduce<number | null>((best, profile) => (profile.followers !== null && (best === null || profile.followers > best) ? profile.followers : best), null);
   const engagement = influencer.profiles.find((profile) => profile.engagementRate !== null)?.engagementRate ?? null;
@@ -378,7 +382,7 @@ export default async function InfluencerPage({
                         )}
                       </section>
 
-                      <section className="card border-[#f1c7d4] bg-[#fffafb] p-5" data-rachna-point={link.nextAction ? `${link.nextAction} (${link.campaign.name})` : undefined}>
+                      <section className="card border-[#f1c7d4] bg-[#fffafb] p-5 dark:border-[color:var(--rachna-line)] dark:bg-primary-faint" data-rachna-point={link.nextAction ? `${link.nextAction} (${link.campaign.name})` : undefined}>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                           <div className="min-w-0 flex-1">
                             <p className="label text-primary-text">
@@ -396,7 +400,7 @@ export default async function InfluencerPage({
                           <MessageButton target={targetFor(link)} size="default" variant="action" label="Open message" />
                         </div>
                         {sequence.length > 0 ? (
-                          <ol className="mt-4 grid gap-1 border-t border-[#f1c7d4] pt-3 text-sm">
+                          <ol className="mt-4 grid gap-1 border-t border-[#f1c7d4] pt-3 dark:border-[color:var(--rachna-line)] text-sm">
                             {sequence.map((step, index) => {
                               const reached = now >= step.at;
                               const done = reached && sentAfter(step.at, sequence[index + 1]?.at ?? null);
@@ -414,7 +418,7 @@ export default async function InfluencerPage({
                           </ol>
                         ) : null}
                         {!gift && link.selectionToken ? (
-                          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[#f1c7d4] pt-3 text-sm">
+                          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[#f1c7d4] pt-3 dark:border-[color:var(--rachna-line)] text-sm">
                             <p className="text-muted-foreground">
                               {link.selectionSentAt ? `Selection link sent ${formatDay(link.selectionSentAt)}. Waiting for the creator to choose.` : "The creator has not been sent their selection link yet. The Message button fills it in for you."}
                             </p>

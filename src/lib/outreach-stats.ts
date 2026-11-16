@@ -1,4 +1,7 @@
 import type { Prisma } from "@prisma/client";
+import { cache } from "react";
+import { inBatches } from "@/lib/batches";
+import { allowed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { DAY_MS, startOfDayInZone, startOfWeekInZone, wholePercent } from "@/lib/format";
 import { TIDY_NOTE } from "@/lib/tidy-up-rules";
@@ -35,6 +38,22 @@ export async function brandTargets(brandIds: string[]): Promise<Map<string, Targ
   }
   return map;
 }
+
+// The frame and Home both show these within one request; React's cache runs each query once per request.
+// Automation runs never change brand settings or gifts waiting for approval, so sharing them cannot show a stale figure.
+// Keyed by plain values, since the cache compares arguments by identity.
+const targetsByKey = cache((key: string) => brandTargets(key ? key.split(",") : []));
+
+/** brandTargets, shared by the frame and Home within one request. */
+export function sharedBrandTargets(brandIds: string[]): Promise<Map<string, Targets>> {
+  return targetsByKey(brandIds.join(","));
+}
+
+/** Gift orders waiting for approval in a viewed brand (null: both), shared by the frame and Home within one request. */
+export const giftsToApprove = cache(async (brandId: string | null) =>
+  // A viewed scope depends on its brand alone, so it is rebuilt from it here.
+  db.giftOrder.count({ where: { ...allowed({ id: "", brandId, viewBrand: null }).gifts, status: "needs_approval" } }),
+);
 
 type PersonStats = {
   userId: string;
@@ -92,14 +111,21 @@ export async function personStats(period: Period, campaign: Prisma.CampaignWhere
     .sort((a, b) => b.messages - a.messages || a.name.localeCompare(b.name));
 }
 
-type TodayStats = { today: PersonStats[]; week: PersonStats[]; dayStart: Date; weekStart: Date };
-
-/** Today and this week (Monday onwards), in the app's time zone. */
-export async function todayStats(campaign: Prisma.CampaignWhereInput, now = new Date()): Promise<TodayStats> {
-  const dayStart = startOfDayInZone(now);
+/**
+ * One person's own figures for Home: messages this week and today, replies this week and last week.
+ * The same filters as personStats, narrowed to the one person, so Home skips everyone else's figures.
+ */
+export async function ownOutreach(userId: string, campaign: Prisma.CampaignWhereInput, lastWeek: Period, now = new Date()) {
+  const inCampaign = { campaignCreator: { campaign } };
+  const count = (direction: "outbound" | "inbound", from: Date, to: Date) => db.message.count({ where: { userId, direction, sentAt: { gte: from, lt: to }, ...inCampaign } });
   const weekStart = startOfWeekInZone(now);
-  const [today, week] = await Promise.all([personStats({ from: dayStart, to: now }, campaign), personStats({ from: weekStart, to: now }, campaign)]);
-  return { today, week, dayStart, weekStart };
+  const [weekMessages, todayMessages, weekReplies, lastWeekReplies] = await Promise.all([
+    count("outbound", weekStart, now),
+    count("outbound", startOfDayInZone(now), now),
+    count("inbound", weekStart, now),
+    count("inbound", lastWeek.from, lastWeek.to),
+  ]);
+  return { weekMessages, todayMessages, weekReplies, lastWeekReplies };
 }
 
 /** How many weeks the outreach report and its CSV look back. */
@@ -110,11 +136,12 @@ type WeekRow = { weekStart: Date; weekEnd: Date; people: PersonStats[] };
 /** The current week and the weeks before it, `weeks` in all, newest first. */
 export async function weeklyStats(campaign: Prisma.CampaignWhereInput, weeks = OUTREACH_WEEKS, now = new Date()): Promise<WeekRow[]> {
   const thisWeek = startOfWeekInZone(now);
-  const rows: WeekRow[] = [];
-  for (let index = 0; index < weeks; index += 1) {
+  const pairs = Array.from({ length: weeks }, (_, index) => {
     const weekStart = new Date(thisWeek.getTime() - index * 7 * DAY_MS);
-    const weekEnd = new Date(weekStart.getTime() + 7 * DAY_MS);
-    rows.push({ weekStart, weekEnd, people: await personStats({ from: weekStart, to: weekEnd }, campaign) });
-  }
-  return rows;
+    return { weekStart, weekEnd: new Date(weekStart.getTime() + 7 * DAY_MS) };
+  });
+  // The weeks do not depend on each other: two at a time (seven counts each) rather than one after another,
+  // and never all eight at once, which would queue past the connection pool's wait limit.
+  const people = await inBatches(pairs, 2, ({ weekStart, weekEnd }) => personStats({ from: weekStart, to: weekEnd }, campaign));
+  return pairs.map((pair, index) => ({ ...pair, people: people[index] }));
 }

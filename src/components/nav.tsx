@@ -42,7 +42,7 @@ export function SidebarNav({ isAdmin, counts = {} }: { isAdmin: boolean; counts?
         className={cn(
           "flex h-[42px] items-center gap-3 rounded-xl text-[14px] whitespace-nowrap outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/35",
           ui.align,
-          active ? "bg-primary-faint font-bold text-primary" : "font-semibold text-accent-text hover:bg-[#f6f7f9] hover:text-foreground",
+          active ? "bg-primary-faint font-bold text-primary" : "font-semibold text-accent-text hover:bg-[#f6f7f9] hover:text-foreground dark:hover:bg-surface-2",
         )}
       >
         <Icon aria-hidden className="size-[19px] shrink-0" strokeWidth={1.9} />

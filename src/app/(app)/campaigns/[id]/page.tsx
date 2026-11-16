@@ -65,10 +65,6 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   const requested = (VIEWS as readonly string[]).includes(query.view ?? "") ? (query.view as View) : filter ? "list" : "board";
   const view: View = (requested === "discovery" || requested === "settings") && !isAdmin ? "board" : requested;
 
-  // Another brand's campaign is "not found" for someone tied to one brand, exactly like one that does not exist.
-  const campaign = await db.campaign.findFirst({ where: { id, ...allowed(user).campaigns } });
-  if (!campaign) notFound();
-
   // Everything the toolbar narrows: search, owner, platform, followers, "only mine".
   const influencerWhere: Prisma.InfluencerWhereInput = {
     ...(q ? creatorSearchWhere(q) : {}),
@@ -81,11 +77,18 @@ export default async function CampaignPage({ params, searchParams }: { params: P
   const base: Prisma.CampaignCreatorWhereInput = { campaignId: id, ...(ownerId ? { ownerId } : {}), ...(narrowed ? { influencer: influencerWhere } : {}) };
   const now = new Date();
 
-  const [counts, templates, owners] = await Promise.all([
+  // The access check runs alongside the reads, which are all keyed by this campaign id. Another brand's
+  // campaign is "not found" for someone tied to one brand, exactly like one that does not exist, and
+  // notFound() throws the other results away before anything renders.
+  const [campaign, counts, templates, owners, board, list] = await Promise.all([
+    db.campaign.findFirst({ where: { id, ...allowed(user).campaigns } }),
     db.campaignCreator.groupBy({ by: ["status"], where: { campaignId: id }, _count: { _all: true } }),
     db.template.findMany({ where: { archived: false }, orderBy: { name: "asc" }, select: { id: true, name: true, purpose: true, body: true } }),
     db.user.findMany({ where: { isSystem: false, ownedCreators: { some: { campaignId: id } } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    view === "board" ? loadBoard(base, influencerWhere, now) : null,
+    view === "list" ? loadList(base, filter, page) : null,
   ]);
+  if (!campaign) notFound();
   const countByStatus = new Map(counts.map((row) => [row.status, row._count._all]));
   const total = counts.reduce((sum, row) => sum + row._count._all, 0);
   const toReview = (countByStatus.get("discovered") ?? 0) + (countByStatus.get("scored") ?? 0);
@@ -215,7 +218,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
           <span className="ml-auto flex items-center gap-3 text-[12.5px] font-semibold text-faint">
             <span>
               {total.toLocaleString("en-US")} {total === 1 ? "creator" : "creators"}
-              {view === "board" ? <DueCount base={base} now={now} /> : null}
+              {board && board.due > 0 ? ` · ${board.due} need you today` : null}
             </span>
             {view === "board" ? (
               <span className="hidden items-center gap-1.5 md:inline-flex">
@@ -227,8 +230,8 @@ export default async function CampaignPage({ params, searchParams }: { params: P
         </div>
       ) : null}
 
-      {view === "board" ? <BoardView campaignId={id} base={base} influencer={influencerWhere} keep={keep} templates={templates} senderName={user.name} now={now} /> : null}
-      {view === "list" ? <ListView campaignId={id} base={base} keep={keep} filter={filter} page={page} countByStatus={countByStatus} total={total} templates={templates} senderName={user.name} now={now} /> : null}
+      {board ? <BoardView campaignId={id} data={board} keep={keep} templates={templates} senderName={user.name} now={now} /> : null}
+      {list ? <ListView campaignId={id} data={list} keep={keep} filter={filter} page={page} countByStatus={countByStatus} total={total} templates={templates} senderName={user.name} now={now} /> : null}
       {view === "discovery" && isAdmin ? <DiscoveryView campaign={campaign} /> : null}
       {view === "settings" && isAdmin ? <SettingsView campaign={campaign} creators={total} /> : null}
     </>
@@ -237,33 +240,13 @@ export default async function CampaignPage({ params, searchParams }: { params: P
 
 type Templates = { id: string; name: string; purpose: TemplatePurpose; body: string }[];
 
-/** " · 3 need you today", for the right of the toolbar. */
-async function DueCount({ base, now }: { base: Prisma.CampaignCreatorWhereInput; now: Date }) {
-  const due = await db.campaignCreator.count({ where: { ...base, status: { notIn: CLOSED_STATUSES }, nextActionDueAt: { lte: now }, waitingOn: { not: "creator" } } });
-  return due > 0 ? ` · ${due} need you today` : "";
-}
+const DONE_STATUSES: CreatorStatus[] = [...LANES[LANES.length - 1].statuses, ...CLOSED_STATUSES];
 
-async function BoardView({
-  campaignId,
-  base,
-  influencer,
-  keep,
-  templates,
-  senderName,
-  now,
-}: {
-  campaignId: string;
-  base: Prisma.CampaignCreatorWhereInput;
-  influencer: Prisma.InfluencerWhereInput;
-  keep: URLSearchParams;
-  templates: Templates;
-  senderName: string;
-  now: Date;
-}) {
-  const doneStatuses: CreatorStatus[] = [...LANES[LANES.length - 1].statuses, ...CLOSED_STATUSES];
-  const [rows, done] = await Promise.all([
+/** The board's cards, its done counts, and how many need someone today (" · 3 need you today" on the toolbar). */
+async function loadBoard(base: Prisma.CampaignCreatorWhereInput, influencer: Prisma.InfluencerWhereInput, now: Date) {
+  const [rows, done, due] = await Promise.all([
     db.campaignCreator.findMany({
-      where: { ...base, status: { notIn: doneStatuses }, influencer: { ...influencer, archived: false } },
+      where: { ...base, status: { notIn: DONE_STATUSES }, influencer: { ...influencer, archived: false } },
       orderBy: [{ nextActionDueAt: "asc" }, { influencer: { name: "asc" } }],
       select: {
         id: true,
@@ -277,8 +260,27 @@ async function BoardView({
         influencer: { select: REACHABLE_INFLUENCER_SELECT },
       },
     }),
-    db.campaignCreator.groupBy({ by: ["status"], where: { ...base, status: { in: doneStatuses } }, _count: { _all: true } }),
+    db.campaignCreator.groupBy({ by: ["status"], where: { ...base, status: { in: DONE_STATUSES } }, _count: { _all: true } }),
+    db.campaignCreator.count({ where: { ...base, status: { notIn: CLOSED_STATUSES }, nextActionDueAt: { lte: now }, waitingOn: { not: "creator" } } }),
   ]);
+  return { rows, done, due };
+}
+
+async function BoardView({
+  campaignId,
+  data: { rows, done },
+  keep,
+  templates,
+  senderName,
+  now,
+}: {
+  campaignId: string;
+  data: Awaited<ReturnType<typeof loadBoard>>;
+  keep: URLSearchParams;
+  templates: Templates;
+  senderName: string;
+  now: Date;
+}) {
   const suppressions = await loadSuppressions(rows.map((row) => row.influencer));
   const cards: BoardCard[] = rows.map((row) => {
     const suppressed = suppressions.reasonFor(row.influencer);
@@ -315,9 +317,45 @@ async function BoardView({
   );
 }
 
+/** One page of the list, and how many rows match in all. */
+async function loadList(base: Prisma.CampaignCreatorWhereInput, filter: CreatorStatus | null, page: number) {
+  const where: Prisma.CampaignCreatorWhereInput = { ...base, ...(filter ? { status: filter } : {}) };
+  const [creators, matching] = await Promise.all([
+    db.campaignCreator.findMany({
+      where,
+      orderBy: [{ influencer: { name: "asc" } }, { id: "asc" }],
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      // Only what a row shows or the send checks read: the full influencer row carries notes and GMV detail.
+      select: {
+        id: true,
+        status: true,
+        lastContactedAt: true,
+        nextAction: true,
+        nextActionDueAt: true,
+        waitingOn: true,
+        owner: { select: { name: true } },
+        influencer: {
+          select: {
+            id: true,
+            name: true,
+            location: true,
+            archived: true,
+            email: true,
+            amazonTier: true,
+            profiles: { orderBy: { platform: "asc" }, select: { id: true, platform: true, handle: true, followers: true } },
+          },
+        },
+      },
+    }),
+    db.campaignCreator.count({ where }),
+  ]);
+  return { creators, matching };
+}
+
 async function ListView({
   campaignId,
-  base,
+  data: { creators, matching },
   keep,
   filter,
   page,
@@ -328,7 +366,7 @@ async function ListView({
   now,
 }: {
   campaignId: string;
-  base: Prisma.CampaignCreatorWhereInput;
+  data: Awaited<ReturnType<typeof loadList>>;
   keep: URLSearchParams;
   filter: CreatorStatus | null;
   page: number;
@@ -338,17 +376,6 @@ async function ListView({
   senderName: string;
   now: Date;
 }) {
-  const where: Prisma.CampaignCreatorWhereInput = { ...base, ...(filter ? { status: filter } : {}) };
-  const [creators, matching] = await Promise.all([
-    db.campaignCreator.findMany({
-      where,
-      orderBy: [{ influencer: { name: "asc" } }, { id: "asc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-      include: { influencer: { include: { profiles: { orderBy: { platform: "asc" } } } }, owner: { select: { name: true } } },
-    }),
-    db.campaignCreator.count({ where }),
-  ]);
   const suppressions = await loadSuppressions(creators.map((creator) => creator.influencer));
   const lastPage = Math.max(1, Math.ceil(matching / PAGE_SIZE));
 

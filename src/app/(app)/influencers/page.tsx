@@ -46,8 +46,12 @@ export default async function InfluencersPage({
       orderBy: { name: "asc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      include: {
-        profiles: { orderBy: { platform: "asc" } },
+      // Only the columns the table shows: a profile's bio and recent captions are large and unused here.
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        profiles: { orderBy: { platform: "asc" }, select: { id: true, platform: true, handle: true, followers: true } },
         // Counts the campaigns this person can see, not the other brand's.
         _count: { select: { campaigns: { where: view.creators } } },
       },
@@ -140,7 +144,7 @@ export default async function InfluencersPage({
                 const figure = figures.get(influencer.id);
                 return (
                   <TableRow key={influencer.id} className="group/row">
-                    <TableCell className="sticky left-0 z-[1] bg-surface group-hover/row:bg-[#fbfbfc]">
+                    <TableCell className="sticky left-0 z-[1] bg-surface group-hover/row:bg-[#fbfbfc] dark:group-hover/row:bg-surface-2">
                       <div className="flex items-center gap-2.5">
                         <Avatar name={influencer.name} />
                         <CreatorName id={influencer.id} name={influencer.name} className="font-bold text-foreground hover:text-primary-text" />

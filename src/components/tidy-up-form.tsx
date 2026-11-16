@@ -135,7 +135,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
                   ))}
                 </fieldset>
               </div>
-              <ul className="divide-y divide-[#f1f3f6] text-sm">
+              <ul className="divide-y divide-[#f1f3f6] dark:divide-border text-sm">
                 {rows.map((row) => (
                   <li key={row.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-0.5 px-5 py-2">
                     <span className="min-w-0">
@@ -174,7 +174,7 @@ export function TidyUpForm({ days, brand, groups, history }: { days: number; bra
       {history.length > 0 ? (
         <section className="card overflow-hidden">
           <h2 className="border-b px-5 py-3 text-[15px] font-bold">Recent tidy-ups</h2>
-          <ul className="divide-y divide-[#f1f3f6] text-sm">
+          <ul className="divide-y divide-[#f1f3f6] dark:divide-border text-sm">
             {history.map((entry) => (
               <li key={entry.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5">
                 <span>

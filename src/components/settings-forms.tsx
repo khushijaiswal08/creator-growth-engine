@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { activateScoringPrompt, saveBrandTargets, saveScoringPrompt } from "@/actions/settings";
+import { activateScoringPrompt, saveAutoSend, saveBrandTargets, saveScoringPrompt } from "@/actions/settings";
 import { FormError } from "@/components/form-error";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,44 @@ export function TargetsForm({ brandId, daily, weekly, creatorConnectionsUrl }: {
   );
 }
 
-export type PromptVersionRow = { version: number; active: boolean; note: string | null; createdAt: string; createdBy: string };
+/** Admin: approved gifts go to Amazon on their own for this brand, with a wait after approval and a daily limit. */
+export function AutoSendForm({ brandId, keysSet, on, holdMinutes, dailyCap }: { brandId: string; keysSet: boolean; on: boolean; holdMinutes: number; dailyCap: number }) {
+  const [state, action] = useActionState(saveAutoSend, null);
+  return (
+    <form action={action} className="grid gap-3 pt-3">
+      <input type="hidden" name="brandId" value={brandId} />
+      <p className="text-sm font-medium text-muted-foreground">
+        {keysSet
+          ? "When on, every approved gift of this brand goes to Amazon by itself, the same way as pressing Send to Amazon: Amazon is asked first, and a gift it cannot ship waits for a person with the reason."
+          : "Needs this brand's Amazon (SP-API) keys first. Until then, use Send to Amazon or the Amazon file."}
+      </p>
+      <label className="flex items-center gap-2.5 text-sm font-semibold">
+        <input type="checkbox" name="on" defaultChecked={on} disabled={!keysSet} className="size-4 accent-[var(--primary)]" />
+        Send approved gifts to Amazon automatically
+      </label>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="grid gap-1.5">
+          <Label htmlFor={`hold-${brandId}`}>Wait after approval (minutes)</Label>
+          <Input id={`hold-${brandId}`} name="holdMinutes" type="number" min={0} max={1440} step={1} defaultValue={holdMinutes} className="w-28" disabled={!keysSet} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor={`cap-${brandId}`}>At most, per 24 hours</Label>
+          <Input id={`cap-${brandId}`} name="dailyCap" type="number" min={1} max={100} step={1} defaultValue={dailyCap} className="w-28" disabled={!keysSet} />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">The wait is your time to catch a mistake before anything is ordered. The limit counts every order of the brand, including Send to Amazon.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <SubmitButton pendingLabel="Saving..." disabled={!keysSet}>
+          Save
+        </SubmitButton>
+        <FormError state={state} />
+        <FormMessage state={state} />
+      </div>
+    </form>
+  );
+}
+
+export type PromptVersionRow ={ version: number; active: boolean; note: string | null; createdAt: string; createdBy: string };
 
 export function ScoringPromptForm({
   brandId,

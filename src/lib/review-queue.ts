@@ -1,7 +1,8 @@
 import type { DataSource, EmailStatus, Platform, Prisma, UsSignal } from "@prisma/client";
 import { db } from "@/lib/db";
+import { emailInText } from "@/lib/fetching/adapters/shared";
 import { PLATFORMS } from "@/lib/profile-url";
-import { emailStatusFor, LOW_FIT_SCORE } from "@/lib/scoring";
+import { LOW_FIT_SCORE } from "@/lib/scoring";
 import { normaliseForMatch, similarHandles } from "@/lib/similar";
 import { REVIEW_STATUSES, US_SIGNALS } from "@/lib/status";
 
@@ -70,36 +71,82 @@ type ReviewItem = {
   latestPostAt: Date | null;
 };
 
+/** The filters the database can apply. Email and US signal are worked out after reading. */
+function queueWhere(campaignId: string, filters: ReviewFilters): Prisma.CampaignCreatorWhereInput {
+  const profileFilter: Prisma.SocialProfileWhereInput = {
+    ...(filters.platform ? { platform: filters.platform } : {}),
+    ...(filters.source ? { source: filters.source } : {}),
+  };
+  return {
+    campaignId,
+    status: { in: REVIEW_STATUSES },
+    ...(filters.minScore ? { fitScore: { gte: filters.minScore } } : {}),
+    ...(filters.platform || filters.source ? { influencer: { profiles: { some: profileFilter } } } : {}),
+  };
+}
+
+/**
+ * The same rule as emailStatusFor in scoring.ts (stored address, or one written in a bio),
+ * for the narrow rows read here: that helper's type wants every profile column.
+ */
+function queueEmailStatus(influencer: { email: string | null; profiles: { bio: string | null }[] }): EmailStatus {
+  if (influencer.email) return "found";
+  return influencer.profiles.some((profile) => emailInText(profile.bio)) ? "found" : "not_found";
+}
+
 /**
  * Creators waiting for a human decision: status discovered or scored,
  * priority reviews first, then highest score. Email status is always worked
  * out from stored data here, never taken from the model.
  */
-export async function loadReviewQueue(campaignId: string, filters: ReviewFilters): Promise<ReviewItem[]> {
-  const profileFilter: Prisma.SocialProfileWhereInput = {
-    ...(filters.platform ? { platform: filters.platform } : {}),
-    ...(filters.source ? { source: filters.source } : {}),
-  };
+export function loadReviewQueue(campaignId: string, filters: ReviewFilters): Promise<ReviewItem[]> {
+  return readQueue(campaignId, filters, MAX_QUEUE);
+}
 
+/**
+ * The first `limit` items of the queue and how many are waiting in all (up to the
+ * queue's own cap), for the review page. Without an email or US filter the database
+ * can count and cut the list, so the page does not read up to 1000 rows to show 30.
+ */
+export async function loadReviewQueuePage(campaignId: string, filters: ReviewFilters, limit: number): Promise<{ items: ReviewItem[]; waiting: number }> {
+  if (filters.email || filters.us) {
+    const items = await loadReviewQueue(campaignId, filters);
+    return { items: items.slice(0, limit), waiting: items.length };
+  }
+  const [items, count] = await Promise.all([readQueue(campaignId, filters, limit), db.campaignCreator.count({ where: queueWhere(campaignId, filters) })]);
+  return { items, waiting: Math.min(count, MAX_QUEUE) };
+}
+
+async function readQueue(campaignId: string, filters: ReviewFilters, take: number): Promise<ReviewItem[]> {
+  // Only the columns a review card or the CSV export reads: the full rows carry notes, captions and GMV detail.
   const creators = await db.campaignCreator.findMany({
-    where: {
-      campaignId,
-      status: { in: REVIEW_STATUSES },
-      ...(filters.minScore ? { fitScore: { gte: filters.minScore } } : {}),
-      ...(filters.platform || filters.source ? { influencer: { profiles: { some: profileFilter } } } : {}),
-    },
+    where: queueWhere(campaignId, filters),
     orderBy: [{ priorityReview: "desc" }, { fitScore: { sort: "desc", nulls: "last" } }, { createdAt: "asc" }],
-    take: MAX_QUEUE,
-    include: {
-      influencer: { include: { profiles: { orderBy: { platform: "asc" } } } },
-      assessments: { orderBy: { createdAt: "desc" }, take: 1 },
+    take,
+    select: {
+      id: true,
+      influencerId: true,
+      status: true,
+      priorityReview: true,
+      influencer: {
+        select: {
+          name: true,
+          email: true,
+          location: true,
+          profiles: {
+            orderBy: { platform: "asc" },
+            select: { id: true, platform: true, handle: true, followers: true, bio: true, source: true, fetchNote: true, lastPostUrl: true, lastPostAt: true },
+          },
+        },
+      },
+      assessments: { orderBy: { createdAt: "desc" }, take: 1, select: { score: true, usSignal: true, reasons: true } },
     },
   });
 
   const items: ReviewItem[] = [];
   for (const creator of creators) {
     const assessment = creator.assessments[0] ?? null;
-    const emailStatus = emailStatusFor(creator);
+    const emailStatus = queueEmailStatus(creator.influencer);
     if (filters.email && emailStatus !== filters.email) continue;
     if (filters.us && assessment?.usSignal !== filters.us) continue;
 
@@ -151,14 +198,12 @@ export async function findPossibleDuplicates(
   const warnings = new Map<string, DuplicateWarning[]>();
   if (items.length === 0) return warnings;
 
+  // Legacy YouTube paths ("channel/UC...") are ids, not names, so they are left out in the query.
   const everyone = await db.socialProfile.findMany({
-    where: { influencer: among },
+    where: { influencer: among, NOT: { handle: { contains: "/" } } },
     select: { platform: true, handle: true, influencerId: true, influencer: { select: { name: true } } },
   });
-  // Legacy YouTube paths ("channel/UC...") are ids, not names.
-  const comparable = everyone
-    .filter((profile) => !profile.handle.includes("/"))
-    .map((profile) => ({ ...profile, key: normaliseForMatch(profile.handle) }));
+  const comparable = everyone.map((profile) => ({ ...profile, key: normaliseForMatch(profile.handle) }));
 
   for (const item of items) {
     const found = new Map<string, DuplicateWarning>();

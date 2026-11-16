@@ -6,7 +6,7 @@ import { AutoSubmitSelect } from "@/components/auto-submit-select";
 import { Avatar } from "@/components/avatar";
 import { PageHeader } from "@/components/panel";
 import { ReportTabs } from "@/components/report-tabs";
-import { attributionByInfluencer, attributionTotals, conversionRate } from "@/lib/amazon-stats";
+import { attributionTotals, attributionTotalsAndByInfluencer, conversionRate } from "@/lib/amazon-stats";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,7 +17,7 @@ import { db } from "@/lib/db";
 import { openCampaignIn } from "@/lib/due";
 import { DAY_MS, dayValueInZone, formatCount, formatDay, formatDollars, formatMonth, formatShortDay, startOfWeekInZone } from "@/lib/format";
 import { replyRate } from "@/lib/outreach-stats";
-import { bucketsFor, FIGURE_LABELS, figuresFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, readingFiguresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
+import { bucketsFor, FIGURE_LABELS, figuresFor, messageTrendFor, PERIOD_KEYS, PERIOD_LABELS, previousPeriod, readingFiguresFor, resolvePeriod, type Figures } from "@/lib/performance-stats";
 import { displayHandle } from "@/lib/profile-url";
 import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
@@ -64,8 +64,10 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const now = new Date();
   const period = resolvePeriod(params.period, params.from, params.to, now);
-  const campaigns = await db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
-  const chosen = campaigns.find((campaign) => campaign.id === params.campaign) ?? null;
+  const listCampaigns = () => db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
+  // A campaign in the link is checked against the list first. Without one the report covers the whole view, so the list loads with everything else.
+  const checked = params.campaign ? await listCampaigns() : null;
+  const chosen = checked?.find((campaign) => campaign.id === params.campaign) ?? null;
   const where = chosen ? { id: chosen.id } : view.campaigns;
   // The period is always set, so the link always has a "?": the Export button's replace() relies on it.
   const href = (overrides: Record<string, string | undefined>) => withQuery("/reports/performance", { period: period.key, from: params.from, to: params.to, campaign: chosen?.id, ...overrides });
@@ -75,55 +77,57 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
 
   const earlier = previousPeriod(period);
   const messagedIn = (range: { from: Date; to: Date }) => db.message.groupBy({ by: ["campaignCreatorId"], where: { direction: "outbound", sentAt: { gte: range.from, lt: range.to }, campaignCreator: { campaign: where } } });
-  const [figures, before, buckets, trend, postsByCreator, messagedNow, messagedBefore] = await Promise.all([
+  // The creators behind the period's posts, with the figures that rank them, and their all-time content rate:
+  // collaborations that ended in a post, over those that ended at all. Each step needs the one before, so they run as one chain beside the rest.
+  const topCreators = async () => {
+    const postsByCreator = await db.post.groupBy({ by: ["campaignCreatorId"], where: { createdAt: inPeriod, campaignCreator: { campaign: where } }, _count: { _all: true }, orderBy: { _count: { campaignCreatorId: "desc" } }, take: TOP * 2 });
+    const topLinks = postsByCreator.length
+      ? await db.campaignCreator.findMany({
+          where: { id: { in: postsByCreator.map((row) => row.campaignCreatorId) } },
+          select: {
+            id: true,
+            lastContactedAt: true,
+            influencer: {
+              select: { id: true, name: true, amazonTier: true, amazonMonthlyGmvUsd: true, profiles: { select: { handle: true, followers: true, engagementRate: true }, orderBy: { platform: "asc" }, take: 1 } },
+            },
+          },
+        })
+      : [];
+    const top = postsByCreator
+      .map((row) => ({ posts: row._count._all, link: topLinks.find((link) => link.id === row.campaignCreatorId) }))
+      .filter((row): row is { posts: number; link: NonNullable<typeof row.link> } => Boolean(row.link))
+      .sort((a, b) => b.posts - a.posts || Number(b.link.influencer.amazonMonthlyGmvUsd ?? 0) - Number(a.link.influencer.amazonMonthlyGmvUsd ?? 0))
+      .slice(0, TOP);
+    return { top, records: await trackRecordFor(top.map((row) => row.link.influencer.id), view) };
+  };
+  const [campaigns, figures, before, buckets, trend, messagedNow, messagedBefore, reading, readingBefore, amazonPeriod, amazonBefore, { top, records }] = await Promise.all([
+    checked ?? listCampaigns(),
     figuresFor(period, where),
     figuresFor(earlier, where),
     bucketsFor(period, where),
-    bucketsFor(trendPeriod, where),
-    db.post.groupBy({ by: ["campaignCreatorId"], where: { createdAt: inPeriod, campaignCreator: { campaign: where } }, _count: { _all: true }, orderBy: { _count: { campaignCreatorId: "desc" } }, take: TOP * 2 }),
+    messageTrendFor(trendPeriod, where),
     messagedIn(period),
     messagedIn(earlier),
-  ]);
-  const [reading, readingBefore] = await Promise.all([readingFiguresFor(period, where), readingFiguresFor(earlier, where)]);
-  // What creator links brought in on Amazon, from the imported Attribution reports.
-  const [amazonNow, amazonBefore, amazonByCreator] = await Promise.all([
-    attributionTotals({ campaign: where }, period),
+    readingFiguresFor(period, where),
+    readingFiguresFor(earlier, where),
+    // What creator links brought in on Amazon, from the imported Attribution reports.
+    attributionTotalsAndByInfluencer({ campaign: where }, period),
     attributionTotals({ campaign: where }, earlier),
-    attributionByInfluencer({ campaign: where }, period),
+    topCreators(),
   ]);
+  const { totals: amazonNow, byInfluencer: amazonByCreator } = amazonPeriod;
   const conversionNow = conversionRate(amazonNow);
   const conversionBefore = conversionRate(amazonBefore);
   // Reply rate the way the outreach report defines it: replies divided by the creators messaged in the period.
   const replyRateNow = replyRate({ replies: figures.replies, creators: messagedNow.length });
   const replyRateBefore = replyRate({ replies: before.replies, creators: messagedBefore.length });
-
-  // The creators behind the period's posts, with the figures that rank them.
-  const topLinks = postsByCreator.length
-    ? await db.campaignCreator.findMany({
-        where: { id: { in: postsByCreator.map((row) => row.campaignCreatorId) } },
-        select: {
-          id: true,
-          lastContactedAt: true,
-          influencer: {
-            select: { id: true, name: true, amazonTier: true, amazonMonthlyGmvUsd: true, profiles: { select: { handle: true, followers: true, engagementRate: true }, orderBy: { platform: "asc" }, take: 1 } },
-          },
-        },
-      })
-    : [];
-  const top = postsByCreator
-    .map((row) => ({ posts: row._count._all, link: topLinks.find((link) => link.id === row.campaignCreatorId) }))
-    .filter((row): row is { posts: number; link: NonNullable<typeof row.link> } => Boolean(row.link))
-    .sort((a, b) => b.posts - a.posts || Number(b.link.influencer.amazonMonthlyGmvUsd ?? 0) - Number(a.link.influencer.amazonMonthlyGmvUsd ?? 0))
-    .slice(0, TOP);
-  // Their all-time content rate: collaborations that ended in a post, over those that ended at all.
-  const records = await trackRecordFor(top.map((row) => row.link.influencer.id), view);
   const contentRateOf = (influencerId: string): number | null => {
     const record = records.get(influencerId);
     return record ? contentRate(record) : null;
   };
 
   // "Email to my manager": the headline figures in a plain message the mail app opens.
-  const subject = `Creator Growth: ${period.label}${chosen ? `, ${chosen.name}` : ""}`;
+  const subject = `Creator Setu: ${period.label}${chosen ? `, ${chosen.name}` : ""}`;
   const body = [
     `${brandsLabel(view.brandId, "Both brands")} · ${period.label},${formatDay(period.from)} to ${formatDay(new Date(period.to.getTime() - 1))}`,
     "",
@@ -331,7 +335,7 @@ export default async function PerformancePage({ searchParams }: { searchParams: 
               </span>
             </span>
           </div>
-          <TrendChart points={trend.map((bucket) => ({ label: formatShortDay(bucket.from), messages: bucket.figures.messages, replies: bucket.figures.replies }))} />
+          <TrendChart points={trend.map((bucket) => ({ label: formatShortDay(bucket.from), messages: bucket.messages, replies: bucket.replies }))} />
         </section>
 
         <section id="report-funnel" className="card flex flex-col p-5" aria-labelledby="funnel-title">
@@ -475,19 +479,19 @@ function TrendChart({ points }: { points: { label: string; messages: number; rep
     <svg role="img" aria-label={summary} viewBox={`0 0 ${width} ${height}`} className="h-auto w-full">
       {ticks.map((tick) => (
         <g key={tick}>
-          <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="#e5e7eb" strokeWidth="1" />
-          <text x={left - 8} y={y(tick) + 4} textAnchor="end" fontSize="11" fill="#6b7280">
+          <line x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} stroke="#e5e7eb" className="dark:stroke-border" strokeWidth="1" />
+          <text x={left - 8} y={y(tick) + 4} textAnchor="end" fontSize="11" fill="#6b7280" className="dark:fill-muted-foreground">
             {tick}
           </text>
         </g>
       ))}
-      <polyline fill="none" stroke="#b24a6b" strokeWidth="3" strokeLinejoin="round" points={line((point) => point.messages)} />
+      <polyline fill="none" className="stroke-primary" strokeWidth="3" strokeLinejoin="round" points={line((point) => point.messages)} />
       <polyline fill="none" stroke="#2563eb" strokeWidth="3" strokeLinejoin="round" points={line((point) => point.replies)} />
       {points.map((point, index) => (
         <g key={point.label}>
-          <circle cx={x(index)} cy={y(point.messages)} r="4" fill="#b24a6b" />
+          <circle cx={x(index)} cy={y(point.messages)} r="4" className="fill-primary" />
           <circle cx={x(index)} cy={y(point.replies)} r="4" fill="#2563eb" />
-          <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"} fontSize="11" fill="#6b7280">
+          <text x={x(index)} y={height - 10} textAnchor={index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"} fontSize="11" fill="#6b7280" className="dark:fill-muted-foreground">
             {point.label}
           </text>
         </g>

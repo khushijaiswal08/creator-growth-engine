@@ -26,7 +26,7 @@ export function CsvImportForm({
   const [report, action] = useActionState(importCsv, null);
 
   return (
-    <div className="grid gap-4">
+    <div className="grid content-start gap-4 self-start">
       <Panel title="Upload">
         <form action={action} className="grid gap-3 p-4">
           <div className="grid gap-1.5 sm:max-w-md">

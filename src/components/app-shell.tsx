@@ -12,7 +12,9 @@ import { FormError } from "@/components/form-error";
 import { ADMIN_LINK, NAV_LINKS, SETTINGS_LINK, SidebarNav } from "@/components/nav";
 import { NotificationsMenu, type NoticeQueue } from "@/components/notifications-menu";
 import { SidebarContext, sidebarUi, useSidebar, type SidebarPreference } from "@/components/sidebar-context";
+import { LogoMark } from "@/components/logo";
 import { SubmitButton } from "@/components/submit-button";
+import { ThemeSwitch } from "@/components/theme";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -51,7 +53,9 @@ type ShellStats = {
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1][0] ?? "") : "")).toUpperCase();
+  // Whole characters, never half of an emoji or a styled letter (see avatar.tsx).
+  const firstChar = (part: string | undefined) => (part ? (Array.from(part)[0] ?? "") : "");
+  return (firstChar(parts[0]) + (parts.length > 1 ? firstChar(parts[parts.length - 1]) : "")).toUpperCase();
 }
 
 /** The person's photo, or their initials on rose. */
@@ -79,7 +83,6 @@ export function AppShell({
   initialPreference,
   stats,
   rachnaIntro,
-  logout,
   children,
 }: {
   user: ShellUser;
@@ -88,7 +91,6 @@ export function AppShell({
   stats: ShellStats;
   /** True on the first visit after signing in: Rachna introduces herself. */
   rachnaIntro: boolean;
-  logout: () => Promise<void>;
   children: React.ReactNode;
 }) {
   const [preference, setPreference] = useState<SidebarPreference>(initialPreference);
@@ -121,14 +123,14 @@ export function AppShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar user={user} stats={stats} logout={logout} onEdit={() => setEditing(true)} />
+          <TopBar user={user} stats={stats} onEdit={() => setEditing(true)} />
           <main className="min-w-0 flex-1 px-4 pt-5 pb-24 md:px-8 md:pt-8 md:pb-16">
             <RachnaStrip />
             <div className="mx-auto max-w-[1320px]">{children}</div>
           </main>
         </div>
 
-        <MobileBar user={user} isAdmin={isAdmin} logout={logout} onEdit={() => setEditing(true)} />
+        <MobileBar user={user} isAdmin={isAdmin} onEdit={() => setEditing(true)} />
         <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
       </div>
       </RachnaProvider>
@@ -144,10 +146,10 @@ function SidebarHead({ onToggle }: { onToggle: () => void }) {
   const { stack, push } = HEAD_LAYOUT[ui.preference ?? "auto"];
   return (
     <div className={cn("relative mb-3 flex items-center gap-2.5 px-1.5 pt-1 pb-2", stack)}>
-      <Link href="/today" title="Creator Growth Engine" className="flex min-w-0 items-center gap-3 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
+      <Link href="/today" title="Creator Setu" className="flex min-w-0 items-center gap-3 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
         <Mark />
         <span className={cn("min-w-0", ui.label)}>
-          <span className="block text-[15px] leading-tight font-extrabold tracking-[-0.01em] text-foreground">Creator Growth</span>
+          <span className="block text-[15px] leading-tight font-extrabold tracking-[-0.01em] text-foreground">Creator Setu</span>
           <span className="block truncate text-[11.5px] font-semibold text-muted-foreground">Ridhi · Cotton Print Club</span>
         </span>
       </Link>
@@ -160,14 +162,7 @@ function SidebarHead({ onToggle }: { onToggle: () => void }) {
 
 /** Logo mark: four blocks on rose, like a print stamp. */
 function Mark() {
-  return (
-    <span aria-hidden className="grid size-9 shrink-0 grid-cols-2 gap-[3px] rounded-[11px] bg-gradient-to-br from-[#c95f84] to-primary-deep p-2 shadow-[0_6px_14px_rgba(178,74,107,0.32)]">
-      <span className="rounded-[2px] bg-surface" />
-      <span className="rounded-[2px] bg-[#f9d3e0]" />
-      <span className="rounded-[2px] bg-[#f9d3e0]" />
-      <span className="rounded-[2px] bg-surface" />
-    </span>
-  );
+  return <LogoMark className="drop-shadow-[0_6px_10px_rgba(178,74,107,0.28)]" />;
 }
 
 const ICON_BUTTON = "relative flex size-[42px] shrink-0 items-center justify-center rounded-xl border bg-surface text-accent-text outline-none transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -185,12 +180,10 @@ const HEAD_LAYOUT = {
 function TopBar({
   user,
   stats,
-  logout,
   onEdit,
 }: {
   user: ShellUser;
   stats: ShellStats;
-  logout: () => Promise<void>;
   onEdit: () => void;
 }) {
   const search = useRef<HTMLInputElement>(null);
@@ -211,7 +204,7 @@ function TopBar({
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-surface/90 px-4 backdrop-blur md:h-[68px] md:px-8">
       {/* Phones have no sidebar, so the logo sits here. */}
-      <Link href="/today" title="Creator Growth Engine" className="flex items-center gap-2.5 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 md:hidden">
+      <Link href="/today" title="Creator Setu" className="flex items-center gap-2.5 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35 md:hidden">
         <Mark />
       </Link>
 
@@ -248,7 +241,7 @@ function TopBar({
         </Link>
         <RachnaCameo />
         <NotificationsMenu queues={stats.queues} approvals={stats.rachna.approvals} hot={stats.rachna.hot} lateMax={stats.rachna.lateMax} buttonClassName={ICON_BUTTON} />
-        <ProfileMenu user={user} logout={logout} onEdit={onEdit} />
+        <ProfileMenu user={user} onEdit={onEdit} />
       </div>
     </header>
   );
@@ -259,7 +252,7 @@ function WeekBox({ sent, target }: { sent: number; target: number }) {
   const ui = useSidebar();
   const share = target > 0 ? Math.min(1, sent / target) : 0;
   return (
-    <div className={cn("mt-3 rounded-2xl border bg-[#fbfbfc] px-3.5 py-3", ui.wideOnly)}>
+    <div className={cn("mt-3 rounded-2xl border bg-[#fbfbfc] px-3.5 dark:bg-surface-2 py-3", ui.wideOnly)}>
       <p className="flex items-center justify-between">
         <span className="label">This week</span>
         {target > 0 ? <span className="text-xs font-bold text-muted-foreground tabular-nums">{Math.round(share * 100)}%</span> : null}
@@ -269,7 +262,7 @@ function WeekBox({ sent, target }: { sent: number; target: number }) {
         <span className="font-semibold text-muted-foreground">{target > 0 ? `of ${target} messages` : "messages"}</span>
       </p>
       {target > 0 ? (
-        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#eceff3]">
+        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#eceff3] dark:bg-border-strong">
           <span className="block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(share * 100)}%` }} />
         </span>
       ) : null}
@@ -280,7 +273,7 @@ function WeekBox({ sent, target }: { sent: number; target: number }) {
 const MENU_ITEM = "flex h-11 w-full items-center gap-2.5 rounded-md px-3 text-left text-sm text-foreground outline-none hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-ring md:h-9";
 
 /** The person at the right of the top bar. Clicking opens their menu: profile, password, sign out. */
-function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void }) {
+function ProfileMenu({ user, onEdit }: { user: ShellUser; onEdit: () => void }) {
   const [open, setOpen] = useState(false);
   const box = useDismiss(open, setOpen);
 
@@ -306,14 +299,14 @@ function ProfileMenu({ user, logout, onEdit }: { user: ShellUser; logout: () => 
 
       {open ? (
         <div role="menu" className="card absolute top-full right-0 z-40 mt-2 w-64 p-1.5 shadow-lg">
-          <ProfileItems user={user} logout={logout} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
+          <ProfileItems user={user} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
         </div>
       ) : null}
     </div>
   );
 }
 
-function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; logout: () => Promise<void>; onEdit: () => void; onNavigate: () => void }) {
+function ProfileItems({ user, onEdit, onNavigate }: { user: ShellUser; onEdit: () => void; onNavigate: () => void }) {
   return (
     <>
       <div className="flex items-center gap-3 px-3 py-2.5">
@@ -337,7 +330,10 @@ function ProfileItems({ user, logout, onEdit, onNavigate }: { user: ShellUser; l
         Change password
       </Link>
       <div className="my-1 border-t" />
-      <form action={logout}>
+      <ThemeSwitch />
+      <div className="my-1 border-t" />
+      {/* A plain form post to /logout, not a Server Action: see src/app/logout/route.ts. */}
+      <form action="/logout" method="post">
         <button type="submit" role="menuitem" className={MENU_ITEM}>
           <LogOut className="size-4 text-muted-foreground" strokeWidth={1.75} />
           Sign out
@@ -352,7 +348,7 @@ const BAR_LINKS = NAV_LINKS.slice(0, 4);
 const DRAWER_LINKS = [...NAV_LINKS.slice(4), { href: "/import", label: "Import", icon: Upload }, SETTINGS_LINK];
 
 /** Phones: the four main places along the bottom, and "More" for the rest and the profile. */
-function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin: boolean; logout: () => Promise<void>; onEdit: () => void }) {
+function MobileBar({ user, isAdmin, onEdit }: { user: ShellUser; isAdmin: boolean; onEdit: () => void }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const drawerLinks = isAdmin ? [...DRAWER_LINKS, ADMIN_LINK] : DRAWER_LINKS;
@@ -398,7 +394,7 @@ function MobileBar({ user, isAdmin, logout, onEdit }: { user: ShellUser; isAdmin
               ))}
             </div>
             <div className="my-2 border-t" />
-            <ProfileItems user={user} logout={logout} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
+            <ProfileItems user={user} onEdit={() => { setOpen(false); onEdit(); }} onNavigate={() => setOpen(false)} />
           </div>
         </div>
       ) : null}

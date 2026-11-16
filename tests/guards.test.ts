@@ -56,6 +56,8 @@ const spapi = {
   notFoundAs400: false,
   /** Runs while Amazon is taking an order: something happening in the portal at that moment. */
   onCreate: null as null | (() => Promise<void>),
+  /** Previews say Amazon cannot ship (no stock). */
+  previewUnfulfillable: false,
   nextPkg: 7,
   tokenCalls: 0,
   calls: [] as string[],
@@ -285,10 +287,10 @@ before(async () => {
               fulfillmentPreviews: [
                 {
                   shippingSpeedCategory: "Standard",
-                  isFulfillable: true,
+                  isFulfillable: !spapi.previewUnfulfillable,
                   estimatedFees: [{ name: "FBAPerUnitFulfillmentFee", amount: { currencyCode: "USD", value: "5.10" } }, { name: "FBATransportationFee", amount: { currencyCode: "USD", value: "0.40" } }],
                   fulfillmentPreviewShipments: [{ earliestArrivalDate: "2026-11-04T00:00:00Z", latestArrivalDate: "2026-11-06T00:00:00Z" }],
-                  unfulfillablePreviewItems: [],
+                  unfulfillablePreviewItems: spapi.previewUnfulfillable ? [{ sellerSku: "x", quantity: 1, itemUnfulfillableReasons: ["InventoryUnavailable"] }] : [],
                 },
               ],
             },
@@ -3197,4 +3199,206 @@ test("Creator Marketplace: the token never appears in logs, stored runs, the req
   }
   assert.match(stored, /\[hidden/, "Meta's echo was replaced, not stored");
   assert.ok(marketplace.requests.every((call) => !call.query.includes(PAGE_TOKEN)), "the token was never put in a URL");
+});
+
+test("a creator who confirms their gift sees the thank-you, not a re-render of their spent link; uploads and the Amazon file stay clean too", async () => {
+  // Revalidating from a Server Action makes Next.js re-render the caller's own page. On /select/<token> the
+  // token is spent the moment the choice is recorded, so that re-render said "This link is no longer active"
+  // to every creator who had just confirmed (found 2026-11-12 on the local copy; the order itself was saved).
+  const code = readFileSync("src/actions/selection.ts", "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  assert.equal(/\brevalidate(Path|Tag)\s*\(/.test(code), false, "the creator's confirm action revalidates nothing");
+  assert.equal(/\bredirect\s*\(/.test(code), false, "and sends the creator nowhere");
+  assert.match(code, /message: "Thank you! Your choice is in\./, "the thank-you comes back as the action's answer");
+  // The same applies to the creator's upload page: a revalidate per finished file re-rendered /upload/<token>
+  // each time and used up its 60-views-in-10-minutes allowance mid-upload. The form refreshes once per batch.
+  const upload = readFileSync("src/actions/content-upload.ts", "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  assert.equal(/\brevalidate(Path|Tag)\s*\(/.test(upload), false, "the creator's upload actions revalidate nothing");
+  assert.match(readFileSync("src/app/upload/[token]/upload-form.tsx", "utf8"), /if \(arrived\.size > 0\) router\.refresh\(\);/, "one refresh per batch, not per file");
+
+  // The Amazon file: a phone typed as "+1 ..." must not reach Amazon as "'+1 ..." (the spreadsheet formula guard).
+  const { amazonPhoneNumber } = await import("@/lib/gifts");
+  const { csvCell } = await import("@/lib/csv-out");
+  assert.equal(csvCell(amazonPhoneNumber("+1 512-555-0100")), "1 512-555-0100");
+  assert.equal(csvCell(amazonPhoneNumber(" + 44 20 7946 0000")), "44 20 7946 0000");
+  assert.equal(csvCell(amazonPhoneNumber("(512) 555-0100")), "(512) 555-0100");
+  assert.equal(amazonPhoneNumber(""), null);
+  assert.equal(amazonPhoneNumber(null), null);
+  assert.match(readFileSync("src/app/(app)/orders/export/route.ts", "utf8"), /AddressPhoneNumber: amazonPhoneNumber\(order\.phone\)/, "the Amazon file uses it");
+
+  // The link is still spent: the same address never answers twice.
+  const { recordSelection } = await import("@/lib/selection-flow");
+  const { campaign } = await makeUserAndCampaign("thank-you", ["tablecloth"]);
+  const product = await db.product.create({ data: { brandId: "test", sku: "T-THANKS", title: "Tablecloth", color: "Sage", amazonUrl: "https://www.amazon.com/dp/B0THANKS01" } });
+  const link = await makeCreatorWithLink(campaign.id, "sel_thanks", "token-thank-you", { status: "agreed" });
+  assert.equal((await recordSelection("token-thank-you", product.id, usAddress())).ok, true);
+  const spent = await readCreator(link.id);
+  assert.equal(spent.selectionToken, null, "the token is dropped once used");
+  assert.ok(spent.selectionUsedAt);
+  assert.equal((await recordSelection("token-thank-you", product.id, usAddress())).ok, false, "a second answer is refused");
+});
+
+test("Sign out is a plain request to /logout that deletes the session cookie, never a Server Action", () => {
+  // On the live site (2026-11-12) the Server Action sign-out left people signed in and crashed the page
+  // ("An unexpected response was received from the server"), so nobody could switch accounts.
+  const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+  assert.match(shell, /<form action="\/logout" method="post">/, "the account menu posts to /logout");
+  assert.doesNotMatch(shell, /action=\{logout\}/, "no Server Action sign-out in the menu");
+  const password = readFileSync("src/app/account/password/page.tsx", "utf8");
+  assert.match(password, /<form action="\/logout" method="post">/, "the choose-a-password page can sign out too");
+  const route = readFileSync("src/app/logout/route.ts", "utf8");
+  assert.match(route, /export async function POST/, "/logout takes the form post");
+  assert.match(route, /export async function GET/, "and keeps the GET used by requireUser");
+  assert.match(route, /__Secure-\)\?authjs\\.session-token/, "every session cookie form is deleted");
+  assert.match(route, /new URL\(origin\)\.host !== host/, "only the portal's own pages may post it");
+  assert.match(route, /secure: name\.startsWith\("__Secure-"\)/, "a __Secure- cookie is expired with a Secure Set-Cookie, or the browser ignores it");
+  assert.match(readFileSync("src/middleware.ts", "utf8"), /\|logout\|/, "the middleware stays off /logout, so it cannot re-issue the session it is ending");
+  assert.doesNotMatch(readFileSync("src/actions/auth.ts", "utf8"), /signOut/, "no sign-out left in the Server Actions");
+});
+
+test("Initials and clipped bios never split an emoji or a styled letter (React error 418 on real names)", async () => {
+  const { initials } = await import("@/components/avatar");
+  const { clip } = await import("@/lib/fetching/adapters/shared");
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  for (const name of ["𝓐𝓷𝓷𝓪 𝓡𝓸𝔂", "𝐀𝐧𝐧𝐚", "🌸 Priya Home", "Ava Patel", "ava", "🌸🌸"]) {
+    const out = initials(name);
+    assert.doesNotMatch(out, lone, `initials of ${JSON.stringify(name)} must be whole characters`);
+  }
+  assert.equal(initials("Ava Patel"), "AP");
+  assert.equal(initials("𝓐𝓷𝓷𝓪 𝓡𝓸𝔂"), "𝓐𝓡");
+  const bio = `${"a".repeat(8)}𝓐𝓷𝓷𝓪`;
+  for (let max = 2; max <= bio.length; max++) assert.doesNotMatch(clip(bio, max), lone, `clip at ${max} must not leave half a letter`);
+  const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+  assert.match(shell, /Array\.from\(part\)\[0\]/, "the account badge takes whole characters too");
+});
+
+test("Dark theme: every colour token has a dark value, the theme is set before paint, light by default; the portal is called Creator Setu", async () => {
+  const css = readFileSync("src/app/globals.css", "utf8");
+  const block = (selector: string) => [...css.matchAll(new RegExp(`${selector.replace(/[[\]()"=]/g, "\$&")}\s*\{([^}]*)\}`, "g"))].map((m) => m[1]).join("\n");
+  const names = (text: string) => new Set([...text.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const light = names(block(":root"));
+  const dark = names(block(':root[data-theme="dark"]'));
+  const missing = [...light].filter((name) => !dark.has(name));
+  assert.deepEqual(missing, [], "every light colour token needs a dark value");
+  const { THEME_SCRIPT, THEME_KEY } = await import("@/lib/theme");
+  assert.ok(THEME_SCRIPT.includes(`localStorage.getItem("${THEME_KEY}")`), "the early script reads the key the switch writes");
+  assert.match(THEME_SCRIPT, /"light"/, "anyone who never chose sees light (and so do creators on their gift and upload pages)");
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+  assert.match(layout, /<head>\s*<script dangerouslySetInnerHTML=\{\{ __html: THEME_SCRIPT \}\} \/>/, "the theme is applied in <head>, before the page paints");
+  assert.match(layout, /data-theme="light" suppressHydrationWarning/);
+  const leftovers = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) return leftovers(file);
+    return /\.(tsx?|js|webmanifest|svg)$/.test(entry.name) && /Creator Growth/.test(readFileSync(file, "utf8")) ? [file] : [];
+  });
+  assert.deepEqual([...leftovers("src"), ...leftovers("public")], [], "the old name is gone from everything people see");
+});
+
+test("Message window: Product type, then the exact product by its real name, only from the campaign brand; {product} gets colour and type", async () => {
+  const { productPhrase, productLabel, distinctLabels, fillTemplate } = await import("@/lib/template");
+  assert.equal(productPhrase({ title: "Pillow Cover", color: "Aquamarine Blue" }), "our Aquamarine Blue Pillow Cover");
+  assert.equal(productPhrase({ title: " Tablecloth ", color: null }), "our Tablecloth");
+  assert.equal(productPhrase({ title: "", color: null }), "");
+  const ruffle = { title: "Pillow Cover", color: "Aquamarine Blue", size: "20\" x 20\" (Pack of 2)", listingName: "Ridhi Block Print Aquamarine Blue Throw Pillow Cover 20\" x 20\" (Pack of 2) Decorative Cushion Covers with Ruffle for Couch, Sofa, Bed" };
+  const plain = { ...ruffle, listingName: "Ridhi Aqua Blue Hand Block Print Throw Pillow Covers 20x20 Inch Set 2" };
+  assert.equal(productLabel(plain), 'Aqua Blue Hand Block Print Throw Pillow Covers 20x20 Inch Set 2 · 20" x 20" (Pack of 2)', "brand word dropped, size at the end");
+  assert.notEqual(productLabel(ruffle), productLabel(plain), "two pieces of the same colour and size can be told apart");
+  assert.ok(!productLabel(ruffle).includes(","), "the keyword tail after the first comma is cut");
+  assert.ok(productLabel(ruffle).endsWith('· 20" x 20" (Pack of 2)'), "the size always shows, even when the name is shortened");
+  const round = (size: string) => ({ title: "Tablecloth", color: "Amber Marigold", size, listingName: "Ridhi Amber Marigold Block Print Round Tablecloth, Gift" });
+  assert.notEqual(productLabel(round('110" (Round)')), productLabel(round('120" (Round)')), "sizes of one print never look the same");
+  const twins = distinctLabels([{ label: "Same", sku: "A-1" }, { label: "Same", sku: "A-2" }, { label: "Other", sku: "B-1" }]);
+  assert.deepEqual(twins.map((t) => t.label), ["Same · A-1", "Same · A-2", "Other"], "still-identical names get their SKU");
+  assert.equal(productLabel({ title: "Napkins", color: "Sage", size: "Set of 4", listingName: null }), "Sage · Napkins · Set of 4");
+  const vars = { name: "Maya", handle: "", platform: "Instagram", sender: "Khushi", product: productPhrase(ruffle), brand: "", selection_link: "", upload_link: "", amazon_link: "" };
+  assert.equal(fillTemplate("Just following up about gifting you {product}.", vars), "Just following up about gifting you our Aquamarine Blue Pillow Cover.");
+  const action = readFileSync("src/actions/messages.ts", "utf8");
+  assert.ok(action.includes('db.product.groupBy({ by: ["title"], where: { brandId, giftable: true, archived: false }'), "types: one brand only, giftable and live");
+  assert.ok(action.includes("where: { brandId: sendable.creator.campaign.brandId, title: type, giftable: true, archived: false }"), "products: the creator's campaign brand only, giftable and live");
+  const fn = action.slice(action.indexOf("export async function productsForMessage"));
+  assert.ok(fn.indexOf("requireUser()") > 0 && fn.indexOf("loadSendable(campaignCreatorId, allowed(user))") > 0 && fn.indexOf("loadSendable(") < fn.indexOf("db.product.findMany"), "signed in, and only for a creator this person may message, before any product is read");
+  const dialog = readFileSync("src/components/message-button.tsx", "utf8");
+  assert.ok(/<NativeSelect\s+id="msg-product-type"/.test(dialog), "the type is a dropdown");
+  assert.ok(/<NativeSelect\s+id="msg-product"\s/.test(dialog), "the exact product is a dropdown");
+  assert.ok(dialog.includes("Other (type it)"), "free text stays possible");
+});
+
+test("automatic Amazon orders: off by default, only brands with keys an admin switched on, after the hold, within the 24-hour cap, and never twice", async () => {
+  const { sealAddress } = await import("@/lib/address-crypto");
+  const { autoSendApprovedGifts } = await import("@/lib/mcf-auto");
+  const { giftReference } = await import("@/lib/gifts");
+  const { campaign } = await makeUserAndCampaign("mcfauto", ["home decor"]);
+  await db.campaign.update({ where: { id: campaign.id }, data: { brandId: "ridhi" } });
+  const product = await db.product.create({ data: { brandId: "ridhi", sku: "BR-AUTO-01", title: "Tablecloth", stock: 9 } });
+  const now = new Date();
+  const ago = (minutes: number) => new Date(now.getTime() - minutes * 60_000);
+  const gift = async (handle: string, approvedAt: Date | null, status: "approved" | "needs_approval" = "approved") => {
+    const creator = await makeCreator(campaign.id, handle, { status: "address_collected" });
+    return db.giftOrder.create({ data: { campaignCreatorId: creator.id, productId: product.id, status, approvedAt, ...sealAddress({ shipName: "Ava Auto", address1: "1 Elm St", address2: null, city: "Austin", state: "tx", postalCode: "78701", country: "United States", phone: null }) } });
+  };
+  const sentRefs = () => [...spapi.orders.keys()];
+  const before = sentRefs().length;
+
+  // Off by default: an approved gift long past any hold is not touched.
+  const old = await gift("auto_old", ago(600));
+  assert.deepEqual(await autoSendApprovedGifts(now), { brands: 0, sent: 0, leftForPerson: 0, failed: 0, capped: 0 });
+  assert.equal(sentRefs().length, before, "nothing is ordered while the switch is off");
+
+  // Switched on for Ridhi (which has keys in this test) with a 30-minute hold, and room for exactly 3 more today:
+  // the cap counts every Ridhi order of the last 24 hours, including the button sends made by the tests above.
+  const sentToday = await db.giftOrder.count({ where: { mcfSentAt: { gte: ago(24 * 60) }, campaignCreator: { campaign: { brandId: "ridhi" } } } });
+  const cap = sentToday + 3;
+  await db.brandSettings.upsert({ where: { brandId: "ridhi" }, update: { mcfAutoSend: true, mcfAutoHoldMinutes: 30, mcfAutoDailyCap: cap }, create: { brandId: "ridhi", mcfAutoSend: true, mcfAutoHoldMinutes: 30, mcfAutoDailyCap: cap } });
+  // Cotton Print Club has no keys here: even switched on, nothing of it can go.
+  await db.brandSettings.upsert({ where: { brandId: "cotton-print-club" }, update: { mcfAutoSend: true }, create: { brandId: "cotton-print-club", mcfAutoSend: true } });
+  const fresh = await gift("auto_fresh", ago(5));
+  const waiting = await gift("auto_waiting", ago(400), "needs_approval");
+  const second = await gift("auto_second", ago(300));
+  const third = await gift("auto_third", ago(200));
+  const fourth = await gift("auto_fourth", ago(100));
+
+  const run = await autoSendApprovedGifts(now);
+  assert.deepEqual([run.brands, run.sent, run.capped], [1, 3, 1], "one brand, three sent (the cap), one held back by the cap");
+  for (const g of [old, second, third]) assert.ok(spapi.orders.has(giftReference(g.id)), "the oldest approvals go first");
+  assert.ok(!spapi.orders.has(giftReference(fourth.id)), "over the cap: waits for the next 24 hours");
+  assert.ok(!spapi.orders.has(giftReference(fresh.id)), "inside the hold: a person can still catch a mistake");
+  assert.ok(!spapi.orders.has(giftReference(waiting.id)), "a gift that still needs a person's approval never goes");
+  const placed = await db.giftOrder.findUniqueOrThrow({ where: { id: old.id }, select: { mcfSentAt: true, orderNumber: true } });
+  assert.ok(placed.mcfSentAt && placed.orderNumber === giftReference(old.id), "linked like a button send");
+  const auto = await db.user.findUniqueOrThrow({ where: { email: "automation@system.invalid" }, select: { id: true } }).catch(() => null);
+  if (auto) assert.ok((await db.activity.count({ where: { userId: auto.id } })) > 0, "logged under the Automation account");
+
+  // Running again (every tick) never orders anything twice; the cap still holds.
+  const again = await autoSendApprovedGifts(now);
+  assert.equal(again.sent, 0);
+  assert.equal(sentRefs().length, before + 3);
+
+  // Next day: room again, but Amazon cannot ship (no stock): both waiting gifts wait for a person with the reason.
+  const tomorrow = new Date(now.getTime() + 25 * 60 * 60 * 1000);
+  spapi.previewUnfulfillable = true;
+  const blocked = await autoSendApprovedGifts(tomorrow);
+  spapi.previewUnfulfillable = false;
+  assert.deepEqual([blocked.sent, blocked.leftForPerson], [0, 2], "the one over yesterday's cap and the one past its hold");
+  for (const g of [fourth, fresh]) {
+    const note = await db.giftOrder.findUniqueOrThrow({ where: { id: g.id }, select: { mcfSentAt: true, mcfError: true } });
+    assert.equal(note.mcfSentAt, null);
+    assert.match(note.mcfError ?? "", /Not sent automatically: Amazon says it cannot ship this gift \(InventoryUnavailable\)/);
+  }
+  // Amazon can ship again: those two stay with a person (never retried by the automation); a new approval goes.
+  const newer = await gift("auto_newer", new Date(tomorrow.getTime() - 60 * 60_000));
+  const later = await autoSendApprovedGifts(tomorrow);
+  assert.equal(later.sent, 1);
+  assert.ok(spapi.orders.has(giftReference(newer.id)));
+  for (const g of [fourth, fresh]) assert.ok(!spapi.orders.has(giftReference(g.id)), "a gift left for a person is not retried by the automation");
+
+  // Switched off again: nothing more goes.
+  await db.brandSettings.update({ where: { brandId: "ridhi" }, data: { mcfAutoSend: false } });
+  await gift("auto_after_off", ago(600));
+  assert.equal((await autoSendApprovedGifts(tomorrow)).sent, 0);
+
+  // Only admins can switch it, and only for a brand with keys.
+  const settings = readFileSync("src/actions/settings.ts", "utf8");
+  const save = settings.slice(settings.indexOf("export async function saveAutoSend"));
+  assert.ok(save.indexOf("requireAdmin()") > 0 && save.indexOf("requireAdmin()") < save.indexOf("brandSettings.upsert"), "admin only");
+  assert.match(save, /if \(on && !mcfConfigured\(brandId\)\)/, "cannot be switched on without the brand's keys");
+  await db.brandSettings.update({ where: { brandId: "cotton-print-club" }, data: { mcfAutoSend: false } });
 });

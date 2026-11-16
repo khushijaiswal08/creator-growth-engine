@@ -1,6 +1,5 @@
 import type { CreatorStatus } from "@prisma/client";
 import { cookies } from "next/headers";
-import { logout } from "@/actions/auth";
 import { AppShell } from "@/components/app-shell";
 import type { SidebarPreference } from "@/components/sidebar-context";
 import { brandsIn, viewed } from "@/lib/brand-scope";
@@ -8,7 +7,7 @@ import { brandName, brandShortName, DEFAULT_BRAND } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { DUE_STATUSES, QUEUES, dueWhere } from "@/lib/due";
 import { DAY_MS, startOfDayInZone, startOfWeekInZone } from "@/lib/format";
-import { brandTargets } from "@/lib/outreach-stats";
+import { giftsToApprove, sharedBrandTargets } from "@/lib/outreach-stats";
 import { RACHNA_INTRO_COOKIE, type RachnaCounts } from "@/lib/rachna";
 import { requireUser } from "@/lib/session";
 import { SIDEBAR_COOKIE } from "@/lib/sidebar";
@@ -27,16 +26,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // The figures the frame shows everywhere: what is due today, queue by queue (the bell), this person's week (the sidebar),
   // and the counts behind Rachna's quests and mood.
   const dueNow = dueWhere(view, DUE_STATUSES, now);
-  const [dueByStatus, weekSent, todaySent, targets, approvals, oldest, hotReplies] = await Promise.all([
-    db.campaignCreator.groupBy({ by: ["status"], where: dueNow, _count: { _all: true } }),
-    db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfWeekInZone(now) } } }),
-    db.message.count({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfDayInZone(now) } } }),
-    brandTargets(brandsIn(view).map((brand) => brand.id)),
-    db.giftOrder.count({ where: { ...view.gifts, status: "needs_approval" } }),
-    db.campaignCreator.findFirst({ where: dueNow, orderBy: { nextActionDueAt: "asc" }, select: { nextActionDueAt: true } }),
-    db.campaignCreator.count({ where: { ...dueNow, replyWarmth: "hot" } }),
+  const todayStart = startOfDayInZone(now);
+  const [dueByStatus, weekMessages, targets, approvals] = await Promise.all([
+    // Split by warmth too, so the hot count comes from the same rows, and with each group's earliest due date for the longest wait.
+    db.campaignCreator.groupBy({ by: ["status", "replyWarmth"], where: dueNow, _count: { _all: true }, _min: { nextActionDueAt: true } }),
+    // Today is part of the week, so one list of this week's send times gives both counts.
+    db.message.findMany({ where: { userId: user.id, direction: "outbound", sentAt: { gte: startOfWeekInZone(now) } }, select: { sentAt: true } }),
+    sharedBrandTargets(brandsIn(view).map((brand) => brand.id)),
+    giftsToApprove(view.brandId),
   ]);
+  const weekSent = weekMessages.length;
+  const todaySent = weekMessages.filter((message) => message.sentAt >= todayStart).length;
   const countOf = (statuses: CreatorStatus[]) => dueByStatus.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
+  const hotReplies = dueByStatus.filter((row) => row.replyWarmth === "hot").reduce((sum, row) => sum + row._count._all, 0);
+  const oldest = dueByStatus.reduce<Date | null>((earliest, row) => {
+    const at = row._min.nextActionDueAt;
+    return at && (!earliest || at < earliest) ? at : earliest;
+  }, null);
   // Rachna's reply and parcel counts come from the same queues her quests link to, so the bell, the quests and the task list cannot drift apart.
   const queueCount = (key: string) => countOf(QUEUES.find((queue) => queue.key === key)?.statuses ?? []);
   const due = countOf(DUE_STATUSES);
@@ -44,7 +50,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const weekTarget = target?.weekly ?? 0;
   const rachna: RachnaCounts = {
     due,
-    lateMax: oldest?.nextActionDueAt ? Math.max(0, Math.floor((now.getTime() - oldest.nextActionDueAt.getTime()) / DAY_MS)) : 0,
+    lateMax: oldest ? Math.max(0, Math.floor((now.getTime() - oldest.getTime()) / DAY_MS)) : 0,
     replies: queueCount("replies"),
     parcels: queueCount("delivery"),
     approvals,
@@ -70,7 +76,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       initialPreference={initialPreference}
       stats={{ due, weekSent, weekTarget, rachna, queues: QUEUES.map((queue) => ({ key: queue.key, title: queue.title, count: countOf(queue.statuses) })) }}
       rachnaIntro={rachnaIntro}
-      logout={logout}
     >
       {children}
     </AppShell>

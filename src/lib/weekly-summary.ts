@@ -62,7 +62,7 @@ export async function weeklySummary(now = new Date()): Promise<WeekSummary> {
 /** Plain text, so it reads the same in every mail client. */
 export function summaryText(summary: WeekSummary): { subject: string; text: string } {
   const lastDay = new Date(summary.to.getTime() - 1);
-  const subject = `Creator Growth: week of ${formatDay(summary.from)} to ${formatDay(lastDay)}`;
+  const subject = `Creator Setu: week of ${formatDay(summary.from)} to ${formatDay(lastDay)}`;
   const lines = [subject, ""];
   for (const brand of summary.brands) {
     lines.push(brand.brand);
@@ -78,6 +78,6 @@ export function summaryText(summary: WeekSummary): { subject: string; text: stri
     if (brand.scoringRuns > 0) lines.push(`  AI scoring: ${brand.scoringRuns} runs, about ${formatUsd(brand.scoringCostUsd)}`);
     lines.push("");
   }
-  lines.push("Sent by Creator Growth Engine every Monday. Figures are the week just finished.");
+  lines.push("Sent by Creator Setu every Monday. Figures are the week just finished.");
   return { subject, text: lines.join("\n") };
 }

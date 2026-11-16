@@ -17,7 +17,7 @@ import { topFollowers } from "@/lib/profile-url";
 import { withQuery } from "@/lib/query-string";
 import { requireUser } from "@/lib/session";
 import { contentCount, contentRate, GRADES, gradeFromRecord } from "@/lib/creator-card";
-import { describeTrackRecord, LATEST_POST_AND_GIFT, trackRecordFor } from "@/lib/track-record";
+import { describeTrackRecord, LATEST_POST_AND_GIFT, trackRecordWhere } from "@/lib/track-record";
 
 export const metadata: Metadata = { title: "Creator ranking" };
 
@@ -67,24 +67,28 @@ export default async function RankingPage({
   const q = (params.q ?? "").trim().toLowerCase();
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
 
-  const influencers = await db.influencer.findMany({
-    where: { ...view.influencers, archived: false },
-    select: {
-      id: true,
-      name: true,
-      location: true,
-      createdAt: true,
-      usSignal: true,
-      amazonTier: true,
-      amazonMonthlyGmvUsd: true,
-      profiles: { select: { id: true, platform: true, handle: true, followers: true, engagementRate: true, country: true, bio: true }, orderBy: { platform: "asc" } },
-      campaigns: {
-        where: view.creators,
-        select: LATEST_POST_AND_GIFT,
+  // The track records are asked for by the same filter as the roster, so all three queries run at once.
+  const [influencers, records, fromLinks] = await Promise.all([
+    db.influencer.findMany({
+      where: { ...view.influencers, archived: false },
+      select: {
+        id: true,
+        name: true,
+        location: true,
+        createdAt: true,
+        usSignal: true,
+        amazonTier: true,
+        amazonMonthlyGmvUsd: true,
+        profiles: { select: { id: true, platform: true, handle: true, followers: true, engagementRate: true, country: true, bio: true }, orderBy: { platform: "asc" } },
+        campaigns: {
+          where: view.creators,
+          select: LATEST_POST_AND_GIFT,
+        },
       },
-    },
-  });
-  const [records, fromLinks] = await Promise.all([trackRecordFor(influencers.map((row) => row.id), view), attributionByInfluencer(view.creators)]);
+    }),
+    trackRecordWhere({ influencer: { ...view.influencers, archived: false } }, view),
+    attributionByInfluencer(view.creators),
+  ]);
 
   const rows = influencers
     .map((row) => {

@@ -2,7 +2,7 @@
 
 import { AuthError } from "next-auth";
 import { cookies } from "next/headers";
-import { signIn, signOut } from "@/auth";
+import { signIn } from "@/auth";
 import { field, type FormState } from "@/lib/form";
 import { RACHNA_INTRO_COOKIE } from "@/lib/rachna";
 import { signInErrorMessage, wasRefused } from "@/lib/sign-in-errors";
@@ -40,6 +40,4 @@ export async function login(_prev: FormState, formData: FormData): Promise<FormS
   return null;
 }
 
-export async function logout() {
-  await signOut({ redirectTo: "/login" });
-}
+// Signing out is a plain form post to /logout (src/app/logout/route.ts), not a Server Action here.

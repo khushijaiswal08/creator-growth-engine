@@ -92,12 +92,12 @@ function CreatorCardDialog({ id, name, open, onOpenChange }: { id: string; name:
 
 // Rachna's verdict strip takes the grade's colour: green for the good ones, amber to watch, red to skip.
 const VERDICT_STYLE: Record<StatusTone, { box: string; text: string }> = {
-  success: { box: "border-[#c9f0d8] bg-gradient-to-r from-[#ecfdf3] to-[#f6fef9]", text: "text-[#14532d]" },
-  primary: { box: "border-[#f3cdd9] bg-gradient-to-r from-primary-faint to-surface", text: "text-foreground" },
-  warning: { box: "border-[#fde3b0] bg-gradient-to-r from-warning-soft to-surface", text: "text-[#78350f]" },
-  danger: { box: "border-[#fecdd6] bg-gradient-to-r from-danger-soft to-surface", text: "text-[#881337]" },
-  info: { box: "border-[#cddcff] bg-gradient-to-r from-info-soft to-surface", text: "text-[#1e3a8a]" },
-  violet: { box: "border-[#ddd6fe] bg-gradient-to-r from-violet-soft to-surface", text: "text-[#4c1d95]" },
+  success: { box: "border-[#c9f0d8] bg-gradient-to-r from-success-soft to-[#f6fef9] dark:border-[#1f4a33] dark:to-surface", text: "text-[#14532d] dark:text-success-text" },
+  primary: { box: "border-[#f3cdd9] bg-gradient-to-r from-primary-faint to-surface dark:border-[#4a2a37]", text: "text-foreground" },
+  warning: { box: "border-[#fde3b0] bg-gradient-to-r from-warning-soft to-surface dark:border-[#4a3a1c]", text: "text-[#78350f] dark:text-warning-text" },
+  danger: { box: "border-[#fecdd6] bg-gradient-to-r from-danger-soft to-surface dark:border-[#4d2430]", text: "text-[#881337] dark:text-danger-text" },
+  info: { box: "border-[#cddcff] bg-gradient-to-r from-info-soft to-surface dark:border-[#26375a]", text: "text-[#1e3a8a] dark:text-info-text" },
+  violet: { box: "border-[#ddd6fe] bg-gradient-to-r from-violet-soft to-surface dark:border-[#3a3060]", text: "text-[#4c1d95] dark:text-violet-text" },
   neutral: { box: "border-border bg-gradient-to-r from-surface-2 to-surface", text: "text-foreground" },
 };
 
@@ -134,7 +134,7 @@ function CardBody({ card }: { card: CreatorCard }) {
   return (
     <div className="flex max-h-[92vh] flex-col max-sm:max-h-none">
       {/* Who */}
-      <div className="flex flex-wrap items-start gap-4 bg-gradient-to-b from-[#fff7fa] to-surface px-6 pt-6 pb-4 sm:flex-nowrap">
+      <div className="flex flex-wrap items-start gap-4 bg-gradient-to-b from-[#fff7fa] to-surface dark:from-primary-faint px-6 pt-6 pb-4 sm:flex-nowrap">
         <Avatar name={influencer.name} className="size-16 text-xl" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -233,7 +233,7 @@ function CardBody({ card }: { card: CreatorCard }) {
               <Term label="Collaboration" value={collab ? capitalize(collab) : null} empty="Not agreed yet" />
             </div>
             {influencer.amazonTier ? (
-              <div className="rounded-2xl border border-[#fde3b0] bg-warning-soft/60 px-4 py-3.5 text-sm">
+              <div className="rounded-2xl border border-[#fde3b0] bg-warning-soft/60 dark:border-[#4a3a1c] px-4 py-3.5 text-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <p className="font-extrabold text-foreground">Amazon Creator Connections · <span className="capitalize">{influencer.amazonTier}</span></p>
                   {influencer.amazonMonthlyGmvUsd !== null ? <p className="font-semibold text-muted-foreground">{formatDollars(influencer.amazonMonthlyGmvUsd)} a month on Amazon</p> : null}
@@ -343,12 +343,12 @@ function PlatformIcon({ platform }: { platform: string }) {
 
 function StatTile({ icon, label, value, note, good }: { icon: React.ReactNode; label: string; value: string; note: string; good?: boolean }) {
   return (
-    <div className={cn("grid content-start gap-1 rounded-2xl border px-4 py-3.5", good && "border-[#c9f0d8] bg-[#f6fef9]")}>
+    <div className={cn("grid content-start gap-1 rounded-2xl border px-4 py-3.5", good && "border-[#c9f0d8] bg-[#f6fef9] dark:border-[#1f4a33] dark:bg-success-soft")}>
       <p className={cn("label flex items-center gap-1.5", good && "text-success-text")}>
         {icon}
         {label}
       </p>
-      <p className={cn("stat-number text-[28px]", good && "text-[#166534]")}>{value}</p>
+      <p className={cn("stat-number text-[28px]", good && "text-[#166534] dark:text-success-text")}>{value}</p>
       <p className="text-[12.5px] font-semibold text-muted-foreground">{note}</p>
     </div>
   );
@@ -368,7 +368,7 @@ function MiniStat({ icon, value, label }: { icon: React.ReactNode; value: string
 
 function Term({ label, value, empty }: { label: string; value: string | null; empty: string }) {
   return (
-    <div className="rounded-xl border border-dashed border-[#e2c3cf] bg-[#fffafc] px-3.5 py-3">
+    <div className="rounded-xl border border-dashed border-[#e2c3cf] bg-[#fffafc] dark:border-[#4a2a37] dark:bg-primary-faint px-3.5 py-3">
       <p className="label">{label}</p>
       <p className={cn("mt-0.5 font-bold", value ? "text-foreground" : "text-muted-foreground")}>{value ?? empty}</p>
     </div>
@@ -405,7 +405,7 @@ function Bars({ data, color }: { data: { label: string; value: number; hint: str
             <title>{`${point.label}: ${point.hint}`}</title>
             <rect x={x} y={height - h} width={bar} height={h} rx={3} fill={color} opacity={point.value === 0 ? 0.25 : 0.9} />
             {data.length <= 8 ? (
-              <text x={x + bar / 2} y={height + 13} textAnchor="middle" fontSize="9" fill="#6b7280">
+              <text x={x + bar / 2} y={height + 13} textAnchor="middle" fontSize="9" fill="#6b7280" className="dark:fill-muted-foreground">
                 {point.label.replace(/,.*$/, "")}
               </text>
             ) : null}
@@ -440,7 +440,7 @@ function MonthBars({ months }: { months: CreatorCard["months"] }) {
               <rect x={x - bar - 1} y={height - giftH} width={bar} height={giftH} rx={3} fill="#d97706" opacity={0.85} />
               <rect x={x + 1} y={height - postH} width={bar} height={postH} rx={3} fill="#16a34a" opacity={0.85} />
               {maxSales > 0 && point.salesUsd > 0 ? <circle cx={x} cy={height - Math.round((point.salesUsd / maxSales) * (height - 10)) - 5} r={4} fill="var(--primary)" /> : null}
-              <text x={x} y={height + 13} textAnchor="middle" fontSize="9" fill="#6b7280">
+              <text x={x} y={height + 13} textAnchor="middle" fontSize="9" fill="#6b7280" className="dark:fill-muted-foreground">
                 {point.label}
               </text>
             </g>

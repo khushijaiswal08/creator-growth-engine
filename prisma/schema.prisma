@@ -666,6 +666,11 @@ model BrandSettings {
   weeklyMessageTarget   Int      @default(100)
   // Where the Message button opens Amazon Creator Connections for this brand (each brand has its own Ads account).
   creatorConnectionsUrl String?
+  // Automatic Amazon orders (src/lib/mcf-auto.ts): off until an admin switches them on for the brand. Approved gifts
+  // wait mcfAutoHoldMinutes after approval (time to catch a mistake), and at most mcfAutoDailyCap go in 24 hours.
+  mcfAutoSend           Boolean  @default(false)
+  mcfAutoHoldMinutes    Int      @default(30)
+  mcfAutoDailyCap       Int      @default(10)
   updatedById           String?
   updatedAt             DateTime @updatedAt
 

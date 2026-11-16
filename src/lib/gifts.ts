@@ -87,7 +87,43 @@ export async function approvalChecks(
   return checkGiftRules({ ...order, lastGiftAt: earlier?.createdAt ?? null, now: existing?.createdAt ?? new Date() });
 }
 
+type StoredOrderFacts = Parameters<typeof approvalChecks>[0] & { id: string; createdAt: Date };
+
+/**
+ * approvalChecks for many existing orders at once, keyed by order id: one query
+ * for everyone's earlier gifts instead of one per order. Each order gets the same
+ * "earlier gift" as approvalChecks(order, existing) would find. Like that lookup,
+ * it counts gifts from every brand on purpose.
+ */
+export async function approvalChecksForOrders(orders: StoredOrderFacts[]): Promise<Map<string, RuleCheck[]>> {
+  const checks = new Map<string, RuleCheck[]>();
+  if (orders.length === 0) return checks;
+  const gifts = await db.giftOrder.findMany({
+    where: { status: { not: "cancelled" }, campaignCreator: { influencerId: { in: [...new Set(orders.map((order) => order.influencerId))] } } },
+    select: { id: true, createdAt: true, campaignCreator: { select: { influencerId: true } } },
+  });
+  for (const { id, createdAt, ...order } of orders) {
+    let lastGiftAt: Date | null = null;
+    for (const gift of gifts) {
+      if (gift.campaignCreator.influencerId !== order.influencerId || gift.id === id || gift.createdAt >= createdAt) continue;
+      if (!lastGiftAt || gift.createdAt > lastGiftAt) lastGiftAt = gift.createdAt;
+    }
+    checks.set(id, checkGiftRules({ ...order, lastGiftAt, now: createdAt }));
+  }
+  return checks;
+}
+
 /** Short reference used as the order id in the Amazon bulk file, so tracking can be matched back. */
 export function giftReference(id: string): string {
   return `CGE-${id.slice(-10).toUpperCase()}`;
+}
+
+/**
+ * The phone number as it goes into the Amazon file. The CSV writer puts an apostrophe before a value that
+ * starts with "+", so a spreadsheet does not run it as a formula; Amazon would then receive "'+1 512...".
+ * Dropping the leading "+" keeps the number (country code included) and needs no apostrophe.
+ */
+export function amazonPhoneNumber(phone: string | null): string | null {
+  const plain = phone?.trim().replace(/^\+\s*/, "") ?? "";
+  return plain || null;
 }

@@ -66,32 +66,58 @@ function rounded(totals: AttributionTotals): AttributionTotals {
   };
 }
 
-/** The stat rows of these creators' links that touch the period (all of them without one), with each row's share inside it. */
-async function rowsFor(creators: Prisma.CampaignCreatorWhereInput, range?: Range) {
+/** Which stat rows of these creators' links touch the period (all of them without one), and each row's share inside it. */
+function statFilter(creators: Prisma.CampaignCreatorWhereInput, range?: Range) {
   const fromDay = range ? zoneDay(range.from) : null;
   const toDay = range ? zoneDay(range.to) : null;
-  const rows = await db.attributionStat.findMany({
+  return {
     where: { link: { campaignCreator: creators }, ...(fromDay && toDay ? { periodStart: { lt: toDay }, periodEnd: { gte: fromDay } } : {}) },
-    select: { ...STAT_SELECT, link: { select: { campaignCreatorId: true, campaignCreator: { select: { influencerId: true } } } } },
-  });
-  return rows.map((row) => ({ row, share: fromDay && toDay ? shareInside(row, fromDay, toDay) : 1 }));
+    share: (row: { periodStart: Date; periodEnd: Date }) => (fromDay && toDay ? shareInside(row, fromDay, toDay) : 1),
+  };
 }
 
-/** Everything the links of these creators brought in, optionally within a period. */
-export async function attributionTotals(creators: Prisma.CampaignCreatorWhereInput, range?: Range): Promise<AttributionTotals> {
+/** The stat rows of these creators' links that touch the period (all of them without one), with each row's share inside it. */
+async function rowsFor(creators: Prisma.CampaignCreatorWhereInput, range?: Range) {
+  const { where, share } = statFilter(creators, range);
+  const rows = await db.attributionStat.findMany({
+    where,
+    select: { ...STAT_SELECT, link: { select: { campaignCreatorId: true, campaignCreator: { select: { influencerId: true } } } } },
+  });
+  return rows.map((row) => ({ row, share: share(row) }));
+}
+
+function totalOf(rows: { row: StatRow; share: number }[]): AttributionTotals {
   let totals = { ...EMPTY_TOTALS };
-  for (const { row, share } of await rowsFor(creators, range)) totals = addRow(totals, row, share);
+  for (const { row, share } of rows) totals = addRow(totals, row, share);
   return rounded(totals);
 }
 
-/** The same, per influencer (across their campaigns), for tables of creators. */
-export async function attributionByInfluencer(creators: Prisma.CampaignCreatorWhereInput, range?: Range): Promise<Map<string, AttributionTotals>> {
+function byInfluencerOf(rows: { row: StatRow & { link: { campaignCreator: { influencerId: string } } }; share: number }[]): Map<string, AttributionTotals> {
   const sums = new Map<string, AttributionTotals>();
-  for (const { row, share } of await rowsFor(creators, range)) {
+  for (const { row, share } of rows) {
     const key = row.link.campaignCreator.influencerId;
     sums.set(key, addRow(sums.get(key) ?? { ...EMPTY_TOTALS }, row, share));
   }
   return new Map([...sums].map(([key, totals]) => [key, rounded(totals)]));
+}
+
+/** Everything the links of these creators brought in, optionally within a period. */
+export async function attributionTotals(creators: Prisma.CampaignCreatorWhereInput, range?: Range): Promise<AttributionTotals> {
+  // The totals never look at which creator a row belongs to, so the rows come without their link: one query instead of three levels.
+  const { where, share } = statFilter(creators, range);
+  const rows = await db.attributionStat.findMany({ where, select: STAT_SELECT });
+  return totalOf(rows.map((row) => ({ row, share: share(row) })));
+}
+
+/** The same, per influencer (across their campaigns), for tables of creators. */
+export async function attributionByInfluencer(creators: Prisma.CampaignCreatorWhereInput, range?: Range): Promise<Map<string, AttributionTotals>> {
+  return byInfluencerOf(await rowsFor(creators, range));
+}
+
+/** Both of the above from one fetch of the rows, for a page that shows the totals and the per-creator figures of the same period. */
+export async function attributionTotalsAndByInfluencer(creators: Prisma.CampaignCreatorWhereInput, range?: Range): Promise<{ totals: AttributionTotals; byInfluencer: Map<string, AttributionTotals> }> {
+  const rows = await rowsFor(creators, range);
+  return { totals: totalOf(rows), byInfluencer: byInfluencerOf(rows) };
 }
 
 /** The same, per campaign record, so a creator's card can use Amazon's numbers campaign by campaign. */
@@ -125,14 +151,18 @@ export async function unitsByMonth(brandIds: string[], monthCount: number, now =
   const after = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
   const index = (date: Date) => months.findIndex((month) => month.getUTCFullYear() === date.getUTCFullYear() && month.getUTCMonth() === date.getUTCMonth());
 
-  const [sales, stats] = await Promise.all([
+  const [sales, stats, products] = await Promise.all([
     db.productMonthlySales.findMany({ where: { brandId: { in: brandIds }, month: { gte: first, lt: after } }, select: { month: true, unitsOrdered: true, orderedProductSales: true, product: { select: { title: true } } } }),
     db.attributionStat.findMany({
       where: { periodStart: { lt: after }, periodEnd: { gte: first }, link: { asin: { not: null }, campaignCreator: { campaign: { brandId: { in: brandIds } } } } },
       select: { periodStart: true, periodEnd: true, unitsSold: true, link: { select: { asin: true } } },
     }),
+    // Every catalogue title with an ASIN, loaded alongside rather than after the links are known.
+    db.product.findMany({ where: { brandId: { in: brandIds }, asin: { not: null } }, select: { asin: true, title: true } }),
   ]);
-  const asinTitles = new Map((await db.product.findMany({ where: { brandId: { in: brandIds }, asin: { in: [...new Set(stats.map((row) => row.link.asin!))] } }, select: { asin: true, title: true } })).map((product) => [product.asin!.toUpperCase(), product.title]));
+  // Only the products whose ASIN a link names exactly (the match is case-sensitive, as the database's would be).
+  const linkAsins = new Set(stats.map((row) => row.link.asin!));
+  const asinTitles = new Map(products.filter((product) => linkAsins.has(product.asin!)).map((product) => [product.asin!.toUpperCase(), product.title]));
 
   const groups = new Map<string, { title: string; units: number[]; sales: number[]; fromCreators: number[] }>();
   const group = (title: string) => {

@@ -23,12 +23,20 @@ export function selectionLinkExpired(creator: { selectionExpiresAt: Date | null;
  * The creator's private product-selection link. The token is long and random,
  * so the link cannot be guessed. It is reused while it is still valid; an
  * expired or used link is replaced by a fresh one with a new expiry.
+ * A caller that has just loaded the creator row passes its link fields as
+ * `known`, which saves re-reading them.
  */
-export async function ensureSelectionUrl(campaignCreatorId: string, now = new Date()): Promise<string> {
-  const existing = await db.campaignCreator.findUnique({
-    where: { id: campaignCreatorId },
-    select: { selectionToken: true, selectionExpiresAt: true, selectionUsedAt: true },
-  });
+export async function ensureSelectionUrl(
+  campaignCreatorId: string,
+  now = new Date(),
+  known?: { selectionToken: string | null; selectionExpiresAt: Date | null; selectionUsedAt: Date | null },
+): Promise<string> {
+  const existing =
+    known ??
+    (await db.campaignCreator.findUnique({
+      where: { id: campaignCreatorId },
+      select: { selectionToken: true, selectionExpiresAt: true, selectionUsedAt: true },
+    }));
   let token = existing?.selectionToken ?? null;
   if (!token || !existing || selectionLinkExpired(existing, now)) {
     token = newSelectionToken();

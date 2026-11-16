@@ -2,6 +2,7 @@
 
 import { cn } from "cn";
 import { CheckCircle2, Film, ImageIcon, UploadCloud, X } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { finishContentUpload, signContentUpload, startContentUpload } from "@/actions/content-upload";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function put(file: File, url: string, headers: Record<string, string>, onProgres
  * hands out the addresses and checks what arrived.
  */
 export function UploadForm({ token }: { token: string }) {
+  const router = useRouter();
   const [files, setFiles] = useState<File[]>([]);
   const [usage, setUsage] = useState("");
   const [postUrl, setPostUrl] = useState("");
@@ -101,6 +103,8 @@ export function UploadForm({ token }: { token: string }) {
       setProgress({});
       // Keep only the files that did not make it, so "Send" tries just those again.
       setFiles(batch.filter((_, index) => !arrived.has(index)));
+      // One refresh per batch updates "Already received" (the form keeps its state); never one per file.
+      if (arrived.size > 0) router.refresh();
       if (arrived.size === batch.length) {
         setDone(`Thank you! ${arrived.size} ${arrived.size === 1 ? "file has" : "files have"} arrived. You can send more with this link any time.`);
       } else if (arrived.size > 0) {

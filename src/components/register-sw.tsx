@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-/** Registers the tiny service worker that makes the portal installable (phones: Share to Creator Growth). */
+/** Registers the tiny service worker that makes the portal installable (phones: Share to Creator Setu). */
 export function RegisterServiceWorker() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;

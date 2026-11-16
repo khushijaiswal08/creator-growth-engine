@@ -15,7 +15,7 @@ export default function TermsPage() {
 
       <h2>Who may use this tool</h2>
       <p>
-        Creator Growth Engine is an internal tool of {COMPANY_NAME}, used for the brands {BRAND_NAMES}. Only people given an account by a {COMPANY_NAME}{" "}
+        Creator Setu is an internal tool of {COMPANY_NAME}, used for the brands {BRAND_NAMES}. Only people given an account by a {COMPANY_NAME}{" "}
         administrator may use it. Accounts are personal: do not share your password, and tell an administrator at once
         if you think someone else has used your account.
       </p>

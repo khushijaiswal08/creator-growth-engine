@@ -183,7 +183,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-[#f8f9fb] text-[11.5px] font-bold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
+              <tr className="bg-[#f8f9fb] dark:bg-surface-2 text-[11.5px] font-bold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
                 <th className="w-9 py-3 pr-1 pl-5 text-left">
                   <input
                     type="checkbox"
@@ -217,7 +217,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                       key={order.id}
                       onClick={() => setOpenId(order.id)}
                       data-rachna-point={order.status === "needs_approval" ? `Approve: ${order.creator.name}` : order.status === "shipped" ? `Check the parcel: ${order.creator.name}` : undefined}
-                      className={cn("cursor-pointer border-t border-[#f1f3f6] transition-colors hover:bg-[#fbfbfc]", (openId === order.id || selected.has(order.id)) && "bg-primary-faint hover:bg-primary-faint")}
+                      className={cn("cursor-pointer border-t border-[#f1f3f6] transition-colors hover:bg-[#fbfbfc] dark:border-border dark:hover:bg-surface-2", (openId === order.id || selected.has(order.id)) && "bg-primary-faint hover:bg-primary-faint dark:hover:bg-primary-faint")}
                     >
                       <td className="py-3.5 pr-1 pl-5" onClick={(event) => event.stopPropagation()}>
                         <input type="checkbox" aria-label={`Select the order for ${order.creator.name}`} checked={selected.has(order.id)} onChange={() => setSelected((current) => toggled(current, order.id))} />

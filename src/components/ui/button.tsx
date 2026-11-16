@@ -4,12 +4,12 @@ import { cn } from "cn"
 import { Slot } from "radix-ui"
 
 // The everyday white button; "outline" is kept as a second name for it because most call sites say so.
-const EVERYDAY = "border border-border-strong bg-surface text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:bg-[#f8fafc]"
+const EVERYDAY = "border border-border-strong bg-surface text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.05)] hover:bg-[#f8fafc] dark:hover:bg-surface-2"
 
 // Rounded, bold, and they answer back: a lift on hover, a press on click. One rose "action" button per screen;
 // everything else is white and outlined, a soft rose tint, or quiet.
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all duration-150 outline-none active:scale-[0.98] focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-2 rounded-xl text-sm font-bold whitespace-nowrap transition-all duration-150 outline-none active:scale-[0.98] focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:pointer-events-none disabled:opacity-45 dark:disabled:opacity-65 aria-invalid:border-destructive [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

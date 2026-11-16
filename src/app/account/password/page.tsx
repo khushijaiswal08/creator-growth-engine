@@ -18,13 +18,19 @@ export default async function PasswordPage() {
             : `Signed in as ${user.email}.`}
         </p>
         <PasswordForm />
-        {user.mustChangePassword ? null : (
-          <p className="mt-4 text-center">
+        <div className="mt-4 flex items-center justify-center gap-4 text-sm">
+          {user.mustChangePassword ? null : (
             <Link href="/today" className="link">
               Cancel
             </Link>
-          </p>
-        )}
+          )}
+          {/* Lets someone on a temporary password switch to another account. A plain form post: see src/app/logout/route.ts. */}
+          <form action="/logout" method="post">
+            <button type="submit" className="link">
+              Sign out
+            </button>
+          </form>
+        </div>
       </div>
     </main>
   );

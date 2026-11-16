@@ -50,7 +50,69 @@
 
   --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.035);
   --shadow-lift: 0 10px 24px rgba(15, 23, 42, 0.1);
+
+  /* Rachna's slot: the rose line, the glow behind her and the white of her cloud. */
+  --rachna-line: #f3cdd9;
+  --rachna-edge: #f0b9c9;
+  --rachna-ring: #f6c5d2;
+  --rachna-glow: #fff4f8;
+  --rachna-mark: #fff1f5;
+  --rachna-cloud: #ffffff;
+
+  color-scheme: light;
 }
+
+/*
+ * Dark theme: chosen per person under their name (top right), remembered in a cookie, and set on <html>
+ * before the page paints, so there is no white flash. Same rules as above: every text colour clears 4.5:1
+ * on the surface it sits on. The rose is lighter here, so the main button carries dark text.
+ */
+:root[data-theme="dark"] {
+  --background: #0e1014;
+  --surface: #171a21;
+  --surface-2: #1f232c;
+  --border: #262b35;
+  --border-strong: #323845;
+  --text: #e8eaf0;
+  --text-muted: #9aa3b2;
+  --text-faint: #6b7385;
+
+  --primary: #e47fa0;
+  --primary-deep: #ee9bb6;
+  --on-primary: #1a0d13;
+  --primary-soft: #3a1f2b;
+  --primary-faint: #2a1820;
+  --primary-text: #f2a9c1;
+  --accent-text: #b4bccb;
+
+  --input: #323845;
+
+  --info-soft: #172238;
+  --info-text: #8fb4ff;
+  --success-soft: #13261c;
+  --success-text: #6fd39a;
+  --warning-soft: #2a2112;
+  --warning-text: #f0b45c;
+  --danger-soft: #2d161c;
+  --danger-text: #ff8fa3;
+  --violet-soft: #221c38;
+  --violet-text: #b9a3ff;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
+  --shadow-lift: 0 10px 24px rgba(0, 0, 0, 0.45);
+
+  --rachna-line: #4a2a37;
+  --rachna-edge: #5a3343;
+  --rachna-ring: #5a3343;
+  --rachna-glow: #24161d;
+  --rachna-mark: #2a1820;
+  --rachna-cloud: #1f232c;
+
+  color-scheme: dark;
+}
+
+/* For the few places that need a different shade in dark: `dark:` follows the chosen theme, not the device. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
   --color-background: var(--background);
@@ -194,7 +256,7 @@
     @apply border-border-strong text-foreground;
   }
   .chip[aria-current] {
-    @apply border-foreground bg-foreground text-surface;
+    @apply border-foreground bg-foreground text-surface dark:border-primary/40 dark:bg-primary-faint dark:text-primary-text;
   }
 
   /* Underlined tabs across a page or a card. */
@@ -218,14 +280,14 @@
   /* Rachna, the guide: her slot, her glowing portrait, the cloud she speaks in, the ring and arrows on the page, her confetti. */
   .rachna-home {
     @apply rounded-2xl border p-3.5;
-    border-color: #f3cdd9;
-    background: linear-gradient(160deg, #fff4f8 0%, #ffffff 70%);
+    border-color: var(--rachna-line);
+    background: linear-gradient(160deg, var(--rachna-glow) 0%, var(--surface) 70%);
     box-shadow: 0 6px 18px rgba(178, 74, 107, 0.08);
   }
   .rachna-ring {
     box-shadow:
-      0 0 0 3px #fff,
-      0 0 0 6px #f6c5d2,
+      0 0 0 3px var(--surface),
+      0 0 0 6px var(--rachna-ring),
       0 6px 16px rgba(178, 74, 107, 0.25);
   }
   .rachna-float {
@@ -242,17 +304,17 @@
   }
   .rachna-cloud {
     position: relative;
-    filter: drop-shadow(0 1px 0 #f0b9c9) drop-shadow(0 -1px 0 #f0b9c9) drop-shadow(1px 0 0 #f0b9c9) drop-shadow(-1px 0 0 #f0b9c9) drop-shadow(0 8px 16px rgba(178, 74, 107, 0.1));
+    filter: drop-shadow(0 1px 0 var(--rachna-edge)) drop-shadow(0 -1px 0 var(--rachna-edge)) drop-shadow(1px 0 0 var(--rachna-edge)) drop-shadow(-1px 0 0 var(--rachna-edge)) drop-shadow(0 8px 16px rgba(178, 74, 107, 0.1));
   }
   .rachna-cloud > .body {
     position: relative;
-    background: #fff;
+    background: var(--rachna-cloud);
     border-radius: 22px;
     padding: 14px 16px 12px;
   }
   .rachna-cloud > .puff {
     position: absolute;
-    background: #fff;
+    background: var(--rachna-cloud);
     border-radius: 999px;
   }
   .rachna-spot {
@@ -262,13 +324,13 @@
   }
   /* A pointed row: a rose tint and an inset line, so stacked rows never collide. */
   .rachna-mark {
-    background: #fff1f5 !important;
-    box-shadow: inset 3px 0 0 var(--primary), inset 0 0 0 1px #f0b9c9;
+    background: var(--rachna-mark) !important;
+    box-shadow: inset 3px 0 0 var(--primary), inset 0 0 0 1px var(--rachna-edge);
   }
   .rachna-arrow {
     @apply inline-flex size-7 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-on-primary;
     box-shadow:
-      0 0 0 3px #fff,
+      0 0 0 3px var(--surface),
       0 4px 10px rgba(178, 74, 107, 0.35);
   }
   .rachna-arrow.fixed::after {

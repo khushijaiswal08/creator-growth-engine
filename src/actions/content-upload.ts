@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { finishUpload, signUpload, startUpload, type UploadRequest } from "@/lib/content-upload";
 import { callerIp, hitRateLimit, RATE_LIMITS } from "@/lib/rate-limit";
@@ -35,10 +34,9 @@ export async function signContentUpload(token: string, assetId: string): Promise
 /** PUBLIC: the browser reports a file it finished sending; it is checked in storage before it counts. */
 export async function finishContentUpload(token: string, assetIds: string[]): Promise<{ ok: true; received: number; missing: number } | { ok: false; error: string }> {
   if (await hitRateLimit(RATE_LIMITS.uploadFile, callerIp(await headers()))) return { ok: false, error: TOO_MANY_UPLOADS };
-  const result =await finishUpload(String(token ?? ""), Array.isArray(assetIds) ? assetIds.map(String) : []);
-  if (result.ok) {
-    revalidatePath("/content");
-    revalidatePath("/today");
-  }
-  return result;
+  // No revalidatePath here: from a Server Action it re-renders the caller's page, /upload/<token>, once per
+  // file, and every render counts against the page's view limit (60 in 10 minutes), so a creator sending a
+  // few batches was told "Too many requests" mid-upload. The form refreshes the page once per batch instead;
+  // the team's pages are rendered fresh for every signed-in request.
+  return finishUpload(String(token ?? ""), Array.isArray(assetIds) ? assetIds.map(String) : []);
 }

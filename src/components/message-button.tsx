@@ -2,7 +2,7 @@
 
 import type { CreatorStatus, TemplatePurpose } from "@prisma/client";
 import { createContext, useContext, useEffect, useRef, useState, useTransition } from "react";
-import { checkMessageAllowed, logOutboundMessage, type MessageAllowed } from "@/actions/messages";
+import { checkMessageAllowed, logOutboundMessage, productsForMessage, type MessageAllowed, type MessageProduct } from "@/actions/messages";
 import { NativeSelect } from "@/components/native-select";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,8 @@ export function useOpenComposer(): ((target: MessageTarget) => void) | null {
 }
 
 const PRODUCT_KEY = "cge:last-product";
+/** The Product type dropdown's last choice: type the product in your own words. */
+const OTHER_PRODUCT = "__other__";
 
 function readLastProduct(): string {
   try {
@@ -158,16 +160,25 @@ function ComposerDialog({
   const preferred: TemplatePurpose = target.purpose ?? purposeForStatus(target.status);
   // null while the server re-checks the suppression list for this creator.
   const [allowed, setAllowed] = useState<MessageAllowed | null>(null);
+  // Product: first the type (remembered from last time), then the exact piece of that type, by its real name.
+  // "Other" still lets someone type the words by hand.
+  const [lastType] = useState(readLastProduct);
+  const [typeProducts, setTypeProducts] = useState<{ type: string; items: MessageProduct[] } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    checkMessageAllowed(target.campaignCreatorId).then(
-      (result) => !cancelled && setAllowed(result),
+    // The remembered type's products come with the check, so the dialog does not wait on a second request.
+    checkMessageAllowed(target.campaignCreatorId, lastType === OTHER_PRODUCT ? undefined : lastType).then(
+      (result) => {
+        if (cancelled) return;
+        setAllowed(result);
+        if (result.ok && result.initialProducts) setTypeProducts(result.initialProducts);
+      },
       () => !cancelled && setAllowed({ ok: false, error: "Could not check the suppression list. Try again." }),
     );
     return () => {
       cancelled = true;
     };
-  }, [target.campaignCreatorId]);
+  }, [target.campaignCreatorId, lastType]);
 
   // The ways to reach them: what the caller knew, widened by what the server knows (email, Creator Connections).
   const destinations = destinationsFor({
@@ -179,7 +190,25 @@ function ComposerDialog({
   const destination = destinations.find((item) => item.key === destinationKey) ?? defaultDestination(destinations, target.status);
 
   const [templateId, setTemplateId] = useState(() => pickTemplate(templates, preferred, destination?.channel ?? "dm")?.id ?? "");
-  const [product, setProduct] = useState(readLastProduct);
+  const [chosenType, setChosenType] = useState<string | null>(null);
+  const productTypes = allowed?.ok ? allowed.productTypes : [];
+  const productType = chosenType ?? (lastType === OTHER_PRODUCT || productTypes.includes(lastType) ? lastType : "");
+  const [productId, setProductId] = useState("");
+  const [otherText, setOtherText] = useState("");
+  useEffect(() => {
+    if (!productType || productType === OTHER_PRODUCT || typeProducts?.type === productType) return;
+    let cancelled = false;
+    productsForMessage(target.campaignCreatorId, productType).then(
+      (items) => !cancelled && setTypeProducts({ type: productType, items }),
+      () => !cancelled && setTypeProducts({ type: productType, items: [] }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [productType, target.campaignCreatorId, typeProducts?.type]);
+  const productItems = typeProducts?.type === productType ? typeProducts.items : null;
+  const product =
+    productType === OTHER_PRODUCT ? otherText : (productItems?.find((item) => item.id === productId)?.phrase ?? "");
   // Manual edits to the message; cleared when a choice above changes.
   const [edited, setEdited] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -258,7 +287,7 @@ function ComposerDialog({
       opened = tab !== null;
     }
 
-    saveLastProduct(product);
+    saveLastProduct(productType);
 
     startTransition(async () => {
       const [copiedLate, logged] = await Promise.all([
@@ -335,7 +364,7 @@ function ComposerDialog({
         </DialogDescription>
       </DialogHeader>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid items-start gap-3 sm:grid-cols-3">
         <div className="grid gap-1.5">
           <Label htmlFor="msg-destination">Send via</Label>
           <NativeSelect id="msg-destination" value={destination?.key ?? ""} onChange={(event) => chooseDestination(event.target.value)}>
@@ -366,18 +395,67 @@ function ComposerDialog({
           </NativeSelect>
         </div>
         <div className="grid gap-1.5">
-          <Label htmlFor="msg-product">Product</Label>
-          <Input
-            id="msg-product"
-            value={product}
-            placeholder="e.g. our block-print tablecloth"
+          <Label htmlFor="msg-product-type">Product type</Label>
+          <NativeSelect
+            id="msg-product-type"
+            value={productType}
+            disabled={!allowed}
             onChange={(event) => {
-              setProduct(event.target.value);
+              setChosenType(event.target.value);
+              // A new type starts with no piece chosen, so the last one never slips into the message.
+              setProductId("");
+              setOtherText("");
+              setEdited(null);
+            }}
+          >
+            <option value="">{allowed ? "Choose a type" : "Loading products…"}</option>
+            {productTypes.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+            <option value={OTHER_PRODUCT}>Other (type it)</option>
+          </NativeSelect>
+        </div>
+      </div>
+
+      {productType === OTHER_PRODUCT ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor="msg-product-other">Product, in your own words</Label>
+          <Input
+            id="msg-product-other"
+            value={otherText}
+            placeholder="e.g. our Christmas table set"
+            autoFocus={chosenType === OTHER_PRODUCT}
+            onChange={(event) => {
+              setOtherText(event.target.value);
               setEdited(null);
             }}
           />
         </div>
-      </div>
+      ) : productType ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor="msg-product">Product</Label>
+          <NativeSelect
+            id="msg-product"
+            value={productId}
+            disabled={!productItems || productItems.length === 0}
+            onChange={(event) => {
+              setProductId(event.target.value);
+              setEdited(null);
+            }}
+          >
+            <option value="">
+              {!productItems ? "Loading…" : productItems.length === 0 ? "No products of this type" : `Choose one of ${productItems.length} ${productType.toLowerCase()} products`}
+            </option>
+            {(productItems ?? []).map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+      ) : null}
 
       <div className="grid gap-1.5">
         <Label htmlFor="msg-body">Message</Label>

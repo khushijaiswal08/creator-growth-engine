@@ -76,7 +76,7 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="bg-[#f8f9fb] text-[11.5px] font-bold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
+            <tr className="bg-[#f8f9fb] dark:bg-surface-2 text-[11.5px] font-bold tracking-[0.06em] whitespace-nowrap text-muted-foreground uppercase">
               <th className="w-9 py-3 pr-1 pl-5 text-left">
                 <input
                   type="checkbox"
@@ -105,7 +105,7 @@ export function InviteBackTable({ rows, campaign }: { rows: InviteBackRow[]; cam
               rows.map((row) => {
                 const can = row.invitable;
                 return (
-                  <tr key={row.id} className={cn("border-t border-[#f1f3f6]", selected.has(row.id) && can && "bg-primary-faint", !can && "text-muted-foreground")}>
+                  <tr key={row.id} className={cn("border-t border-[#f1f3f6] dark:border-border", selected.has(row.id) && can && "bg-primary-faint", !can && "text-muted-foreground")}>
                     <td className="py-3.5 pr-1 pl-5">
                       <input type="checkbox" aria-label={`Select ${row.name}`} disabled={!can} checked={can && selected.has(row.id)} onChange={() => setSelected((current) => toggled(current, row.id))} />
                     </td>

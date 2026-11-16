@@ -30,11 +30,19 @@ type TrackRecord = {
 const EMPTY: TrackRecord = { gifts: 0, delivered: 0, noContent: 0, pending: 0, posts: 0 };
 
 export async function trackRecordFor(influencerIds: string[], scope: BrandScope): Promise<Map<string, TrackRecord>> {
-  const records = new Map<string, TrackRecord>();
-  if (influencerIds.length === 0) return records;
+  if (influencerIds.length === 0) return new Map();
+  return trackRecordWhere({ influencerId: { in: influencerIds } }, scope);
+}
 
+/**
+ * The same records for the creators a filter picks, so a list can start this
+ * query alongside its own instead of waiting for the ids. The scope is always
+ * applied on top of the filter.
+ */
+export async function trackRecordWhere(where: Prisma.CampaignCreatorWhereInput, scope: BrandScope): Promise<Map<string, TrackRecord>> {
+  const records = new Map<string, TrackRecord>();
   const links = await db.campaignCreator.findMany({
-    where: { influencerId: { in: influencerIds }, ...scope.creators },
+    where: { ...where, ...scope.creators },
     select: {
       influencerId: true,
       status: true,

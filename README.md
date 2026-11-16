@@ -1,4 +1,4 @@
-# Creator Growth Engine
+# Creator Setu
 
 Internal portal for the marketing team to find, qualify, contact and track US creators on
 Instagram, TikTok and YouTube. It replaces the Excel sheet.
@@ -537,7 +537,7 @@ Gifts, More) with Content, Reports, Import, Settings, Admin and the profile in t
 the check screen show cards instead of table rows; buttons and fields are thumb-sized; the Message
 and profile dialogs fill the screen. Bookmarklets cannot be dragged to a bar on a phone, so Today
 has a "Check a profile" box to paste a link into, and the portal is installable: on Android
-(Chrome), Add to Home screen once, and "Creator Growth" then appears in Instagram's Share menu and
+(Chrome), Add to Home screen once, and "Creator Setu" then appears in Instagram's Share menu and
 opens the check screen with the profile filled in (`public/manifest.webmanifest`, share target
 `/influencers/new`). On iPhone, Safari has no share target for web apps: copy the profile link and
 paste it into the box. Admin screens were left as they are.

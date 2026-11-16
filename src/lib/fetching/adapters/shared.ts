@@ -49,7 +49,10 @@ export function matchesNegative(text: string, negativeKeywords: string[]): boole
 
 export function clip(text: string, max: number): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+  if (clean.length <= max) return clean;
+  // Never end on half of an emoji or styled letter: drop a lone high surrogate left by the cut.
+  const cut = clean.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "");
+  return `${cut}…`;
 }
 
 /** Runs `worker` over `items` with at most `limit` in flight. Stops handing out work once `shouldStop()` is true. */

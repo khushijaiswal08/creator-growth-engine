@@ -398,7 +398,7 @@ export function RachnaPortrait({ pose, size = 80, lively, className }: { pose: R
         style={{ backgroundImage: "url(/rachna/rachna.webp)", backgroundSize: "150% auto", backgroundPosition: "50% 0" }}
       />
       {pose === "think" ? <span className={cn(BADGE, small ? "size-4 text-[10px]" : "size-6 text-[13px]", "bg-surface text-foreground")}>?</span> : null}
-      {pose === "worried" ? <span className={cn(BADGE, small ? "size-4 text-[10px]" : "size-6 text-[13px]", "border-[#f3d9a4] bg-warning-soft text-warning-text")}>!</span> : null}
+      {pose === "worried" ? <span className={cn(BADGE, small ? "size-4 text-[10px]" : "size-6 text-[13px]", "border-[#f3d9a4] bg-warning-soft dark:border-[#5c4417] text-warning-text")}>!</span> : null}
       {pose === "happy" ? (
         <span className={cn(BADGE, small ? "size-4" : "size-6", "bg-surface")}>
           <Heart className={cn("fill-[#e8647f] text-[#e8647f]", small ? "size-2.5" : "size-3.5")} />
@@ -639,7 +639,7 @@ function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] 
     // grid-cols-1 keeps the column to the card's width; an auto column would grow to the longest quest.
     <div className="mt-3 grid grid-cols-1 gap-3">
       <Link href="/today#tasks-card" title="Open today's list" aria-label="Open today's list" className="block rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/35">
-        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#f6dbe4]">
+        <span aria-hidden className="block h-2 overflow-hidden rounded-full bg-[#f6dbe4] dark:bg-[color:var(--rachna-line)]">
           <span className="rachna-quest-bar block h-full rounded-full bg-gradient-to-r from-[#c95f84] to-primary" style={{ width: `${Math.round(questProgress(quests) * 100)}%` }} />
         </span>
       </Link>
@@ -649,7 +649,7 @@ function QuestList({ quests }: { quests: ReturnType<typeof useQuests>["quests"] 
           return (
             <li key={quest.key}>
               <Link href={quest.href} className="flex items-center gap-2.5 rounded-lg text-[13px] font-semibold text-foreground outline-none hover:text-primary focus-visible:ring-[3px] focus-visible:ring-ring/35">
-                <span aria-hidden className={cn("flex size-[18px] shrink-0 items-center justify-center rounded-full border-2", finished ? "border-primary bg-primary text-on-primary" : "border-[#e3c2cd] bg-surface")}>
+                <span aria-hidden className={cn("flex size-[18px] shrink-0 items-center justify-center rounded-full border-2", finished ? "border-primary bg-primary text-on-primary" : "border-[#e3c2cd] bg-surface dark:border-[color:var(--rachna-edge)]")}>
                   {finished ? <Check className="size-2.5" strokeWidth={3.5} /> : null}
                 </span>
                 <span className={cn("min-w-0 flex-1 leading-snug", finished && "text-muted-foreground line-through")}>{quest.label}</span>

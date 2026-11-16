@@ -38,7 +38,7 @@ export function SendToAmazon({ gift }: { gift: AmazonGift }) {
 
   if (gift.sentAt) {
     return (
-      <div className="rounded-xl border border-[#d8f0e3] bg-success-soft/50 px-4 py-3 text-sm">
+      <div className="rounded-xl border border-[#d8f0e3] bg-success-soft/50 dark:border-[#1f4a33] px-4 py-3 text-sm">
         <p className="flex items-center gap-2 font-bold text-foreground">
           <PackageCheck className="size-4 text-success-text" /> Sent to Amazon as {gift.reference}
         </p>

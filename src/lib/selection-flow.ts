@@ -26,7 +26,8 @@ type SelectionResult =
   | { ok: false; error: string }
   | { ok: true; approved: boolean; campaignId: string; influencerId: string };
 
-const LINK_INACTIVE ="This link is no longer active. Please reply to our message and we will send a new one.";
+// Worded like the page a spent link opens on: a creator who confirmed in another tab is told their choice is in.
+const LINK_INACTIVE ="This link is no longer active. If you have already chosen your gift, your choice is in. Otherwise, reply to our message and we will send you a new one.";
 
 /**
  * Records a creator's product choice and shipping address. The long random

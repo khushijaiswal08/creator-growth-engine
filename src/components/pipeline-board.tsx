@@ -181,7 +181,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
           const visible = expanded[lane.key] ? inLane : inLane.slice(0, SHOWN);
           return (
             <section key={lane.key} aria-label={lane.label} {...dropZone(lane)} className="min-w-0">
-              <div className={cn("grid min-h-[160px] grid-cols-1 content-start gap-2.5 rounded-[18px] p-3 transition-colors", over === lane.key ? "bg-primary-faint ring-[3px] ring-primary/20" : "bg-[#eef0f4]")}>
+              <div className={cn("grid min-h-[160px] grid-cols-1 content-start gap-2.5 rounded-[18px] p-3 transition-colors", over === lane.key ? "bg-primary-faint ring-[3px] ring-primary/20" : "bg-[#eef0f4] dark:bg-surface/50 dark:ring-1 dark:ring-inset dark:ring-border")}>
                 <h3 className="flex items-center gap-2 px-1 pt-1 pb-1.5 text-[14px] font-extrabold">
                   <span aria-hidden className="size-[9px] rounded-full" style={{ backgroundColor: lane.color }} />
                   {lane.label}
@@ -207,7 +207,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                       onDragEnd={() => setDragging(null)}
                       data-rachna-point={dueNow && verb ? `${verb}: ${card.name}` : undefined}
                       className={cn(
-                        "grid min-w-0 cursor-grab grid-cols-1 gap-3 rounded-[14px] border border-transparent bg-surface p-[13px] shadow-[0_1px_2px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-[#f3cdd9] hover:shadow-[var(--shadow-lift)] active:cursor-grabbing",
+                        "grid min-w-0 cursor-grab grid-cols-1 gap-3 rounded-[14px] border border-transparent bg-surface p-[13px] shadow-[0_1px_2px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-[color:var(--rachna-line)] hover:shadow-[var(--shadow-lift)] active:cursor-grabbing",
                         card.warmth === "hot" && dueNow ? "border-l-[3px] border-l-primary" : late && "border-l-[3px] border-l-[#e11d48]",
                         dragging === card.id && "opacity-50",
                       )}
@@ -249,7 +249,7 @@ export function PipelineBoard({ cards, done, reviewHref, listHref, now }: { card
                   <button
                     type="button"
                     onClick={() => setExpanded((current) => ({ ...current, [lane.key]: !current[lane.key] }))}
-                    className="h-9 rounded-xl border-[1.5px] border-dashed border-[#d5d9e0] text-[13px] font-bold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-surface hover:text-foreground"
+                    className="h-9 rounded-xl border-[1.5px] border-dashed border-[#d5d9e0] dark:border-[#3a404d] text-[13px] font-bold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-surface hover:text-foreground"
                   >
                     {expanded[lane.key] ? "Show fewer" : `+ ${inLane.length - SHOWN} more`}
                   </button>

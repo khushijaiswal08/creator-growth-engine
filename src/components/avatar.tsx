@@ -1,9 +1,13 @@
 import { cn } from "cn";
 
-function initials(name: string): string {
+export function initials(name: string): string {
   const parts = name.trim().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
-  return ((parts[0][0] ?? "") + (parts.length > 1 ? (parts[parts.length - 1][0] ?? "") : (parts[0][1] ?? ""))).toUpperCase();
+  // Whole characters, not UTF-16 halves: styled names (𝓐𝓷𝓷𝓪, 𝐀𝐧𝐧𝐚) use letters outside the basic range, and
+  // cutting one in half shows a broken glyph that differs between server and browser (React error 418).
+  const first = Array.from(parts[0]);
+  const last = Array.from(parts[parts.length - 1]);
+  return ((first[0] ?? "") + (parts.length > 1 ? (last[0] ?? "") : (first[1] ?? ""))).toUpperCase();
 }
 
 // Five soft tints, chosen by the name, so a list of people is easy to scan. Each text colour clears 4.5:1 on its tint.

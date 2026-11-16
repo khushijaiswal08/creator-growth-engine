@@ -181,7 +181,7 @@ export default async function NewInfluencerPage({
             this screen opens with that profile already filled in and checked.
           </p>
           <div>
-            <BookmarkletLink portalUrl={portalUrl} label="Check in Creator Growth Engine" />
+            <BookmarkletLink portalUrl={portalUrl} label="Check in Creator Setu" />
           </div>
           <p className="text-xs text-muted-foreground">
             If the bookmarks bar is hidden, press Ctrl+Shift+B in Chrome or Edge. The bookmark points at {portalUrl}; make a new one

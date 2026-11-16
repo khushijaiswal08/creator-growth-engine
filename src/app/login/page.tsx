@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { LogoMark } from "@/components/logo";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -13,7 +14,8 @@ export default async function LoginPage({
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-sm card p-7">
-        <h1 className="text-2xl">Creator Growth Engine</h1>
+        <LogoMark className="mb-4 size-12" />
+        <h1 className="text-2xl">Creator Setu</h1>
         <p className="mt-1 mb-5 text-muted-foreground">Sign in with your team account.</p>
         <LoginForm callbackUrl={callbackUrl ?? ""} />
       </div>

@@ -15,7 +15,7 @@ export default function PrivacyPage() {
 
       <h2>What this tool is</h2>
       <p>
-        Creator Growth Engine is an internal tool used by the {COMPANY_NAME} marketing team, for its brands {BRAND_NAMES},
+        Creator Setu is an internal tool used by the {COMPANY_NAME} marketing team, for its brands {BRAND_NAMES},
         to find, review, contact and keep track of social media creators we would like to work with. It is not open to the public and has no
         sign-up.
       </p>

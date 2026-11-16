@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { inBatches } from "@/lib/batches";
 import { db } from "@/lib/db";
 import { DAY_MS, dayValueInZone, parseDayInZone, startOfMonthInZone, startOfQuarterInZone, startOfWeekInZone, wholePercent } from "@/lib/format";
 import { TIDY_NOTE } from "@/lib/tidy-up-rules";
@@ -118,6 +119,17 @@ export async function figuresFor(range: { from: Date; to: Date }, campaign: Pris
   return { creatorsAdded, messages, replies, contacted, agreed, giftsOrdered, giftsShipped, giftsDelivered, posted, completed, noContent, contentRate: wholePercent(posted, finished) };
 }
 
+/** Only the content rate and its post count, with the same filters as figuresFor: Home shows nothing else, so it skips the other nine counts. */
+export async function contentRateFor(range: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<Pick<Figures, "posted" | "contentRate">> {
+  const at = { gte: range.from, lt: range.to };
+  const inCampaign = { campaignCreator: { campaign } };
+  const [posted, noContent] = await Promise.all([
+    db.post.count({ where: { createdAt: at, ...inCampaign } }),
+    db.activity.count({ where: { kind: "status_change", createdAt: at, body: { contains: " to No content delivered" }, NOT: { body: { startsWith: TIDY_NOTE } }, ...inCampaign } }),
+  ]);
+  return { posted, contentRate: wholePercent(posted, posted + noContent) };
+}
+
 /** Rachna's reading of replies in a period: how many, how many hot, how often the team agreed, how fast hot ones were answered. */
 export type ReadingFigures = { repliesRead: number; hot: number; accuracy: number | null; hotAnsweredInDay: number | null };
 
@@ -142,13 +154,14 @@ export async function readingFiguresFor(range: { from: Date; to: Date }, campaig
   return { repliesRead: read.length, hot: hot.length, accuracy: wholePercent(agreed, read.length), hotAnsweredInDay };
 }
 
-type Bucket = { from: Date; to: Date; unit: "week" | "month"; label: string; figures: Figures };
+type BucketRange = { from: Date; to: Date; unit: "week" | "month"; label: string };
+type Bucket = BucketRange & { figures: Figures };
 
 /** The period split into weeks (short periods) or months (long ones), oldest first. */
-export async function bucketsFor(period: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<Bucket[]> {
+function bucketRanges(period: { from: Date; to: Date }): BucketRange[] {
   const days = (period.to.getTime() - period.from.getTime()) / DAY_MS;
   const byMonth = days > 70;
-  const buckets: Bucket[] = [];
+  const ranges: BucketRange[] = [];
   let cursor = byMonth ? startOfMonthInZone(period.from) : startOfWeekInZone(period.from);
   if (cursor < period.from) cursor = period.from;
   let guard = 0;
@@ -156,10 +169,30 @@ export async function bucketsFor(period: { from: Date; to: Date }, campaign: Pri
     guard += 1;
     const next = byMonth ? monthsLater(startOfMonthInZone(new Date(cursor.getTime() + DAY_MS)), 1) : new Date(startOfWeekInZone(new Date(cursor.getTime() + DAY_MS)).getTime() + 7 * DAY_MS);
     const end = next > period.to ? period.to : next;
-    buckets.push({ from: cursor, to: end, unit: byMonth ? "month" : "week", label: byMonth ? dayValueInZone(cursor).slice(0, 7) : `Week of ${dayValueInZone(cursor)}`, figures: await figuresFor({ from: cursor, to: end }, campaign) });
+    ranges.push({ from: cursor, to: end, unit: byMonth ? "month" : "week", label: byMonth ? dayValueInZone(cursor).slice(0, 7) : `Week of ${dayValueInZone(cursor)}` });
     cursor = end;
   }
-  return buckets;
+  return ranges;
+}
+
+/** Every figure per bucket of the period, oldest first. */
+export async function bucketsFor(period: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<Bucket[]> {
+  // Two buckets of eleven counts each at a time: the report page runs other figures alongside, so this keeps
+  // the number of queries in flight well inside the connection pool (see src/lib/batches.ts).
+  return inBatches(bucketRanges(period), 2, async (range) => ({ ...range, figures: await figuresFor(range, campaign) }));
+}
+
+/** Messages and replies only, per bucket of the period, oldest first: the same counts as figuresFor, for the trend chart, which shows nothing else. */
+export async function messageTrendFor(period: { from: Date; to: Date }, campaign: Prisma.CampaignWhereInput): Promise<{ from: Date; messages: number; replies: number }[]> {
+  // Two counts per bucket, four buckets at a time.
+  return inBatches(bucketRanges(period), 4, async (range) => {
+    const at = { gte: range.from, lt: range.to };
+    const [messages, replies] = await Promise.all([
+      db.message.count({ where: { direction: "outbound", sentAt: at, campaignCreator: { campaign } } }),
+      db.message.count({ where: { direction: "inbound", sentAt: at, campaignCreator: { campaign } } }),
+    ]);
+    return { from: range.from, messages, replies };
+  });
 }
 
 /** The period of the same length just before this one, for the "vs previous" comparison. */

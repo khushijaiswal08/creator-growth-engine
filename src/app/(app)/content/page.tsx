@@ -47,8 +47,11 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
   const view = viewed(user);
   const params = await searchParams;
 
-  const campaigns = await db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
-  const chosen = campaigns.find((campaign) => campaign.id === params.campaign) ?? null;
+  const loadCampaigns = () => db.campaign.findMany({ where: openCampaignIn(view), orderBy: { name: "asc" }, select: { id: true, name: true } });
+  // A ?campaign= choice is checked against this list before it narrows anything (an unknown or
+  // out-of-scope id falls back to every campaign); without one, the list loads alongside the rest.
+  const known = params.campaign ? await loadCampaigns() : null;
+  const chosen = known?.find((campaign) => campaign.id === params.campaign) ?? null;
   const tab = params.tab === "posts" ? "posts" : "files";
   const filter = FILE_FILTERS.find((option) => option.key === params.files) ?? FILE_FILTERS[0];
   const creatorScope: Prisma.CampaignCreatorWhereInput = { ...view.creators, ...(chosen ? { campaignId: chosen.id } : {}) };
@@ -65,7 +68,8 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     return `/content${query.size ? `?${query}` : ""}`;
   };
 
-  const [fileCounts, assets, posts, total] = await Promise.all([
+  const [campaigns, fileCounts, assets, posts, total] = await Promise.all([
+    known ?? loadCampaigns(),
     db.contentAsset.groupBy({ by: ["status"], where: { ...inScope, status: { not: "uploading" } }, _count: { _all: true } }),
     tab === "files"
       ? db.contentAsset.findMany({
@@ -91,24 +95,26 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
           },
         })
       : Promise.resolve([]),
-    db.post.findMany({
-      where: postsWhere,
-      orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
-      take: POST_LIMIT,
-      select: {
-        id: true,
-        url: true,
-        format: true,
-        postedAt: true,
-        createdAt: true,
-        hasDisclosure: true,
-        mentionsBrand: true,
-        productShown: true,
-        collabInvite: true,
-        socialProfile: { select: { platform: true, handle: true } },
-        campaignCreator: { select: { campaign: { select: { id: true, name: true } }, influencer: { select: { id: true, name: true } } } },
-      },
-    }),
+    tab === "posts"
+      ? db.post.findMany({
+          where: postsWhere,
+          orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
+          take: POST_LIMIT,
+          select: {
+            id: true,
+            url: true,
+            format: true,
+            postedAt: true,
+            createdAt: true,
+            hasDisclosure: true,
+            mentionsBrand: true,
+            productShown: true,
+            collabInvite: true,
+            socialProfile: { select: { platform: true, handle: true } },
+            campaignCreator: { select: { campaign: { select: { id: true, name: true } }, influencer: { select: { id: true, name: true } } } },
+          },
+        })
+      : Promise.resolve([]),
     db.post.count({ where: postsWhere }),
   ]);
   const countOf = (statuses: readonly ContentStatus[]) => fileCounts.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
@@ -142,7 +148,7 @@ export default async function ContentPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title="Content"
-        meta={`${brandsLabel(view.brandId, "Both brands")} ·${files} ${files === 1 ? "file" : "files"}, ${countOf(["received"])} to review · ${total} ${total === 1 ? "post" : "posts"}${chosen ? ` in ${chosen.name}` : ""}`}
+        meta={`${brandsLabel(view.brandId, "Both brands")} · ${files} ${files === 1 ? "file" : "files"}, ${countOf(["received"])} to review · ${total} ${total === 1 ? "post" : "posts"}${chosen ? ` in ${chosen.name}` : ""}`}
       />
 
       <nav aria-label="Content" className="tabs mb-5">

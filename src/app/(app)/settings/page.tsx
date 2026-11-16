@@ -3,7 +3,8 @@ import Link from "next/link";
 import { RachnaTipsToggle } from "@/components/rachna/rachna";
 import { AutomationSettingsForm } from "@/components/journey-forms";
 import { PageHeader, Panel } from "@/components/panel";
-import { ScoringPromptForm, TargetsForm, type PromptVersionRow } from "@/components/settings-forms";
+import { AutoSendForm, ScoringPromptForm, TargetsForm, type PromptVersionRow } from "@/components/settings-forms";
+import { mcfConfigured } from "@/lib/mcf";
 import { brandsIn, viewed } from "@/lib/brand-scope";
 import { db } from "@/lib/db";
 import { formatDay } from "@/lib/format";
@@ -33,7 +34,7 @@ export default async function SettingsPage() {
 
   const brands = await Promise.all(
     brandsIn(view).map(async (brand) => {
-      const [campaigns, articles, prompt, versions] = await Promise.all([
+      const [campaigns, articles, prompt, versions, autoSend] = await Promise.all([
         db.campaign.findMany({
           where: { brandId: brand.id, status: { not: "archived" } },
           orderBy: { name: "asc" },
@@ -49,8 +50,9 @@ export default async function SettingsPage() {
         isAdmin
           ? db.scoringPrompt.findMany({ where: { brandId: brand.id }, orderBy: { version: "desc" }, include: { createdBy: { select: { name: true } } } })
           : [],
+        isAdmin ? db.brandSettings.findUnique({ where: { brandId: brand.id }, select: { mcfAutoSend: true, mcfAutoHoldMinutes: true, mcfAutoDailyCap: true } }) : null,
       ]);
-      return { brand, campaigns, articles: articles.map((product) => product.title), prompt, versions };
+      return { brand, campaigns, articles: articles.map((product) => product.title), prompt, versions, autoSend };
     }),
   );
 
@@ -67,7 +69,7 @@ export default async function SettingsPage() {
       </section>
 
       <div className="grid gap-6">
-        {brands.map(({ brand, campaigns, articles, prompt, versions }) => {
+        {brands.map(({ brand, campaigns, articles, prompt, versions, autoSend }) => {
           const target = targets.get(brand.id)!;
           return (
             <section key={brand.id} className="card grid gap-7 p-5 md:p-6">
@@ -85,6 +87,18 @@ export default async function SettingsPage() {
                 <p className="pt-3 text-sm font-medium text-muted-foreground">What each person aims for. Home and the Monday email track it.</p>
                 <TargetsForm brandId={brand.id} daily={target.daily} weekly={target.weekly} creatorConnectionsUrl={target.creatorConnectionsUrl} />
               </Panel>
+
+              {isAdmin ? (
+                <Panel plain title="Automatic Amazon orders">
+                  <AutoSendForm
+                    brandId={brand.id}
+                    keysSet={mcfConfigured(brand.id)}
+                    on={autoSend?.mcfAutoSend ?? false}
+                    holdMinutes={autoSend?.mcfAutoHoldMinutes ?? 30}
+                    dailyCap={autoSend?.mcfAutoDailyCap ?? 10}
+                  />
+                </Panel>
+              ) : null}
 
               {campaigns.length === 0 ? (
                 <p className="text-sm font-medium text-muted-foreground">No active campaign yet.</p>
