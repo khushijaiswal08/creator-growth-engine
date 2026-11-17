@@ -3559,3 +3559,12 @@ test("Loading screens sit only above list pages: a loading.tsx above a record pa
     for (const name of files) assert.doesNotMatch(readFileSync(path.join("src/app/(app)", dir, name), "utf8"), /notFound\(\)/, `${dir}/${name} must not use notFound() under a loading screen`);
   }
 });
+
+test("The legal pages stay public and say we do not delete: Meta's reviewer opens them without signing in, and they must not promise deletion", () => {
+  const auth = readFileSync("src/auth.config.ts", "utf8");
+  for (const route of ["/privacy", "/terms", "/data-deletion"]) assert.ok(auth.includes(`"${route}"`), `${route} must be reachable without signing in`);
+  const deletion = readFileSync("src/app/(legal)/data-deletion/page.tsx", "utf8");
+  assert.match(deletion, /do not delete the record/i);
+  assert.match(deletion, /do-not-contact/i);
+  assert.doesNotMatch(readFileSync("src/app/(legal)/privacy/page.tsx", "utf8"), /Neon/, "the privacy page must name the live database provider, which is Supabase");
+});

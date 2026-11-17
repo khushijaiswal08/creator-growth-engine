@@ -53,7 +53,10 @@ export default function PrivacyPage() {
           </a>
           .
         </li>
-        <li>Meta&apos;s Graph API for Instagram, used to find public posts by hashtag and read public account statistics.</li>
+        <li>
+          Meta&apos;s Graph API for Instagram, used to find public posts by hashtag, read public account statistics and,
+          through Meta&apos;s Instagram Creator Marketplace, list creators who have chosen to be discoverable by brands.
+        </li>
       </ul>
 
       <h2>How we use it</h2>
@@ -73,7 +76,7 @@ export default function PrivacyPage() {
 
       <h2>Who it is shared with</h2>
       <p>
-        Only the companies that run the tool for us: our hosting provider (Netlify), our database provider (Neon) and
+        Only the companies that run the tool for us: our hosting provider (Netlify), our database provider (Supabase) and
         Anthropic for the fit score. Each handles the information on our behalf.
       </p>
 
@@ -83,10 +86,10 @@ export default function PrivacyPage() {
         that a request not to be contacted keeps being honoured.
       </p>
 
-      <h2>Your choices</h2>
+      <h2>Your choices and asking us to stop using your data</h2>
       <p>
-        If you are a creator and want to know what we hold about you, have it corrected or removed, or do not want to
-        hear from us again, {contact ? (
+        If you are a creator and want to know what we hold about you, have it corrected, have us stop using it, or do
+        not want to hear from us again, {contact ? (
           <>
             write to{" "}
             <a className="link" href={`mailto:${contact}`}>
@@ -97,6 +100,11 @@ export default function PrivacyPage() {
           <>reply to any message from our team</>
         )}
         . We add you to our do-not-contact list and that applies to every campaign.
+      </p>
+      <p>
+        When you ask us to stop using your data, we take you out of every active campaign, mark you as do-not-contact, and
+        stop using the information we collected from Instagram or any other platform. We do not delete the record
+        itself: it stays in our archive so that we never contact you again, and it is not used for any campaign.
       </p>
     </>
   );

@@ -1,7 +1,7 @@
 import type { NextAuthConfig } from "next-auth";
 
 // Pages anyone may open without signing in.
-const PUBLIC_PATHS = new Set(["/privacy", "/terms", "/health"]);
+const PUBLIC_PATHS = new Set(["/privacy", "/terms", "/data-deletion", "/health"]);
 
 // Served over HTTPS (always true on Netlify and Vercel): the session cookie must then never travel over plain HTTP.
 const secure =

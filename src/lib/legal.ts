@@ -1,4 +1,4 @@
-export const COMPANY_NAME = "Ridhi Home and Living";
+export const COMPANY_NAME = "Ridhi";
 
 /** The brands the company trades under; both are named on the legal pages. */
 export const BRAND_NAMES = "Ridhi Block Print and Cotton Print Club";
@@ -9,4 +9,4 @@ export function legalContact(): string {
 }
 
 /** The date the privacy and terms pages were last changed. Update it whenever their text changes. */
-export const LEGAL_UPDATED = "6 October 2026";
+export const LEGAL_UPDATED = "17 November 2026";
