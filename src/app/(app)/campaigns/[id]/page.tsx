@@ -105,7 +105,7 @@ export default async function CampaignPage({ params, searchParams }: { params: P
     <>
       <p className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground">
         <Link href="/campaigns" className="hover:text-foreground">
-          Pipeline
+          Campaigns
         </Link>
         <ChevronRight aria-hidden className="size-3.5" strokeWidth={2.4} />
         {brandName(campaign.brandId)}

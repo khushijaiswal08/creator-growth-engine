@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfile } from "@/actions/account";
 import { BrandBadge, BrandSegments, BrandSwitcher } from "@/components/brand-switcher";
-import { RachnaCameo, RachnaProvider, RachnaSlot, RachnaStrip } from "@/components/rachna/rachna";
+import { RachnaCameo, RachnaCelebrations, RachnaProvider, RachnaSlot, RachnaStrip } from "@/components/rachna/rachna";
 import { FormError } from "@/components/form-error";
 import { ADMIN_LINK, NAV_LINKS, SETTINGS_LINK, SidebarNav } from "@/components/nav";
 import { NotificationsMenu, type NoticeQueue } from "@/components/notifications-menu";
@@ -132,6 +132,7 @@ export function AppShell({
 
         <MobileBar user={user} isAdmin={isAdmin} onEdit={() => setEditing(true)} />
         <EditProfileDialog user={user} open={editing} onOpenChange={setEditing} />
+        <RachnaCelebrations />
       </div>
       </RachnaProvider>
     </SidebarContext.Provider>

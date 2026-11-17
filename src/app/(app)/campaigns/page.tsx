@@ -32,7 +32,7 @@ export default async function CampaignsPage({
 
   return (
     <>
-      <PageHeader title={showArchived ? "Archived campaigns" : "Pipeline"} meta={showArchived ? undefined : "One board per campaign"}>
+      <PageHeader title={showArchived ? "Archived campaigns" : "Campaigns"} meta={showArchived ? undefined : "One board per campaign"}>
         {showArchived ? (
           <Button asChild variant="outline">
             <Link href="/campaigns">Back to campaigns</Link>

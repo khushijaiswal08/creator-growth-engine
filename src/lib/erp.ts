@@ -85,7 +85,8 @@ export function erpOrderFor(gift: NonNullable<Awaited<ReturnType<typeof loadOrde
       line2: address.address2?.trim() || null,
       city: address.city.trim(),
       state: address.state.trim().toUpperCase(),
-      zip: address.postalCode.trim(),
+      // The ERP takes the 5-digit ZIP: "97205-1234" is sent as "97205".
+      zip: /^\d{5}-\d{4}$/.test(address.postalCode.trim()) ? address.postalCode.trim().slice(0, 5) : address.postalCode.trim(),
       country: countryCode(address.country) ?? address.country.trim(),
       phone: address.phone?.trim() || null,
     },
@@ -105,19 +106,29 @@ export function erpOrderFor(gift: NonNullable<Awaited<ReturnType<typeof loadOrde
   };
 }
 
-type Reply = { status: number; body: { ok?: boolean; url?: string; error?: string } | null } | { status: 0; body: null };
+type ReplyBody = { ok?: boolean; url?: string; error?: string; code?: number; already?: boolean };
+type Reply = { status: number; body: ReplyBody | null };
 
+/**
+ * The ERP runs on Google Apps Script (Umesh, 16 Nov), which cannot read request headers and always answers
+ * HTTP 200 after one redirect: the key travels in the JSON body as "key", and the outcome is the body's
+ * "ok" and "code" (401 wrong key, 400 a field, 503 try again). The Bearer header is sent too, for an ERP
+ * server that does read headers. `status` here is the body's code when it has one, else the HTTP status.
+ */
 async function post(order: ErpOrder): Promise<Reply> {
   try {
+    const key = process.env.ERP_SECRET!.trim();
     const response = await fetch(process.env.ERP_ORDERS_URL!.trim(), {
       method: "POST",
-      headers: { Authorization: `Bearer ${process.env.ERP_SECRET!.trim()}`, "Content-Type": "application/json" },
-      body: JSON.stringify(order),
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ key, ...order }),
+      redirect: "follow",
       signal: AbortSignal.timeout(TIMEOUT_MS),
       cache: "no-store",
     });
-    const body = (await response.json().catch(() => null)) as Reply["body"];
-    return { status: response.status, body };
+    const body = (await response.json().catch(() => null)) as ReplyBody | null;
+    const status = body && body.ok === false && typeof body.code === "number" ? body.code : response.status;
+    return { status, body };
   } catch {
     return { status: 0, body: null };
   }

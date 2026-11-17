@@ -8,7 +8,7 @@ import { logActivity } from "@/lib/activity";
  *   delete   only a campaign with no creators in it (a test, a mistake): the
  *            campaign and its discovery and scoring run logs go for good.
  *            Nothing else refers to it, so nothing of value is lost.
- *   archive  a campaign with creators: it leaves the Pipeline and the timers
+ *   archive  a campaign with creators: it leaves the Campaigns page and the timers
  *            stop, but every creator, gift, message and note stays, and it can
  *            be restored. Creators are never deleted this way.
  *
@@ -70,5 +70,5 @@ export async function setCampaignArchived(campaignId: string, archived: boolean,
       body: archived ? `Archived campaign "${campaign.name}" (was ${campaign.status}). Its creators and their history are kept.` : `Restored campaign "${campaign.name}" from the archive as Paused.`,
     });
   });
-  return { ok: true, message: archived ? `Archived "${campaign.name}". Find it under Archived on the Pipeline page.` : `Restored "${campaign.name}" as Paused.` };
+  return { ok: true, message: archived ? `Archived "${campaign.name}". Find it under Archived on the Campaigns page.` : `Restored "${campaign.name}" as Paused.` };
 }

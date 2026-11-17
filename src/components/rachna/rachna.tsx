@@ -375,6 +375,60 @@ function PointerLayer({ pointers }: { pointers: Pointer[] }) {
 
 const CONFETTI = ["#e8647f", "#6f9a5a", "#f29bb4", "#b98a63", "#e3b23c", "#b24a6b"];
 
+/** Fired when every quest of the day is done: the whole screen gets confetti. */
+const CELEBRATE_EVENT = "rachna:celebrate";
+const SCREEN_CONFETTI_MS = 4_200;
+const HEARTS_MS = 3_600;
+
+/**
+ * Full-screen moments, on top of everything and never in the way (no pointer events, hidden from screen
+ * readers, off with reduced motion): confetti when the day's quests are all done, and hearts the first time
+ * someone opens the portal each day. Mounted once, in the app frame.
+ */
+export function RachnaCelebrations() {
+  const rachna = useRachna();
+  const userId = rachna?.userId;
+  const [show, setShow] = useState<"confetti" | "hearts" | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    const key = storageKey(userId, "hearts");
+    const today = dayKey();
+    if (store.get(key) !== today) {
+      store.set(key, today);
+      setShow("hearts");
+    }
+    const celebrate = () => setShow("confetti");
+    window.addEventListener(CELEBRATE_EVENT, celebrate);
+    return () => window.removeEventListener(CELEBRATE_EVENT, celebrate);
+  }, [userId]);
+  useEffect(() => {
+    if (!show) return;
+    const timer = window.setTimeout(() => setShow(null), show === "confetti" ? SCREEN_CONFETTI_MS : HEARTS_MS);
+    return () => window.clearTimeout(timer);
+  }, [show]);
+  if (show === "confetti") {
+    return (
+      <div aria-hidden className="celebrate-confetti pointer-events-none fixed inset-0 z-[60] overflow-hidden">
+        {Array.from({ length: 60 }, (_, index) => (
+          <span key={index} style={{ left: `${(index * 37) % 100}%`, background: CONFETTI[index % CONFETTI.length], animationDelay: `${(index * 71) % 900}ms`, animationDuration: `${2600 + ((index * 113) % 1300)}ms` }} />
+        ))}
+      </div>
+    );
+  }
+  if (show === "hearts") {
+    return (
+      <div aria-hidden className="celebrate-hearts pointer-events-none fixed inset-0 z-[60] overflow-hidden">
+        {Array.from({ length: 18 }, (_, index) => (
+          <span key={index} style={{ left: `${4 + ((index * 53) % 92)}%`, color: CONFETTI[index % 3 === 0 ? 0 : index % 3 === 1 ? 2 : 5], fontSize: `${18 + ((index * 7) % 18)}px`, animationDelay: `${(index * 97) % 1100}ms` }}>
+            ♥
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return null;
+}
+
 /** Confetti over her whole slot: twenty pieces in fixed spots, so the burst looks the same every time. */
 function Burst() {
   return (
@@ -626,8 +680,15 @@ function useQuests() {
   const cleared = dayCleared(quests);
   const milestone = rachna?.milestone;
   useEffect(() => {
-    if (cleared && milestone) milestone(`day:${day}`, MILESTONES.dayCleared());
-  }, [cleared, day, milestone]);
+    if (!cleared || !milestone || !userId) return;
+    milestone(`day:${day}`, MILESTONES.dayCleared());
+    // The whole screen celebrates too, once a day, the first time the last quest is ticked.
+    const key = storageKey(userId, `celebrated:${day}`);
+    if (store.get(key) !== "1") {
+      store.set(key, "1");
+      window.dispatchEvent(new Event(CELEBRATE_EVENT));
+    }
+  }, [cleared, day, milestone, userId]);
   const done = quests.filter((quest) => quest.done >= quest.total).length;
   return { quests, done, cleared };
 }

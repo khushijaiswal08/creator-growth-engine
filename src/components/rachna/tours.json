@@ -2,7 +2,7 @@
   "home": [
     { "anchor": "tasks-card", "title": "Your tasks, most urgent first", "text": "Everything due today is here. The button on each row is the one thing to do: Reply, Send link, Approve, Message." },
     { "anchor": "home-tiles", "title": "This week at a glance", "text": "Messages against your target, replies, gifts on the way, content due and the content rate. Each one says how it compares." },
-    { "anchor": "home-side", "title": "Pipeline and team", "text": "Where every creator stands, and what the team did last. Open board takes you to the lanes." }
+    { "anchor": "home-side", "title": "Campaign stages and team", "text": "Where every creator stands, and what the team did last. Open board takes you to the lanes." }
   ],
   "creators": [
     { "anchor": "creators-search", "title": "Find or add someone", "text": "Search by name, handle, email or place. To add a creator, paste their profile link under Add creator." },

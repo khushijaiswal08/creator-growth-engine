@@ -72,7 +72,7 @@ export function nudgeFor(status: CreatorStatus, context: { arrivalDays?: number 
 
 export const MILESTONES = {
   weeklyTarget: (target: number): Speech => ({ pose: "cheer", text: `Weekly target reached: ${target} messages. Nice work.` }),
-  dayCleared: (): Speech => ({ pose: "cheer", text: "Day cleared! Every quest done. Go find two new creators, or put your feet up.", action: { label: "Check a profile", href: "/influencers/new" } }),
+  dayCleared: (): Speech => ({ pose: "cheer", text: "Wohooo! Day cleared, every quest done! Go find two new creators, or put your feet up.", action: { label: "Check a profile", href: "/influencers/new" } }),
   firstDelivery: (campaign: string): Speech => ({ pose: "cheer", text: `First gift delivered in ${campaign}.` }),
   tenthPost: (): Speech => ({ pose: "cheer", text: "That's the 10th post logged. Ten!" }),
 };

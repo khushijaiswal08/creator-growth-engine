@@ -11,7 +11,7 @@ type NavLink = { href: string; label: string; icon: LucideIcon };
 export const NAV_LINKS: NavLink[] = [
   { href: "/today", label: "Home", icon: LayoutDashboard },
   { href: "/influencers", label: "Creators", icon: Users },
-  { href: "/campaigns", label: "Pipeline", icon: Kanban },
+  { href: "/campaigns", label: "Campaigns", icon: Kanban },
   { href: "/orders", label: "Gifts", icon: Gift },
   { href: "/content", label: "Content", icon: Clapperboard },
   { href: "/reports", label: "Reports", icon: BarChart3 },

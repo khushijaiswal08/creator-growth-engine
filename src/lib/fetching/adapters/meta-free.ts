@@ -69,7 +69,7 @@ export type PendingPost = { permalink: string; caption: string; timestamp: strin
 
 export type MetaReport = {
   hashtags: { tag: string; hashtagId: string | null; posts: number; refused?: string }[];
-  oembed: { calls: number; withAuthor: number; withoutAuthor: number; failed: number };
+  oembed: { calls: number; withAuthor: number; withoutAuthor: number; failed: number; lastError?: string };
   businessDiscovery: { attempted: number; succeeded: number };
   /** Posts still waiting for a reviewer to name the account. */
   pending: PendingPost[];
@@ -335,7 +335,12 @@ async function authorsStep(brief: Brief, cursor: Cursor, caller: Caller, busines
         author = authorFromOEmbed(await caller.call<OEmbed>("instagram_oembed", { url: post.permalink, omitscript: "true" }));
       } catch (error) {
         if (error instanceof RateLimited || error instanceof TokenInvalid) throw error;
-        report.oembed.failed += 1; // deleted or private: just skipped
+        // Meta refused to say who posted it (a deleted or private post, or the app lacks oEmbed access). The post
+        // still came back from the hashtag, so it waits in the review queue like a post without an author: a
+        // reviewer opens it and types the handle. The reason is kept for the run note.
+        report.oembed.failed += 1;
+        report.oembed.lastError = (error instanceof Error ? error.message : String(error)).slice(0, 300);
+        if (report.pending.length < MAX_PENDING) report.pending.push(post);
         continue;
       }
       if (!author) {
@@ -364,8 +369,10 @@ async function authorsStep(brief: Brief, cursor: Cursor, caller: Caller, busines
   const index = cursor.index + slice.length;
   const done = index >= cursor.posts.length || authors.size >= limit;
   const note =
-    done && report.oembed.withoutAuthor > 0
-      ? `${report.oembed.withoutAuthor} posts could not be matched to an account (Meta's oEmbed no longer names the author). ${report.pending.length} are waiting in the review queue for a handle.`
+    done && report.oembed.withoutAuthor + report.oembed.failed > 0
+      ? `${report.oembed.withoutAuthor + report.oembed.failed} posts could not be matched to an account${
+          report.oembed.failed > 0 ? ` (Meta refused to name the author for ${report.oembed.failed}: ${report.oembed.lastError ?? "no reason given"})` : " (Meta's oEmbed no longer names the author)"
+        }. ${report.pending.length} are waiting in the review queue for a handle.`
       : null;
   return {
     candidates,

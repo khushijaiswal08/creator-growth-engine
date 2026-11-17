@@ -226,10 +226,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
               {view.brandId ? ` · ${brandName(view.brandId)}` : ""}
             </span>
             {total > 0 ? (
-              <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-danger-soft px-3 text-[13px] font-extrabold text-danger-text">
+              <Link
+                href="/today?all=1#tasks-card"
+                title="Open the full to-do list"
+                className="inline-flex h-7 items-center gap-1.5 rounded-full bg-danger-soft px-3 text-[13px] font-extrabold text-danger-text transition-colors outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/35"
+              >
                 <Clock className="size-3.5" strokeWidth={2.5} />
                 {total.toLocaleString("en-US")} to do
-              </span>
+              </Link>
             ) : (
               <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-success-soft px-3 text-[13px] font-extrabold text-success-text">
                 <Check className="size-3.5" strokeWidth={3} />
@@ -355,7 +359,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
           <section className="card grid gap-3.5 p-5" aria-labelledby="funnel-title">
             <div className="flex items-center gap-2">
-              <h3 id="funnel-title">Pipeline</h3>
+              <h3 id="funnel-title">Campaign stages</h3>
               <span className="flex-1" />
               <Link href={funnelCampaign ? `/campaigns/${funnelCampaign.id}` : "/campaigns"} className="inline-flex items-center gap-1 text-[13px] font-bold text-primary hover:underline">
                 {funnelCampaign ? "Open board" : "Open boards"}

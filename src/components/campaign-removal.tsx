@@ -52,18 +52,18 @@ export function CampaignRemoval({ campaignId, name, creators, discoveryRuns, arc
     },
     archive: {
       title: "Archive this campaign",
-      text: `"${name}" has ${creators.toLocaleString("en-US")} ${creators === 1 ? "creator" : "creators"}, so it cannot be deleted: that would wipe their history, gifts and messages. Archiving takes it off the Pipeline and stops its timers, and keeps everything. You can restore it any time.`,
+      text: `"${name}" has ${creators.toLocaleString("en-US")} ${creators === 1 ? "creator" : "creators"}, so it cannot be deleted: that would wipe their history, gifts and messages. Archiving takes it off the Campaigns page and stops its timers, and keeps everything. You can restore it any time.`,
       button: "Archive campaign",
       confirmTitle: `Archive "${name}"?`,
-      confirmText: "It moves to Archived on the Pipeline page and its follow-up timers stop. Every creator, gift, message and note is kept. You can restore it from here.",
+      confirmText: "It moves to Archived on the Campaigns page and its follow-up timers stop. Every creator, gift, message and note is kept. You can restore it from here.",
       confirmButton: "Archive",
     },
     restore: {
       title: "This campaign is archived",
-      text: "It is off the Pipeline and its timers are stopped. Restoring brings it back as Paused, so nothing starts again until someone sets it going.",
+      text: "It is off the Campaigns page and its timers are stopped. Restoring brings it back as Paused, so nothing starts again until someone sets it going.",
       button: "Restore campaign",
       confirmTitle: `Restore "${name}"?`,
-      confirmText: "It comes back to the Pipeline as Paused.",
+      confirmText: "It comes back to the Campaigns page as Paused.",
       confirmButton: "Restore",
     },
   }[mode];

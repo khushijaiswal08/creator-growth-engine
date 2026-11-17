@@ -386,7 +386,57 @@
       opacity: 0;
     }
   }
+  /* Full screen: confetti when the day's quests are all done, hearts at the first open of the day. */
+  .celebrate-confetti span {
+    position: absolute;
+    top: -16px;
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+    animation: celebrate-fall 3s ease-in 1 both;
+  }
+  .celebrate-confetti span:nth-child(3n) {
+    border-radius: 999px;
+    width: 10px;
+    height: 10px;
+  }
+  @keyframes celebrate-fall {
+    from {
+      transform: translateY(0) rotate(0deg);
+      opacity: 1;
+    }
+    85% {
+      opacity: 1;
+    }
+    to {
+      transform: translateY(105vh) rotate(720deg);
+      opacity: 0;
+    }
+  }
+  .celebrate-hearts span {
+    position: absolute;
+    bottom: -40px;
+    line-height: 1;
+    animation: celebrate-rise 2.6s ease-out 1 both;
+  }
+  @keyframes celebrate-rise {
+    from {
+      transform: translateY(0) scale(0.6);
+      opacity: 0;
+    }
+    15% {
+      opacity: 0.95;
+    }
+    to {
+      transform: translateY(-70vh) scale(1.15);
+      opacity: 0;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
+    .celebrate-confetti,
+    .celebrate-hearts {
+      display: none;
+    }
     .rachna-in,
     .rachna-float {
       animation: none;

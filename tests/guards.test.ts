@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { exec } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
@@ -34,6 +34,8 @@ let db: PrismaClient;
 
 /** Every request the stand-in Graph API received. */
 const graphCalls: string[] = [];
+/** When true, the stand-in refuses every oEmbed call, as Meta does for an app without oEmbed access. */
+let oembedRefuses = false;
 /** The stand-in Instagram Creator Marketplace: how it answers next, and every request it received (with the auth header). */
 const marketplace = {
   mode: "ok" as "ok" | "token" | "permission" | "permission-270" | "rate-once" | "rate-always" | "rate-403" | "retry-after-long" | "bad-json-once" | "slow-503" | "server-echo",
@@ -178,6 +180,7 @@ before(async () => {
         }
         if (path === "instagram_oembed") {
           const link = url.searchParams.get("url") ?? "";
+          if (oembedRefuses) return send(400, { error: { code: 10, message: "(#10) To use 'Meta oEmbed Read', your use of this endpoint must be reviewed and approved by Facebook." } });
           return link.includes("known") ? send(200, { author_name: "known_author_x", html: "" }) : send(200, { html: "<blockquote>no author named</blockquote>" });
         }
         const fields = url.searchParams.get("fields") ?? "";
@@ -3431,7 +3434,8 @@ test("ERP: an approved gift goes to the ERP server to server (address never in a
     req.on("end", () => {
       const body = JSON.parse(raw || "{}");
       received.push({ auth: req.headers.authorization, body });
-      if (req.headers.authorization !== "Bearer erp-test-key") { res.writeHead(401); res.end(JSON.stringify({ ok: false })); return; }
+      // Like the ERP on Google Apps Script: the key is in the body, and every answer is HTTP 200 with ok/code.
+      if (body.key !== "erp-test-key") { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify({ ok: false, code: 401, error: "unauthorized" })); return; }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, reference: body.reference, url: `https://erp.example/#creators?ref=${body.reference}` }));
     });
@@ -3455,7 +3459,7 @@ test("ERP: an approved gift goes to the ERP server to server (address never in a
     assert.ok(first.ok && first.url.endsWith(giftReference(gift.id)) && !first.alreadySent);
     assert.equal(received.length, 1);
     const body = received[0].body as { reference: string; brand: string; shipTo: Record<string, string>; lines: { sku: string; quantity: number }[] };
-    assert.equal(received[0].auth, "Bearer erp-test-key", "the key travels in the header");
+    assert.equal((received[0].body as { key?: string }).key, "erp-test-key", "the key travels in the body (Apps Script cannot read headers)");
     assert.deepEqual([body.reference, body.brand, body.shipTo.line1, body.shipTo.state, body.shipTo.zip, body.shipTo.country, body.lines[0].sku, body.lines[0].quantity], [giftReference(gift.id), "ridhi", "12 Pine St", "OR", "97205", "US", "BR-ERP-01", 1]);
     assert.ok(!first.ok || !first.url.includes("Pine"), "the address never goes in the link");
     const again = await sendGiftToErp(gift.id, both, user.id);
@@ -3486,5 +3490,72 @@ test("ERP: an approved gift goes to the ERP server to server (address never in a
     process.env.ERP_ORDERS_URL = saved.url;
     process.env.ERP_SECRET = saved.secret;
     server.close();
+  }
+});
+
+test("Instagram: when Meta refuses to name a post's author, the post still waits in the review queue, and the run says why", async () => {
+  const { runDiscovery } = await import("@/lib/discovery");
+  await db.hashtag.deleteMany();
+  const { user, campaign } = await makeUserAndCampaign("meta-refused", ["block print"]);
+  oembedRefuses = true;
+  try {
+    const summary = await runDiscovery({ campaignId: campaign.id, source: "meta_free", userId: user.id });
+    assert.equal(summary.status, "completed");
+    assert.equal(summary.added, 0, "nobody can be added without a handle");
+    const report = summary.report as { oembed: { calls: number; failed: number; lastError?: string }; pending: unknown[] };
+    assert.equal(report.oembed.failed, report.oembed.calls, "every author lookup was refused");
+    assert.equal(report.pending.length, report.oembed.calls, "every refused post waits for a reviewer instead of disappearing");
+    assert.match(report.oembed.lastError ?? "", /oEmbed Read/);
+    assert.match(summary.note ?? "", /Meta refused to name the author for \d+: .*oEmbed Read.*are waiting in the review queue for a handle/);
+  } finally {
+    oembedRefuses = false;
+  }
+});
+
+test("Celebrations: hearts once a day at the first open, screen confetti and 'Wohooo!' once a day when every quest is done; never in the way, off with reduced motion", async () => {
+  const rachna = readFileSync("src/components/rachna/rachna.tsx", "utf8");
+  const css = readFileSync("src/app/globals.css", "utf8");
+  const { MILESTONES } = await import("@/lib/rachna");
+  assert.match(MILESTONES.dayCleared().text, /^Wohooo! Day cleared/);
+  assert.match(rachna, /storageKey\(userId, "hearts"\)[\s\S]{0,120}if \(store\.get\(key\) !== today\)/, "hearts at most once a day per person");
+  assert.match(rachna, /storageKey\(userId, `celebrated:\$\{day\}`\)[\s\S]{0,80}if \(store\.get\(key\) !== "1"\)/, "screen confetti at most once a day per person");
+  assert.match(rachna, /className="celebrate-confetti pointer-events-none fixed inset-0/, "confetti never blocks a click");
+  assert.match(rachna, /className="celebrate-hearts pointer-events-none fixed inset-0/, "hearts never block a click");
+  assert.match(css, /prefers-reduced-motion: reduce\) \{\s*\.celebrate-confetti,\s*\.celebrate-hearts \{\s*display: none;/, "nothing moves for someone who asked for reduced motion");
+  assert.match(readFileSync("src/components/app-shell.tsx", "utf8"), /<RachnaCelebrations \/>/);
+});
+
+test("Instagram: a post that two discovery runs both returned is listed once, and naming or skipping it clears it from every run", async () => {
+  const { runDiscovery, pendingPosts, attributePost, dismissPost } = await import("@/lib/discovery");
+  await db.hashtag.deleteMany();
+  const { user, campaign } = await makeUserAndCampaign("meta-twice", ["block print"]);
+  oembedRefuses = true;
+  try {
+    const first = await runDiscovery({ campaignId: campaign.id, source: "meta_free", userId: user.id });
+    const second = await runDiscovery({ campaignId: campaign.id, source: "meta_free", userId: user.id });
+    assert.notEqual(first.runId, second.runId);
+    const waiting = await pendingPosts(campaign.id);
+    assert.equal(new Set(waiting.map((item) => item.post.permalink)).size, waiting.length, "each post is listed once, however many runs returned it");
+    assert.ok(waiting.length >= 1);
+    assert.ok(waiting.every((item) => item.runId === second.runId), "shown from the newest run");
+    const [one, two] = waiting;
+    await dismissPost({ runId: one.runId, permalink: one.post.permalink });
+    assert.ok(!(await pendingPosts(campaign.id)).some((item) => item.post.permalink === one.post.permalink), "a skipped post does not come back from the older run");
+    if (two) {
+      await attributePost({ runId: two.runId, permalink: two.post.permalink, handle: "twice_handle", userId: user.id, userName: "Tester" });
+      assert.ok(!(await pendingPosts(campaign.id)).some((item) => item.post.permalink === two.post.permalink), "a named post does not come back from the older run");
+    }
+  } finally {
+    oembedRefuses = false;
+  }
+});
+
+test("Loading screens sit only above list pages: a loading.tsx above a record page would turn another brand's 404 into a 200", () => {
+  const dirs = ["src/app/(app)", "src/app/(app)/influencers", "src/app/(app)/campaigns", "src/app/select", "src/app/upload"];
+  for (const dir of dirs) assert.equal(existsSync(path.join(dir, "loading.tsx")), false, `${dir}/loading.tsx would wrap pages that answer 404 for another brand's record`);
+  for (const dir of ["today", "orders", "content", "reports"]) assert.equal(existsSync(path.join("src/app/(app)", dir, "loading.tsx")), true, `${dir} keeps its loading screen`);
+  for (const dir of ["today", "orders", "content", "reports"]) {
+    const files = readdirSync(path.join("src/app/(app)", dir), { recursive: true }).map(String).filter((name) => name.endsWith(".tsx") && name !== "loading.tsx");
+    for (const name of files) assert.doesNotMatch(readFileSync(path.join("src/app/(app)", dir, name), "utf8"), /notFound\(\)/, `${dir}/${name} must not use notFound() under a loading screen`);
   }
 });

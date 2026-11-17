@@ -253,7 +253,30 @@ export async function pendingPosts(campaignId: string): Promise<{ runId: string;
     take: 10,
     select: { id: true, report: true },
   });
-  return runs.flatMap((run) => ((run.report as MetaReport | null)?.pending ?? []).map((post) => ({ runId: run.id, post })));
+  // The same hashtag returns the same top posts on later runs, so a post can wait in several runs: it is shown once, from the newest run.
+  const seen = new Set<string>();
+  return runs.flatMap((run) =>
+    ((run.report as MetaReport | null)?.pending ?? []).flatMap((post) => {
+      if (seen.has(post.permalink)) return [];
+      seen.add(post.permalink);
+      return [{ runId: run.id, post }];
+    }),
+  );
+}
+
+/** A post that was named or skipped is forgotten in this campaign's other recent runs too, so it never comes back from an older run. */
+async function forgetPost(campaignId: string, permalink: string, exceptRunId: string): Promise<void> {
+  const runs = await db.discoveryRun.findMany({
+    where: { campaignId, source: "meta_free", id: { not: exceptRunId }, report: { not: Prisma.DbNull } },
+    orderBy: { startedAt: "desc" },
+    take: 10,
+    select: { id: true, report: true },
+  });
+  for (const run of runs) {
+    const report = run.report as MetaReport | null;
+    if (!report?.pending.some((item) => item.permalink === permalink)) continue;
+    await db.discoveryRun.update({ where: { id: run.id }, data: { report: { ...report, pending: report.pending.filter((item) => item.permalink !== permalink) } as unknown as Prisma.InputJsonObject } });
+  }
 }
 
 export type AttributeOutcome = { ok: true; outcome: "added" | "known" | "blocked"; statsFound: boolean | null } | { ok: false; error: string };
@@ -294,17 +317,19 @@ export async function attributePost(args: { runId: string; permalink: string; ha
       },
     }),
   ]);
+  await forgetPost(run.campaign.id, args.permalink, run.id);
   return { ok: true, outcome, statsFound };
 }
 
 /** A reviewer drops a post that is not worth naming. */
 export async function dismissPost(args: { runId: string; permalink: string }): Promise<boolean> {
-  const run = await db.discoveryRun.findUniqueOrThrow({ where: { id: args.runId }, select: { report: true } });
+  const run = await db.discoveryRun.findUniqueOrThrow({ where: { id: args.runId }, select: { report: true, campaignId: true } });
   const report = run.report as MetaReport | null;
   if (!report?.pending.some((item) => item.permalink === args.permalink)) return false;
   await db.discoveryRun.update({
     where: { id: args.runId },
     data: { report: { ...report, pending: report.pending.filter((item) => item.permalink !== args.permalink) } as unknown as Prisma.InputJsonObject },
   });
+  await forgetPost(run.campaignId, args.permalink, args.runId);
   return true;
 }
