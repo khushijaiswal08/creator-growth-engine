@@ -10,6 +10,7 @@ import { AttributionLinkCard } from "@/components/attribution-link";
 import { Avatar } from "@/components/avatar";
 import { EditDetailsButton, LogReplyButton } from "@/components/creator-actions";
 import { AddProfileForm, AddToCampaignForm, EditInfluencerForm } from "@/components/influencer-forms";
+import { EnterGiftButton } from "@/components/gift-entry";
 import { AddPostForm, CopyButton, LogReplyForm } from "@/components/journey-forms";
 import { PostNumbersForm } from "@/components/post-numbers-form";
 import { MessageButton, MessageComposer } from "@/components/message-button";
@@ -466,10 +467,18 @@ export default async function InfluencerPage({
                     </div>
                     <GiftLine gift={active.giftOrders[0]} />
                   </section>
-                ) : active && !active.selectionToken ? (
+                ) : active ? (
                   <section className="card p-5">
                     <h2>Gift</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">Nothing chosen yet. Once they agree, Message with the product selection template makes their private link.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {active.selectionToken
+                        ? "Nothing chosen yet. Waiting for the creator to use their selection link."
+                        : "Nothing chosen yet. Once they agree, Message with the product selection template makes their private link."}{" "}
+                      If they sent their choice and address by message instead, enter it here.
+                    </p>
+                    <div className="mt-3">
+                      <EnterGiftButton campaignCreatorId={active.id} campaignName={active.campaign.name} />
+                    </div>
                   </section>
                 ) : null}
 

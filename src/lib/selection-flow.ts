@@ -1,3 +1,4 @@
+import type { CollaborationType, CreatorStatus } from "@prisma/client";
 import { sealAddress } from "@/lib/address-crypto";
 import { automationUserId, refreshNextAction } from "@/lib/automation";
 import { db } from "@/lib/db";
@@ -10,7 +11,7 @@ import { statusChangeText } from "@/lib/status";
 
 const LIMITS = { shipName: 100, address1: 150, address2: 150, city: 80, state: 60, postalCode: 20, country: 60, phone: 30, note: 500 };
 
-type SelectionValues = {
+export type SelectionValues = {
   shipName: string;
   address1: string;
   address2: string;
@@ -56,10 +57,39 @@ export async function recordSelection(token: string, productId: string, raw: Sel
   if (creator.giftOrders.length > 0) {
     return { ok: false, error: "You have already made your choice. Reply to our message if you need to change it." };
   }
+  return saveGiftChoice(creator, productId, raw, { actor: await automationUserId(), by: null }, now);
+}
 
+/** Thrown inside the write when another gift for the same creator got in first; rolls the write back. */
+class GiftAlreadyChosen extends Error {}
+
+type ChoosingCreator = {
+  id: string;
+  influencerId: string;
+  status: CreatorStatus;
+  collaborationType: CollaborationType | null;
+  approvedFee: number | null;
+  selectionSentAt: Date | null;
+  campaign: { id: string; brandId: string; giftArticles: string[] };
+};
+
+/**
+ * What a gift choice goes through, whoever records it: the creator on their link, or a
+ * person typing in what the creator sent by message. The same address checks, the same
+ * product check, the same approval rules and the same encryption apply either way, and
+ * either way the creator's selection link is spent, so a second gift cannot follow.
+ * `by` is the person who typed it in (null when the creator used their link).
+ */
+export async function saveGiftChoice(
+  creator: ChoosingCreator,
+  productId: string,
+  raw: SelectionValues,
+  who: { actor: string; by: { name: string } | null },
+  now = new Date(),
+): Promise<SelectionResult> {
   const values = { ...raw, country: normaliseCountry(raw.country) };
   for (const key of ["shipName", "address1", "city", "state", "postalCode", "country"] as const) {
-    if (!values[key]) return { ok: false, error: "Please fill in your name and full shipping address." };
+    if (!values[key]) return { ok: false, error: who.by ? "Fill in the name and the full shipping address." : "Please fill in your name and full shipping address." };
   }
   for (const [key, max] of Object.entries(LIMITS)) {
     if (values[key as keyof SelectionValues].length > max) return { ok: false, error: "One of the fields is too long." };
@@ -71,7 +101,7 @@ export async function recordSelection(token: string, productId: string, raw: Sel
     where: { id: productId, ...giftableProductsWhere(creator.campaign) },
     select: { id: true, title: true, color: true, size: true, sku: true, price: true },
   });
-  if (!product) return { ok: false, error: "That product is no longer available. Please choose another." };
+  if (!product) return { ok: false, error: who.by ? "That product is not offered in this campaign. Choose another." : "That product is no longer available. Please choose another." };
 
   const checks = await approvalChecks({
     influencerId: creator.influencerId,
@@ -83,8 +113,12 @@ export async function recordSelection(token: string, productId: string, raw: Sel
   });
   const failed = checks.filter((check) => !check.passed);
   const approved = failed.length === 0;
-  const actor = await automationUserId();
+  const { actor } = who;
+  const automated = who.by === null;
   const productLabel = describeProduct(product);
+  const how = who.by
+    ? `${who.by.name} entered the gift by hand from the creator's message: ${productLabel} (SKU ${product.sku}) and a shipping address.`
+    : `the creator chose ${productLabel} (SKU ${product.sku}) and gave a shipping address.`;
 
   // Personal details are encrypted before they are written.
   const address = sealAddress({
@@ -97,7 +131,19 @@ export async function recordSelection(token: string, productId: string, raw: Sel
     phone: values.phone || null,
   });
 
-  await db.$transaction(async (tx) => {
+  const created = await db.$transaction(async (tx) => {
+    // The creator's row is written FIRST, which locks it until this transaction ends. A second
+    // writer for the same creator (the creator on their link while a person enters the gift by
+    // hand, or two people at once) waits here, and once the first one has committed it sees that
+    // gift below and stops. Checking before the transaction alone would let both through.
+    // The link is spent: the token is dropped so the same address never answers twice.
+    await tx.campaignCreator.update({
+      where: { id: creator.id },
+      data: { status: "address_collected", selectionSentAt: creator.selectionSentAt ?? now, selectionToken: null, selectionUsedAt: now },
+    });
+    if ((await tx.giftOrder.count({ where: { campaignCreatorId: creator.id, status: { not: "cancelled" } } })) > 0) {
+      throw new GiftAlreadyChosen();
+    }
     await tx.giftOrder.create({
       data: {
         campaignCreatorId: creator.id,
@@ -112,24 +158,19 @@ export async function recordSelection(token: string, productId: string, raw: Sel
         approvedAt: approved ? now : null,
       },
     });
-    // The link is spent: the token is dropped so the same address never answers twice.
-    await tx.campaignCreator.update({
-      where: { id: creator.id },
-      data: { status: "address_collected", selectionSentAt: creator.selectionSentAt ?? now, selectionToken: null, selectionUsedAt: now },
-    });
     await tx.activity.createMany({
       data: [
         {
           userId: actor,
-          automated: true,
+          automated,
           campaignCreatorId: creator.id,
           influencerId: creator.influencerId,
           kind: "status_change",
-          body: `${statusChangeText(creator.status, "address_collected")}: the creator chose ${productLabel} (SKU ${product.sku}) and gave a shipping address.`,
+          body: `${statusChangeText(creator.status, "address_collected")}: ${how}`,
         },
         {
           userId: actor,
-          automated: true,
+          automated,
           campaignCreatorId: creator.id,
           influencerId: creator.influencerId,
           kind: "note",
@@ -137,7 +178,14 @@ export async function recordSelection(token: string, productId: string, raw: Sel
         },
       ],
     });
+    return true;
+  }).catch((error: unknown) => {
+    if (error instanceof GiftAlreadyChosen) return false;
+    throw error;
   });
+  if (!created) {
+    return { ok: false, error: who.by ? "This creator already has a gift. Open it in Gifts instead." : "You have already made your choice. Reply to our message if you need to change it." };
+  }
   await refreshNextAction(creator.id, now);
 
   return { ok: true, approved, campaignId: creator.campaign.id, influencerId: creator.influencerId };

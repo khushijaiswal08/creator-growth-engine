@@ -3568,3 +3568,68 @@ test("The legal pages stay public and say we do not delete: Meta's reviewer open
   assert.match(deletion, /do-not-contact/i);
   assert.doesNotMatch(readFileSync("src/app/(legal)/privacy/page.tsx", "utf8"), /Neon/, "the privacy page must name the live database provider, which is Supabase");
 });
+
+test("A gift typed in by hand from a creator's message goes through the same rules, encryption and one-gift limit as the link", async () => {
+  const { recordSelection, saveGiftChoice } = await import("@/lib/selection-flow");
+  const { user, campaign } = await makeUserAndCampaign("hand-entry", ["home decor"]);
+  const amazonUrl = "https://www.amazon.com/dp/B0HANDHAND";
+  const inStock = await db.product.create({ data: { brandId: "test", sku: "H-IN", title: "Tablecloth", color: "Green", stock: 9, amazonUrl } });
+  const otherBrand = await db.product.create({ data: { brandId: "another", sku: "H-OTHER", title: "Napkin", stock: 9, amazonUrl } });
+  const load = (id: string) =>
+    db.campaignCreator.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, influencerId: true, status: true, collaborationType: true, approvedFee: true, selectionSentAt: true, campaign: { select: { id: true, brandId: true, giftArticles: true } } },
+    });
+  const by = { actor: user.id, by: { name: user.name } };
+
+  // Another brand's product is refused, and nothing is written.
+  const us = await makeCreatorWithLink(campaign.id, "hand_us", "token-hand-us");
+  assert.equal((await saveGiftChoice(await load(us.id), otherBrand.id, usAddress(), by)).ok, false);
+  assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: us.id } }), 0);
+
+  // An in-rule US gift is approved, encrypted, credited to the person, and spends the link.
+  const ok = await saveGiftChoice(await load(us.id), inStock.id, usAddress(), by);
+  assert.equal(ok.ok && ok.approved, true);
+  const order = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: us.id } });
+  assert.equal(order.status, "approved");
+  assert.equal(order.approvedById, user.id);
+  assert.ok(order.address1.startsWith("enc:v1:") && order.shipName.startsWith("enc:v1:"), "the address is stored encrypted");
+  const now = await readCreator(us.id);
+  assert.equal(now.status, "address_collected");
+  assert.equal(now.selectionToken, null, "the link is spent, so the creator cannot add a second gift");
+  const logged = await db.activity.findFirstOrThrow({ where: { campaignCreatorId: us.id, kind: "status_change" }, orderBy: { createdAt: "desc" } });
+  assert.match(logged.body, /entered the gift by hand from the creator's message/);
+  assert.equal(logged.automated, false);
+  assert.equal(logged.userId, user.id);
+  assert.equal((await recordSelection("token-hand-us", inStock.id, usAddress())).ok, false, "the old link no longer works");
+
+  // Outside the rules it waits for a person, exactly as on the link.
+  const abroad = await makeCreatorWithLink(campaign.id, "hand_abroad", "token-hand-abroad");
+  const foreign = await saveGiftChoice(await load(abroad.id), inStock.id, usAddress({ country: "Canada" }), by);
+  assert.equal(foreign.ok && foreign.approved, false);
+  assert.equal((await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } })).status, "needs_approval");
+
+  // A creator with no link yet can still have their gift entered by hand.
+  const noLink = await makeCreator(campaign.id, "hand_nolink", { status: "agreed" });
+  assert.equal((await saveGiftChoice(await load(noLink.id), inStock.id, usAddress(), by)).ok, true);
+
+  // Two writers for one creator (the creator on the link while a person types the DM in): both read
+  // "no gift yet" before either writes. The second is stopped inside the write, so one gift exists.
+  const raced = await makeCreatorWithLink(campaign.id, "hand_race", "token-hand-race");
+  const seenByBoth = await load(raced.id);
+  assert.equal((await saveGiftChoice(seenByBoth, inStock.id, usAddress(), by)).ok, true);
+  const second = await saveGiftChoice(seenByBoth, inStock.id, usAddress({ address1: "9 Other Rd" }), { actor: user.id, by: null });
+  assert.equal(second.ok, false, "the second writer is refused");
+  assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: raced.id } }), 1, "exactly one gift");
+  assert.equal(await db.activity.count({ where: { campaignCreatorId: raced.id, kind: "status_change" } }), 1, "and the refused write left nothing behind");
+
+  // The action itself: signed in, brand-scoped, and checked before anything is written.
+  const action = readFileSync("src/actions/gift-entry.ts", "utf8");
+  const loader = action.slice(action.indexOf("async function loadGiftable"), action.indexOf("export async function productsForGift"));
+  assert.ok(loader.indexOf("requireUser()") > 0 && loader.indexOf("allowed(user).creators") > loader.indexOf("requireUser()"), "only a creator in this person's brand");
+  for (const check of ["influencer.archived", 'campaign.status === "archived"', "TERMINAL_STATUSES.has", "giftOrders.length > 0", "loadSuppressions"]) assert.ok(loader.includes(check), `refuses when ${check}`);
+  const enter = action.slice(action.indexOf("export async function enterGiftByHand"));
+  assert.ok(enter.indexOf('field(formData, "confirm") !== "yes"') < enter.indexOf("loadGiftable("), "the person confirms the creator sent the details");
+  assert.ok(enter.indexOf("loadGiftable(") < enter.indexOf("saveGiftChoice("), "every check runs before the gift is saved");
+  assert.ok(action.slice(action.indexOf("export async function productsForGift")).indexOf("loadGiftable(") < action.slice(action.indexOf("export async function productsForGift")).indexOf("db.product.findMany"), "products are only listed for a creator this person may gift");
+});
