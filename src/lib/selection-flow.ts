@@ -58,7 +58,35 @@ export async function recordSelection(token: string, productId: string, raw: Sel
   if (creator.giftOrders.length > 0) {
     return { ok: false, error: "You have already made your choice. Reply to our message if you need to change it." };
   }
-  return saveGiftChoice(creator, productId, raw, { actor: await automationUserId(), by: null }, now);
+  return saveGiftChoice(creator, [{ productId, quantity: 1 }], raw, { actor: await automationUserId(), by: null }, now);
+}
+
+/** One product of a gift and its units. */
+export type GiftItem = { productId: string; quantity: number };
+/** Most different products in one gift, and most units of one product. */
+export const MAX_LINES = 20;
+export const MAX_UNITS = 20;
+
+/**
+ * The shipping address rules every way in uses (the creator's link, the team's forms, Edit address):
+ * name and full address present, nothing too long, a plausible phone, the country tidied, and a US
+ * state kept as its two-letter code ("Florida" -> "FL") because the ERP and Amazon take nothing else.
+ */
+export function checkAddress(raw: SelectionValues, byPerson: boolean): { ok: true; values: SelectionValues } | { ok: false; error: string } {
+  const values = { ...raw, country: normaliseCountry(raw.country) };
+  for (const key of ["shipName", "address1", "city", "state", "postalCode", "country"] as const) {
+    if (!values[key]) return { ok: false, error: byPerson ? "Fill in the name and the full shipping address." : "Please fill in your name and full shipping address." };
+  }
+  for (const [key, max] of Object.entries(LIMITS)) {
+    if (values[key as keyof SelectionValues].length > max) return { ok: false, error: "One of the fields is too long." };
+  }
+  if (values.phone && !/^[0-9+()\-.\s]{7,30}$/.test(values.phone)) return { ok: false, error: "Please check the phone number." };
+  if (values.country === "United States") {
+    const code = usStateCode(values.state);
+    if (!code) return { ok: false, error: byPerson ? "Choose the US state from the list." : "Please choose your US state from the list." };
+    values.state = code;
+  }
+  return { ok: true, values };
 }
 
 /** Thrown inside the write when another gift for the same creator got in first; rolls the write back. */
@@ -83,49 +111,61 @@ type ChoosingCreator = {
  */
 export async function saveGiftChoice(
   creator: ChoosingCreator,
-  productId: string,
+  items: GiftItem[],
   raw: SelectionValues,
   who: { actor: string; by: { name: string } | null },
   now = new Date(),
 ): Promise<SelectionResult> {
-  const values = { ...raw, country: normaliseCountry(raw.country) };
-  for (const key of ["shipName", "address1", "city", "state", "postalCode", "country"] as const) {
-    if (!values[key]) return { ok: false, error: who.by ? "Fill in the name and the full shipping address." : "Please fill in your name and full shipping address." };
-  }
-  for (const [key, max] of Object.entries(LIMITS)) {
-    if (values[key as keyof SelectionValues].length > max) return { ok: false, error: "One of the fields is too long." };
-  }
-  if (values.phone && !/^[0-9+()\-.\s]{7,30}$/.test(values.phone)) return { ok: false, error: "Please check the phone number." };
-  // A US state is kept as its two-letter code ("Florida" -> "FL"): the ERP and Amazon take nothing else.
-  if (values.country === "United States") {
-    const code = usStateCode(values.state);
-    if (!code) return { ok: false, error: who.by ? "Choose the US state from the list." : "Please choose your US state from the list." };
-    values.state = code;
-  }
+  const checked = checkAddress(raw, who.by !== null);
+  if (!checked.ok) return checked;
+  const { values } = checked;
 
-  // The product must be one this campaign actually offers, whatever the form says.
-  const product = await db.product.findFirst({
-    where: { id: productId, ...giftableProductsWhere(creator.campaign) },
+  // The items: each the same product at most once (units added up), 1 to MAX_UNITS units each.
+  const wanted = new Map<string, number>();
+  for (const item of items) {
+    if (!item.productId) continue;
+    if (!Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_UNITS) {
+      return { ok: false, error: `Units must be a whole number from 1 to ${MAX_UNITS}.` };
+    }
+    wanted.set(item.productId, (wanted.get(item.productId) ?? 0) + item.quantity);
+  }
+  if (wanted.size === 0) return { ok: false, error: who.by ? "Add at least one product." : "Please choose a product." };
+  if (wanted.size > MAX_LINES) return { ok: false, error: `A gift can hold at most ${MAX_LINES} different products.` };
+  if ([...wanted.values()].some((units) => units > MAX_UNITS)) return { ok: false, error: `Units must be a whole number from 1 to ${MAX_UNITS}.` };
+
+  // Every product must be one this campaign actually offers, whatever the form says.
+  const found = await db.product.findMany({
+    where: { id: { in: [...wanted.keys()] }, ...giftableProductsWhere(creator.campaign) },
     select: { id: true, title: true, color: true, size: true, sku: true, price: true },
   });
-  if (!product) return { ok: false, error: who.by ? "That product is not offered in this campaign. Choose another." : "That product is no longer available. Please choose another." };
+  if (found.length !== wanted.size) {
+    return { ok: false, error: who.by ? "A product is not offered in this campaign. Remove it or choose another." : "That product is no longer available. Please choose another." };
+  }
+  const byId = new Map(found.map((product) => [product.id, product]));
+  const lines = [...wanted].map(([productId, quantity]) => ({ product: byId.get(productId)!, quantity }));
+  const prices = lines.map(({ product }) => (product.price === null ? null : Number(product.price)));
 
   const checks = await approvalChecks({
     influencerId: creator.influencerId,
     country: values.country,
-    quantity: 1,
-    productPriceUsd: product.price === null ? null : Number(product.price),
+    quantity: lines.reduce((sum, line) => sum + line.quantity, 0),
+    productPriceUsd: prices.every((price) => price === null) ? null : Math.max(...prices.map((price) => price ?? 0)),
     collaborationType: creator.collaborationType,
     approvedFee: creator.approvedFee,
   });
   const failed = checks.filter((check) => !check.passed);
-  const approved = failed.length === 0;
+  // A creator's own choice is approved only when every rule passes. A gift a team member types in
+  // is approved by that person as they save it (Khushi, 19 Nov 2026): the rules are only noted.
+  const approved = who.by !== null || failed.length === 0;
   const { actor } = who;
   const automated = who.by === null;
-  const productLabel = describeProduct(product);
+  const productsText = lines.map(({ product, quantity }) => `${describeProduct(product)} (SKU ${product.sku})${quantity > 1 ? ` x${quantity}` : ""}`).join(", ");
   const how = who.by
-    ? `${who.by.name} entered the gift by hand from the creator's message: ${productLabel} (SKU ${product.sku}) and a shipping address.`
-    : `the creator chose ${productLabel} (SKU ${product.sku}) and gave a shipping address.`;
+    ? `${who.by.name} entered the gift by hand from the creator's message: ${productsText} and a shipping address.`
+    : `the creator chose ${productsText} and gave a shipping address.`;
+  const ruleNote = who.by
+    ? `Gift order approved by ${who.by.name} when entering it. The rules, for information only: ${describeRuleChecks(checks)}`
+    : `Gift order ${approved ? "approved automatically" : "needs a person"}. ${describeRuleChecks(checks)}`;
 
   // Personal details are encrypted before they are written.
   const address = sealAddress({
@@ -154,8 +194,10 @@ export async function saveGiftChoice(
     await tx.giftOrder.create({
       data: {
         campaignCreatorId: creator.id,
-        productId: product.id,
-        quantity: 1,
+        // Line 1 is mirrored here, so every screen that shows "the product" keeps working.
+        productId: lines[0].product.id,
+        quantity: lines[0].quantity,
+        lines: { create: lines.map(({ product, quantity }, position) => ({ productId: product.id, quantity, position })) },
         status: approved ? "approved" : "needs_approval",
         ...address,
         country: values.country,
@@ -181,7 +223,7 @@ export async function saveGiftChoice(
           campaignCreatorId: creator.id,
           influencerId: creator.influencerId,
           kind: "note",
-          body: `Gift order ${approved ? "approved automatically" : "needs a person"}. ${describeRuleChecks(checks)}`,
+          body: ruleNote,
         },
       ],
     });

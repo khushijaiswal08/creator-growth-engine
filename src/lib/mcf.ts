@@ -1,3 +1,4 @@
+import { countryCodeForName } from "@/lib/countries";
 import { isBrandId, type BrandId } from "@/lib/brands";
 
 /**
@@ -115,7 +116,9 @@ export type McfItem = { sellerSku: string; sellerFulfillmentOrderItemId: string;
 export function countryCode(country: string): string | null {
   const value = country.trim().toLowerCase();
   if (["us", "usa", "united states", "united states of america", "u.s.", "u.s.a."].includes(value)) return "US";
-  return /^[a-z]{2}$/.test(value) ? value.toUpperCase() : null;
+  if (/^[a-z]{2}$/.test(value)) return value.toUpperCase();
+  // Any name from the gift forms' Country dropdown ("Germany" -> "DE").
+  return countryCodeForName(country);
 }
 
 /** Problems Amazon would reject the order for, checked before anything is sent. */

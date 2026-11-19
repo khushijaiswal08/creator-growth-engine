@@ -3584,11 +3584,11 @@ test("A gift typed in by hand from a creator's message goes through the same rul
 
   // Another brand's product is refused, and nothing is written.
   const us = await makeCreatorWithLink(campaign.id, "hand_us", "token-hand-us");
-  assert.equal((await saveGiftChoice(await load(us.id), otherBrand.id, usAddress(), by)).ok, false);
+  assert.equal((await saveGiftChoice(await load(us.id), [{ productId: otherBrand.id, quantity: 1 }], usAddress(), by)).ok, false);
   assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: us.id } }), 0);
 
   // An in-rule US gift is approved, encrypted, credited to the person, and spends the link.
-  const ok = await saveGiftChoice(await load(us.id), inStock.id, usAddress(), by);
+  const ok = await saveGiftChoice(await load(us.id), [{ productId: inStock.id, quantity: 1 }], usAddress(), by);
   assert.equal(ok.ok && ok.approved, true);
   const order = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: us.id } });
   assert.equal(order.status, "approved");
@@ -3603,22 +3603,32 @@ test("A gift typed in by hand from a creator's message goes through the same rul
   assert.equal(logged.userId, user.id);
   assert.equal((await recordSelection("token-hand-us", inStock.id, usAddress())).ok, false, "the old link no longer works");
 
-  // Outside the rules it waits for a person, exactly as on the link.
+  // Outside the rules: a person typing it in IS the approval (Khushi, 19 Nov 2026). It is approved in
+  // that person's name, and the rule it breaks is still written down for anyone checking later.
   const abroad = await makeCreatorWithLink(campaign.id, "hand_abroad", "token-hand-abroad");
-  const foreign = await saveGiftChoice(await load(abroad.id), inStock.id, usAddress({ country: "Canada" }), by);
-  assert.equal(foreign.ok && foreign.approved, false);
-  assert.equal((await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } })).status, "needs_approval");
+  const foreign = await saveGiftChoice(await load(abroad.id), [{ productId: inStock.id, quantity: 1 }], usAddress({ country: "Canada" }), by);
+  assert.equal(foreign.ok && foreign.approved, true);
+  const foreignOrder = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } });
+  assert.deepEqual([foreignOrder.status, foreignOrder.approvedById, foreignOrder.approvalNote], ["approved", user.id, null]);
+  const foreignNote = await db.activity.findFirstOrThrow({ where: { campaignCreatorId: abroad.id, kind: "note" }, orderBy: { createdAt: "desc" } });
+  assert.match(foreignNote.body, new RegExp(`approved by ${user.name} when entering it`));
+  assert.match(foreignNote.body, /not in the allowed list/, "the broken rule is still recorded");
+  // On the creator's own link, outside the rules still waits for a person (unchanged).
+  const linkAbroad = await makeCreatorWithLink(campaign.id, "link_abroad", "token-link-abroad");
+  const viaLink = await recordSelection("token-link-abroad", inStock.id, usAddress({ country: "Canada" }));
+  assert.equal(viaLink.ok && viaLink.approved, false);
+  assert.equal((await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: linkAbroad.id } })).status, "needs_approval");
 
   // A creator with no link yet can still have their gift entered by hand.
   const noLink = await makeCreator(campaign.id, "hand_nolink", { status: "agreed" });
-  assert.equal((await saveGiftChoice(await load(noLink.id), inStock.id, usAddress(), by)).ok, true);
+  assert.equal((await saveGiftChoice(await load(noLink.id), [{ productId: inStock.id, quantity: 1 }], usAddress(), by)).ok, true);
 
   // Two writers for one creator (the creator on the link while a person types the DM in): both read
   // "no gift yet" before either writes. The second is stopped inside the write, so one gift exists.
   const raced = await makeCreatorWithLink(campaign.id, "hand_race", "token-hand-race");
   const seenByBoth = await load(raced.id);
-  assert.equal((await saveGiftChoice(seenByBoth, inStock.id, usAddress(), by)).ok, true);
-  const second = await saveGiftChoice(seenByBoth, inStock.id, usAddress({ address1: "9 Other Rd" }), { actor: user.id, by: null });
+  assert.equal((await saveGiftChoice(seenByBoth, [{ productId: inStock.id, quantity: 1 }], usAddress(), by)).ok, true);
+  const second = await saveGiftChoice(seenByBoth, [{ productId: inStock.id, quantity: 1 }], usAddress({ address1: "9 Other Rd" }), { actor: user.id, by: null });
   assert.equal(second.ok, false, "the second writer is refused");
   assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: raced.id } }), 1, "exactly one gift");
   assert.equal(await db.activity.count({ where: { campaignCreatorId: raced.id, kind: "status_change" } }), 1, "and the refused write left nothing behind");
@@ -3683,19 +3693,19 @@ test("US states are always two letters for the ERP and Amazon: names become code
 
   // Typed as a name, stored as the code.
   const named = await makeCreatorWithLink(campaign.id, "state_named", "token-state-named");
-  assert.equal((await saveGiftChoice(await load(named.id), product.id, usAddress({ state: "Florida" }), by)).ok, true);
+  assert.equal((await saveGiftChoice(await load(named.id), [{ productId: product.id, quantity: 1 }], usAddress({ state: "Florida" }), by)).ok, true);
   const order = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: named.id } });
   assert.equal(openAddress(order).state, "FL");
 
   // Not a US state: refused, nothing written.
   const wrong = await makeCreatorWithLink(campaign.id, "state_wrong", "token-state-wrong");
-  const refused = await saveGiftChoice(await load(wrong.id), product.id, usAddress({ state: "Fla." }), by);
+  const refused = await saveGiftChoice(await load(wrong.id), [{ productId: product.id, quantity: 1 }], usAddress({ state: "Fla." }), by);
   assert.equal(refused.ok, false);
   assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: wrong.id } }), 0);
 
   // Outside the US the region stays as typed.
   const abroad = await makeCreatorWithLink(campaign.id, "state_abroad", "token-state-abroad");
-  assert.equal((await saveGiftChoice(await load(abroad.id), product.id, usAddress({ country: "Canada", state: "Ontario" }), by)).ok, true);
+  assert.equal((await saveGiftChoice(await load(abroad.id), [{ productId: product.id, quantity: 1 }], usAddress({ country: "Canada", state: "Ontario" }), by)).ok, true);
   assert.equal(openAddress(await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } })).state, "Ontario");
 
   // Gifts saved before this change may hold "Florida": every way out sends the two letters.
@@ -3713,7 +3723,93 @@ test("The gift forms take an ASIN: it picks from the campaign's own offered prod
   const listing = action.slice(action.indexOf("async function giftProductsOf"), action.indexOf("export async function productsForGift"));
   assert.ok(listing.includes("giftableProductsWhere(campaign)") && listing.includes("asin: true"), "the ASIN travels with the campaign's offered products");
   const form = readFileSync("src/components/gift-entry.tsx", "utf8");
-  assert.ok(form.includes('id="ge-asin"'), "there is an ASIN box");
-  assert.ok(/function withAsin\(\s*products: GiftProductOption\[\]/.test(form), "the ASIN is looked up in the products already offered, not anywhere else");
-  assert.ok(form.includes("No product with this ASIN is offered in this campaign"), "a wrong ASIN is said plainly");
+  // Since 19 Nov the ASIN box is Amazon's "Search by title, SKU or ASIN" under "Add items".
+  assert.ok(form.includes('placeholder="Search by title, SKU or ASIN"'), "there is a search box that takes an ASIN");
+  assert.ok(/function search\(products: GiftProductOption\[\], text: string\)/.test(form) && form.includes("product.asin"), "the ASIN is looked up in the products already offered, not anywhere else");
+  assert.ok(form.includes("Nothing offered in this campaign matches. Check the ASIN or SKU"), "a wrong ASIN is said plainly");
+});
+
+test("A gift can hold several products with units, like Amazon's MCF page: every product goes to the ERP and the Amazon file, and a person's entry is approved in their name", async () => {
+  const { saveGiftChoice, MAX_UNITS } = await import("@/lib/selection-flow");
+  const { user, campaign } = await makeUserAndCampaign("multi-line", ["home decor"]);
+  const amazonUrl = "https://www.amazon.com/dp/B0MULTILNE";
+  const cloth = await db.product.create({ data: { brandId: "test", sku: "ML-CLOTH", asin: "B0MLCLOTH1", title: "Tablecloth", color: "Sage", stock: 9, amazonUrl, price: 60 } });
+  const napkins = await db.product.create({ data: { brandId: "test", sku: "ML-NAP", title: "Napkins", color: "Sage", stock: 9, amazonUrl, price: 25 } });
+  const otherBrand = await db.product.create({ data: { brandId: "another", sku: "ML-OTHER", title: "Napkins", stock: 9, amazonUrl } });
+  const load = (id: string) =>
+    db.campaignCreator.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, influencerId: true, status: true, collaborationType: true, approvedFee: true, selectionSentAt: true, campaign: { select: { id: true, brandId: true, giftArticles: true } } },
+    });
+  const by = { actor: user.id, by: { name: user.name } };
+
+  // Refused, nothing written: another brand's product, no product at all, too many units.
+  const refused = await makeCreatorWithLink(campaign.id, "ml_refused", "token-ml-refused");
+  for (const items of [[{ productId: cloth.id, quantity: 1 }, { productId: otherBrand.id, quantity: 1 }], [], [{ productId: cloth.id, quantity: MAX_UNITS + 1 }], [{ productId: cloth.id, quantity: 0 }], [{ productId: cloth.id, quantity: 1.5 }]]) {
+    assert.equal((await saveGiftChoice(await load(refused.id), items, usAddress(), by)).ok, false, JSON.stringify(items));
+  }
+  assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: refused.id } }), 0);
+
+  // Two products, three napkin sets: one gift, two lines in order, line 1 mirrored on the gift.
+  // More than one item breaks the quantity rule, but a person entered it, so it is approved in their name.
+  const multi = await makeCreatorWithLink(campaign.id, "ml_multi", "token-ml-multi");
+  const saved = await saveGiftChoice(await load(multi.id), [{ productId: cloth.id, quantity: 1 }, { productId: napkins.id, quantity: 2 }, { productId: napkins.id, quantity: 1 }], usAddress(), by);
+  assert.equal(saved.ok && saved.approved, true);
+  const gift = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: multi.id }, include: { lines: { orderBy: { position: "asc" } } } });
+  assert.deepEqual(gift.lines.map((line) => [line.position, line.productId, line.quantity]), [[0, cloth.id, 1], [1, napkins.id, 3]], "the same product twice is one line with the units added up");
+  assert.deepEqual([gift.productId, gift.quantity, gift.status, gift.approvedById], [cloth.id, 1, "approved", user.id]);
+
+  // The ERP receives every line.
+  const { erpOrderFor } = await import("@/lib/erp");
+  const forErp = await db.giftOrder.findUniqueOrThrow({
+    where: { id: gift.id },
+    select: {
+      id: true, status: true, quantity: true, approvedAt: true, approvalNote: true, erpSentAt: true, erpUrl: true, campaignCreatorId: true,
+      shipName: true, address1: true, address2: true, city: true, state: true, postalCode: true, country: true, phone: true,
+      product: { select: { sku: true, asin: true, title: true, color: true, size: true, price: true } },
+      lines: { orderBy: { position: "asc" }, select: { quantity: true, product: { select: { sku: true, asin: true, title: true, color: true, size: true, price: true } } } },
+      campaignCreator: { select: { campaign: { select: { name: true, brandId: true } }, influencer: { select: { name: true, email: true, profiles: { where: { platform: "instagram" }, select: { handle: true }, take: 1 } } } } },
+    },
+  });
+  const order = erpOrderFor(forErp as never);
+  assert.deepEqual(order.lines.map((line) => [line.sku, line.quantity]), [["ML-CLOTH", 1], ["ML-NAP", 3]]);
+
+  // The Amazon file has one row per product under the same order ID; the one-click order sends every item.
+  const route = readFileSync("src/app/(app)/orders/export/route.ts", "utf8");
+  assert.ok(route.includes("order.lines.length > 0 ? order.lines : [{ product: order.product, quantity: order.quantity }]") && route.includes("MerchantFulfillmentOrderItemID: `${reference}-${index + 1}`"));
+  assert.ok(readFileSync("src/lib/mcf-flow.ts", "utf8").includes("gift.lines.length > 0 ? gift.lines : [{ product: gift.product, quantity: gift.quantity }]"));
+});
+
+test("Several-product gifts count in full everywhere, every country leaves as its code, the typed email is checked against do-not-contact, and an unsent gift's address can be edited", async () => {
+  const { giftValueUsd, giftItems } = await import("@/lib/gifts");
+  const { countryCode } = await import("@/lib/mcf");
+  // Value of all products, not just line 1; older single-product gifts unchanged.
+  const multi = { quantity: 1, product: { price: 20 }, lines: [{ quantity: 1, product: { price: 20 } }, { quantity: 2, product: { price: 35 } }] };
+  assert.equal(giftValueUsd(multi), 90);
+  assert.equal(giftValueUsd({ quantity: 3, product: { price: 10 } }), 30);
+  assert.equal(giftValueUsd({ quantity: 1, product: { price: null } }), null);
+  assert.equal(giftItems(multi).length, 2);
+  for (const file of ["src/lib/creator-figures.ts", "src/lib/creator-card-data.ts"]) assert.ok(readFileSync(file, "utf8").includes("giftValueUsd(gift)"), `${file} values the whole gift`);
+
+  // The Country dropdown stores names; the ERP, the Amazon file and one-click orders get the code.
+  for (const [name, code] of [["United States", "US"], ["Germany", "DE"], ["Canada", "CA"], ["United Kingdom", "GB"], ["India", "IN"], ["usa", "US"], ["CA", "CA"]] as const) assert.equal(countryCode(name), code, `${name} -> ${code}`);
+  assert.equal(countryCode("Atlantis"), null);
+  assert.ok(!readFileSync("src/app/(app)/orders/export/route.ts", "utf8").includes("COUNTRY_CODES"), "the Amazon file uses the same country codes as everything else");
+
+  // A typed email (and, for a new creator, the handle) is checked against do-not-contact before anything is written.
+  const action = readFileSync("src/actions/gift-entry.ts", "utf8");
+  const byHand = action.slice(action.indexOf("export async function enterGiftByHand"), action.indexOf("function itemsFrom"));
+  assert.ok(byHand.indexOf("doNotContact(email") > 0 && byHand.indexOf("doNotContact(email") < byHand.indexOf("saveGiftChoice("), "Enter gift by hand checks the typed email first");
+  const fromGifts = action.slice(action.indexOf("export async function giftNewCreator"), action.indexOf("export async function enterGiftByHand"));
+  assert.ok(fromGifts.indexOf("doNotContact(email, [{ platform, handle }])") > 0 && fromGifts.indexOf("doNotContact(") < fromGifts.indexOf("db.$transaction("), "Gift a creator checks before creating anyone");
+
+  // Edit address: own brand only, never once the gift has left, same address rules, history without the address.
+  const edit = action.slice(action.indexOf("export async function editGiftAddress"));
+  assert.ok(edit.includes("...allowed(user).gifts"), "only a gift of this person's brand");
+  assert.ok(edit.includes("where: { id: gift.id, erpSentAt: null, mcfSentAt: null, status: { in: [...EDITABLE_GIFT_STATUSES] } }"), "written only while unsent, checked in the write itself");
+  assert.ok(edit.includes("checkAddress(") && edit.includes("sealAddress("), "same rules, still encrypted");
+  assert.ok(edit.includes("erpError: null"), "the ERP's last refusal is cleared so the order can be sent again");
+  assert.match(edit, /body: `Shipping address of the gift order edited by \$\{user\.name\}\.`/, "the history names who changed it, never the address");
+  const drawer = readFileSync("src/components/gifts-table.tsx", "utf8");
+  assert.ok(drawer.includes('(open.status === "needs_approval" || open.status === "approved") && !open.erp.sentAt && !open.amazon.sentAt ? (\n                  <EditAddressButton'), "the button shows only while the gift is unsent");
 });

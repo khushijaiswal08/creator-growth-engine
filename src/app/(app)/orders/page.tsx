@@ -14,6 +14,7 @@ import { db } from "@/lib/db";
 import { approvalChecksForOrders, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference, OPEN_GIFT_STATUSES } from "@/lib/gifts";
 import { erpConfigured } from "@/lib/erp";
 import { mcfConfigured } from "@/lib/mcf";
+import { describeProduct } from "@/lib/product-list";
 import { requireUser } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Gifts" };
@@ -48,6 +49,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       take: PAGE_SIZE,
       include: {
         product: { select: { title: true, color: true, size: true, sku: true, amazonUrl: true, price: true, imageUrl: true, stock: true } },
+        // Line 1 is the product above; the rest are listed in the drawer.
+        lines: { where: { position: { gt: 0 } }, orderBy: { position: "asc" }, select: { quantity: true, product: { select: { title: true, color: true, size: true, sku: true, price: true } } } },
         campaignCreator: {
           select: { id: true, influencerId: true, collaborationType: true, approvedFee: true, campaign: { select: { id: true, name: true, brandId: true, arrivalCheckDays: true } }, influencer: { select: { id: true, name: true } } },
         },
@@ -82,8 +85,12 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         createdAt: order.createdAt,
         influencerId: order.campaignCreator.influencerId,
         country: order.country,
-        quantity: order.quantity,
-        productPriceUsd: order.product.price === null ? null : Number(order.product.price),
+        // Every product of the gift counts: all units, and the dearest product against the price cap.
+        quantity: order.quantity + order.lines.reduce((sum, line) => sum + line.quantity, 0),
+        productPriceUsd: (() => {
+          const prices = [order.product.price, ...order.lines.map((line) => line.product.price)].filter((price) => price !== null).map(Number);
+          return prices.length > 0 ? Math.max(...prices) : null;
+        })(),
         collaborationType: order.campaignCreator.collaborationType,
         approvedFee: order.campaignCreator.approvedFee,
       })),
@@ -113,6 +120,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
       country: order.country,
       phone: order.phone,
       product: { ...order.product, price },
+      extraItems: order.lines.map((line) => ({ label: describeProduct(line.product), sku: line.product.sku, quantity: line.quantity })),
       creator: order.campaignCreator.influencer,
       campaign: order.campaignCreator.campaign.name,
       campaignCreatorId: order.campaignCreator.id,

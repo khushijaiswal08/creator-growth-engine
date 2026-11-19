@@ -127,3 +127,25 @@ export function amazonPhoneNumber(phone: string | null): string | null {
   const plain = phone?.trim().replace(/^\+\s*/, "") ?? "";
   return plain || null;
 }
+
+type PriceLike = { toNumber(): number } | number | null;
+type PricedGift = { quantity: number; product: { price: PriceLike }; lines?: { quantity: number; product: { price: PriceLike } }[] };
+const priceOf = (price: PriceLike): number | null => (price === null ? null : typeof price === "number" ? price : price.toNumber());
+
+/**
+ * Every product of a gift with its units. Gifts with several products (from 19 Nov 2026) carry
+ * `lines`; older gifts hold one product on the gift itself.
+ */
+export function giftItems<T extends PricedGift>(gift: T): { product: T["product"]; quantity: number }[] {
+  return gift.lines && gift.lines.length > 0 ? gift.lines.map((line) => ({ product: line.product as T["product"], quantity: line.quantity })) : [{ product: gift.product, quantity: gift.quantity }];
+}
+
+/** What the whole gift is worth at Amazon prices: every product times its units. Null when no product has a price. */
+export function giftValueUsd(gift: PricedGift): number | null {
+  let total: number | null = null;
+  for (const item of giftItems(gift)) {
+    const price = priceOf(item.product.price);
+    if (price !== null) total = (total ?? 0) + price * item.quantity;
+  }
+  return total;
+}

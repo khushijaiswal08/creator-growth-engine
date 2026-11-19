@@ -61,6 +61,8 @@ async function loadOrder(giftId: string, scope: BrandScope) {
       country: true,
       phone: true,
       product: { select: { sku: true, asin: true, title: true, color: true, size: true, price: true } },
+      // Every product of the gift (from 19 Nov 2026). Older gifts have none and hold one product.
+      lines: { orderBy: { position: "asc" }, select: { quantity: true, product: { select: { sku: true, asin: true, title: true, color: true, size: true, price: true } } } },
       campaignCreator: {
         select: {
           campaign: { select: { name: true, brandId: true } },
@@ -92,17 +94,15 @@ export function erpOrderFor(gift: NonNullable<Awaited<ReturnType<typeof loadOrde
       country: countryCode(address.country) ?? address.country.trim(),
       phone: address.phone?.trim() || null,
     },
-    lines: [
-      {
-        sku: gift.product.sku,
-        asin: gift.product.asin,
-        title: gift.product.title,
-        color: gift.product.color,
-        size: gift.product.size,
-        quantity: gift.quantity,
-        priceUsd: gift.product.price === null ? null : Number(gift.product.price),
-      },
-    ],
+    lines: (gift.lines.length > 0 ? gift.lines : [{ product: gift.product, quantity: gift.quantity }]).map(({ product, quantity }) => ({
+      sku: product.sku,
+      asin: product.asin,
+      title: product.title,
+      color: product.color,
+      size: product.size,
+      quantity,
+      priceUsd: product.price === null ? null : Number(product.price),
+    })),
     approvedAt: gift.approvedAt?.toISOString() ?? null,
     note: gift.approvalNote,
   };

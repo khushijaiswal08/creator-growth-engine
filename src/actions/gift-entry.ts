@@ -1,21 +1,24 @@
 "use server";
 
+import type { Platform } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "@/lib/activity";
+import { sealAddress } from "@/lib/address-crypto";
 import { allowed } from "@/lib/brand-scope";
 import { db, isUniqueViolation } from "@/lib/db";
 import { parseProfileUrl, profileLabel } from "@/lib/profile-url";
 import { field, type FormState } from "@/lib/form";
 import { giftableProductsWhere } from "@/lib/gifts";
 import { TERMINAL_STATUSES } from "@/lib/next-action";
-import { saveGiftChoice } from "@/lib/selection-flow";
+import { isEmail } from "@/lib/csv";
+import { checkAddress, MAX_LINES, saveGiftChoice, type GiftItem } from "@/lib/selection-flow";
 import { requireUser } from "@/lib/session";
 import { CREATOR_STATUS_LABELS } from "@/lib/status";
 import { loadSuppressions } from "@/lib/suppression";
 import { distinctLabels, productLabel } from "@/lib/template";
 
-/** One product in the "Enter gift by hand" dropdowns, grouped by its type. */
-export type GiftProductOption = { id: string; type: string; label: string; asin: string | null };
+/** One product the gift forms can add, found by its title, SKU or ASIN. */
+export type GiftProductOption = { id: string; type: string; label: string; sku: string; asin: string | null };
 
 /**
  * The creator, if this person may enter a gift for them: in a campaign of the
@@ -61,7 +64,7 @@ async function giftProductsOf(campaign: { brandId: string; giftArticles: string[
     take: 3000,
   });
   if (rows.length === 0) return { ok: false, error: "This campaign offers no products right now. Check its Settings tab." };
-  return { ok: true, products: distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, asin: row.asin, type: row.title, label: productLabel(row) }))).map(({ id, type, label, asin }) => ({ id, type, label, asin })) };
+  return { ok: true, products: distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, asin: row.asin, type: row.title, label: productLabel(row) }))).map(({ id, type, label, sku, asin }) => ({ id, type, label, sku, asin })) };
 }
 
 /** The products this creator's campaign offers, for the two dropdowns, or why no gift can be entered. */
@@ -119,10 +122,16 @@ export async function giftNewCreator(_prev: FormState, formData: FormData): Prom
   for (const key of ["shipName", "address1", "city", "state", "postalCode", "country"]) {
     if (!field(formData, key)) return { error: "Fill in the name and the full shipping address." };
   }
-  const productId = field(formData, "productId");
-  if (!(await db.product.findFirst({ where: { id: productId, ...giftableProductsWhere(campaign) }, select: { id: true } }))) {
-    return { error: "That product is not offered in this campaign. Choose another." };
-  }
+  const items = itemsFrom(formData);
+  if (items.length === 0) return { error: "Add at least one product." };
+  const productIds = new Set(items.map((item) => item.productId));
+  const offered = await db.product.count({ where: { id: { in: [...productIds] }, ...giftableProductsWhere(campaign) } });
+  if (offered !== productIds.size) return { error: "A product is not offered in this campaign. Remove it or choose another." };
+  const email = field(formData, "email").toLowerCase();
+  if (email && !isEmail(email)) return { error: "The email address is not valid." };
+  // Before any creator row is written: the handle or the typed email may be on the do-not-contact list.
+  const blocked = await doNotContact(email, [{ platform, handle }]);
+  if (blocked) return { error: blocked };
 
   const creatorName = field(formData, "creatorName") || handle;
   let campaignCreatorId: string;
@@ -132,7 +141,7 @@ export async function giftNewCreator(_prev: FormState, formData: FormData): Prom
       let influencerId = existing?.influencerId;
       if (!influencerId) {
         const influencer = await tx.influencer.create({
-          data: { name: creatorName.slice(0, 120), profiles: { create: { platform, handle, source: "manual" } } },
+          data: { name: creatorName.slice(0, 120), email: email || null, profiles: { create: { platform, handle, source: "manual" } } },
         });
         influencerId = influencer.id;
         await logActivity(tx, { userId: user.id, kind: "influencer_created", influencerId, body: `Added from Gifts by ${user.name} (${profileLabel(platform, handle)}).` });
@@ -153,7 +162,7 @@ export async function giftNewCreator(_prev: FormState, formData: FormData): Prom
   if (!loaded.ok) return { error: loaded.error };
   const result = await saveGiftChoice(
     loaded.creator,
-    productId,
+    items,
     {
       shipName: field(formData, "shipName"),
       address1: field(formData, "address1"),
@@ -173,11 +182,8 @@ export async function giftNewCreator(_prev: FormState, formData: FormData): Prom
   revalidatePath(`/influencers/${loaded.creator.influencerId}`);
   revalidatePath(`/campaigns/${campaign.id}`);
   revalidatePath("/today");
-  return {
-    message: result.approved
-      ? `Saved. The gift for ${profileLabel(platform, handle)} passed every rule and is under To order: open it to create the order in the ERP.`
-      : `Saved. The gift for ${profileLabel(platform, handle)} waits under Needs approval, with the reason.`,
-  };
+  await keepEmail(loaded.creator.influencerId, email);
+  return { message: `Saved and approved. The gift for ${profileLabel(platform, handle)} is under To order: open it to create the order in the ERP.` };
 }
 
 /**
@@ -191,10 +197,15 @@ export async function enterGiftByHand(_prev: FormState, formData: FormData): Pro
   const loaded = await loadGiftable(field(formData, "campaignCreatorId"));
   if (!loaded.ok) return { error: loaded.error };
   const { user, creator } = loaded;
+  const email = field(formData, "email").toLowerCase();
+  if (email && !isEmail(email)) return { error: "The email address is not valid." };
+  // The email typed here may be on the do-not-contact list even when the creator's record has none yet.
+  const blocked = await doNotContact(email, creator.influencer.profiles);
+  if (blocked) return { error: blocked };
 
   const result = await saveGiftChoice(
     creator,
-    field(formData, "productId"),
+    itemsFrom(formData),
     {
       shipName: field(formData, "shipName"),
       address1: field(formData, "address1"),
@@ -210,12 +221,92 @@ export async function enterGiftByHand(_prev: FormState, formData: FormData): Pro
   );
   if (!result.ok) return { error: result.error };
 
+  await keepEmail(creator.influencerId, email);
   revalidatePath(`/influencers/${creator.influencerId}`);
   revalidatePath("/orders");
   revalidatePath("/today");
-  return {
-    message: result.approved
-      ? "Saved. The gift passed every rule and is approved: open it in Gifts to create the order in the ERP."
-      : "Saved. The gift waits in Gifts under Needs approval, with the reason.",
-  };
+  return { message: "Saved and approved. Open it in Gifts to create the order in the ERP." };
+}
+
+/** The products and units a gift form sent: rows of itemProductId with itemUnits, in order. */
+function itemsFrom(formData: FormData): GiftItem[] {
+  const ids = formData.getAll("itemProductId").map(String);
+  const units = formData.getAll("itemUnits").map(String);
+  return ids
+    .map((productId, index) => ({ productId: productId.trim(), quantity: Number(units[index] ?? "1") }))
+    .filter((item) => item.productId)
+    .slice(0, MAX_LINES * 2);
+}
+
+/** Why this email or profile may not be gifted (the do-not-contact list), or null. */
+async function doNotContact(email: string, profiles: { platform: Platform; handle: string }[]): Promise<string | null> {
+  const target = { email: email || null, profiles };
+  const reason = (await loadSuppressions([target])).reasonFor(target);
+  return reason ? `On the do-not-contact list: ${reason}` : null;
+}
+
+/** The email the creator gave, kept on their record only when it has none yet (never overwritten). */
+async function keepEmail(influencerId: string, email: string) {
+  if (!email) return;
+  await db.influencer.updateMany({ where: { id: influencerId, email: null }, data: { email } });
+}
+
+/** Gift statuses whose address may still be changed here: nothing has been ordered yet. */
+const EDITABLE_GIFT_STATUSES = ["needs_approval", "approved"] as const;
+
+/**
+ * "Edit address" in the gift drawer: fixes a typo or a wrong state before the order leaves.
+ * Only for a gift of this person's brand that has not gone to the ERP or Amazon; after that the
+ * order lives there and is changed there. The same address rules as the forms apply, the address
+ * stays encrypted, the ERP's last refusal is cleared so the order can be sent again, and the
+ * history says who changed it (without the address itself).
+ */
+export async function editGiftAddress(_prev: FormState, formData: FormData): Promise<FormState> {
+  const user = await requireUser();
+  const giftId = field(formData, "giftId");
+  const gift = await db.giftOrder.findFirst({
+    where: { id: giftId, ...allowed(user).gifts },
+    select: { id: true, status: true, erpSentAt: true, mcfSentAt: true, campaignCreator: { select: { id: true, influencerId: true, campaignId: true } } },
+  });
+  if (!gift) return { error: "Gift order not found." };
+  const sent = gift.erpSentAt !== null || gift.mcfSentAt !== null || !(EDITABLE_GIFT_STATUSES as readonly string[]).includes(gift.status);
+  if (sent) return { error: "This gift has already gone to the ERP or Amazon. Change the address there." };
+
+  const checked = checkAddress(
+    {
+      shipName: field(formData, "shipName"),
+      address1: field(formData, "address1"),
+      address2: field(formData, "address2"),
+      city: field(formData, "city"),
+      state: field(formData, "state"),
+      postalCode: field(formData, "postalCode"),
+      country: field(formData, "country"),
+      phone: field(formData, "phone"),
+      note: "",
+    },
+    true,
+  );
+  if (!checked.ok) return { error: checked.error };
+  const { values } = checked;
+
+  // Written only if it is still unsent: someone may have pressed "Create order in ERP" meanwhile.
+  const changed = await db.$transaction(async (tx) => {
+    const { count } = await tx.giftOrder.updateMany({
+      where: { id: gift.id, erpSentAt: null, mcfSentAt: null, status: { in: [...EDITABLE_GIFT_STATUSES] } },
+      data: {
+        ...sealAddress({ shipName: values.shipName, address1: values.address1, address2: values.address2 || null, city: values.city, state: values.state, postalCode: values.postalCode, phone: values.phone || null }),
+        country: values.country,
+        erpError: null,
+      },
+    });
+    if (count === 0) return false;
+    await logActivity(tx, { userId: user.id, kind: "note", campaignCreatorId: gift.campaignCreator.id, influencerId: gift.campaignCreator.influencerId, body: `Shipping address of the gift order edited by ${user.name}.` });
+    return true;
+  });
+  if (!changed) return { error: "This gift has just gone to the ERP or Amazon. Change the address there." };
+
+  revalidatePath("/orders");
+  revalidatePath(`/influencers/${gift.campaignCreator.influencerId}`);
+  revalidatePath(`/campaigns/${gift.campaignCreator.campaignId}`);
+  return { message: "Address saved." };
 }

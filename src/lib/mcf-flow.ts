@@ -61,6 +61,8 @@ async function loadForAmazon(giftId: string, scope: BrandScope): Promise<{ ok: t
       country: true,
       phone: true,
       product: { select: { sku: true } },
+      // Every product of the gift (from 19 Nov 2026). Older gifts have none and hold one product.
+      lines: { orderBy: { position: "asc" }, select: { quantity: true, product: { select: { sku: true } } } },
       campaignCreator: { select: { campaign: { select: { brandId: true } } } },
     },
   });
@@ -81,7 +83,7 @@ async function loadForAmazon(giftId: string, scope: BrandScope): Promise<{ ok: t
   const problems = addressProblems(address);
   if (problems.length > 0) return { ok: false, error: `Amazon needs ${problems.join(", ")} before it can ship. Fix the address in the gift order first.` };
   const reference = giftReference(gift.id);
-  return { ok: true, gift: { id: gift.id, brandId, reference, address, items: [{ sellerSku: gift.product.sku, sellerFulfillmentOrderItemId: `${reference}-1`, quantity: gift.quantity }], createdAt: gift.createdAt, status: gift.status, mcfSentAt: gift.mcfSentAt } };
+  return { ok: true, gift: { id: gift.id, brandId, reference, address, items: (gift.lines.length > 0 ? gift.lines : [{ product: gift.product, quantity: gift.quantity }]).map((line, index) => ({ sellerSku: line.product.sku, sellerFulfillmentOrderItemId: `${reference}-${index + 1}`, quantity: line.quantity })), createdAt: gift.createdAt, status: gift.status, mcfSentAt: gift.mcfSentAt } };
 }
 
 const plain = (error: unknown) => (error instanceof McfError ? error.message : "Amazon could not be reached. Try again in a minute.");

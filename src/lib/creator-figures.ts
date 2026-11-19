@@ -3,6 +3,7 @@ import type { BrandScope } from "@/lib/brand-scope";
 import { campaignNumbers, contentCount } from "@/lib/creator-card";
 import { db } from "@/lib/db";
 import { DELIVERED_STATUSES } from "@/lib/status";
+import { giftValueUsd } from "@/lib/gifts";
 
 /**
  * The creator card's headline figures for a page of creators at once, for the
@@ -33,7 +34,7 @@ export async function creatorFiguresFor(influencerIds: string[], scope: BrandSco
   // nested under them, so Prisma does not wait for one level before asking for the next.
   const [links, giftRows, postRows, amazon] = await Promise.all([
     db.campaignCreator.findMany({ where, select: { id: true, influencerId: true, status: true } }),
-    db.giftOrder.findMany({ where: { status: { not: "cancelled" }, campaignCreator: where }, select: { campaignCreatorId: true, quantity: true, product: { select: { price: true } } } }),
+    db.giftOrder.findMany({ where: { status: { not: "cancelled" }, campaignCreator: where }, select: { campaignCreatorId: true, quantity: true, product: { select: { price: true } }, lines: { select: { quantity: true, product: { select: { price: true } } } } } }),
     db.post.findMany({ where: { campaignCreator: where }, select: { campaignCreatorId: true, metrics: { orderBy: { capturedAt: "desc" }, take: 1, select: { views: true, clicks: true, salesUsd: true } } } }),
     attributionByCampaignCreator(where),
   ]);
@@ -46,7 +47,8 @@ export async function creatorFiguresFor(influencerIds: string[], scope: BrandSco
     const link = { influencerId, status, giftOrders: giftsOf.get(id) ?? [], posts: postsOf.get(id) ?? [] };
     const tally = tallies.get(link.influencerId) ?? { gifts: 0, giftValue: null, posts: 0, delivered: 0, views: null, clicks: null, orders: null, sales: null };
     tally.gifts += link.giftOrders.length;
-    for (const gift of link.giftOrders) tally.giftValue = add(tally.giftValue, gift.product.price === null ? null : gift.product.price.toNumber() * gift.quantity);
+    // Every product of the gift counts (several products per gift from 19 Nov 2026).
+    for (const gift of link.giftOrders) tally.giftValue = add(tally.giftValue, giftValueUsd(gift));
     tally.posts += link.posts.length;
     if (DELIVERED_STATUSES.has(link.status)) tally.delivered += 1;
     const latest = link.posts.map((post) => post.metrics[0]).filter((metric) => metric !== undefined);

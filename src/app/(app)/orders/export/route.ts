@@ -5,6 +5,7 @@ import { csvLine, csvResponse } from "@/lib/csv-out";
 import { db } from "@/lib/db";
 import { isoDay } from "@/lib/format";
 import { amazonPhoneNumber, giftReference } from "@/lib/gifts";
+import { countryCode } from "@/lib/mcf";
 import { requireUser } from "@/lib/session";
 import { usStateCode } from "@/lib/us-states";
 
@@ -30,8 +31,6 @@ const COLUMNS = [
   "AddressPhoneNumber",
 ] as const;
 
-const COUNTRY_CODES: Record<string, string> = { "United States": "US", Canada: "CA", "United Kingdom": "GB" };
-
 /**
  * Every approved gift order of ONE brand that has not been placed yet, one row each.
  * Each brand ships from its own Amazon account, so a file never mixes brands.
@@ -52,7 +51,7 @@ export async function GET(request: Request) {
     await db.giftOrder.findMany({
       where: { status: "approved", campaignCreator: { campaign: { brandId: asked } } },
       orderBy: { createdAt: "asc" },
-      include: { product: { select: { sku: true } } },
+      include: { product: { select: { sku: true } }, lines: { orderBy: { position: "asc" }, select: { quantity: true, product: { select: { sku: true } } } } },
     })
   ).map(openAddress);
 
@@ -60,26 +59,30 @@ export async function GET(request: Request) {
   const lines = [COLUMNS.join(",")];
   for (const order of orders) {
     const reference = giftReference(order.id);
+    // One row per product: Amazon's bulk file groups rows with the same order ID into one order.
+    const items = order.lines.length > 0 ? order.lines : [{ product: order.product, quantity: order.quantity }];
+    for (const [index, item] of items.entries()) {
     const row: Record<(typeof COLUMNS)[number], string | number | null> = {
       MerchantFulfillmentOrderID: reference,
       DisplayableOrderID: reference,
       DisplayableOrderDate: today,
-      MerchantSKU: order.product.sku,
-      Quantity: order.quantity,
-      MerchantFulfillmentOrderItemID: `${reference}-1`,
+      MerchantSKU: item.product.sku,
+      Quantity: item.quantity,
+      MerchantFulfillmentOrderItemID: `${reference}-${index + 1}`,
       DisplayableOrderComment: "Thank you for collaborating with us.",
       DeliverySLA: "Standard",
       AddressName: order.shipName,
       AddressFieldOne: order.address1,
       AddressFieldTwo: order.address2,
       AddressCity: order.city,
-      AddressCountryCode: COUNTRY_CODES[order.country] ?? order.country,
+      AddressCountryCode: countryCode(order.country) ?? order.country,
       // Two letters for a US state; gifts saved before 19 Nov may hold the full name.
-      AddressStateOrRegion: ((COUNTRY_CODES[order.country] ?? order.country) === "US" ? usStateCode(order.state) : null) ?? order.state,
+      AddressStateOrRegion: ((countryCode(order.country) ?? order.country) === "US" ? usStateCode(order.state) : null) ?? order.state,
       AddressPostalCode: order.postalCode,
       AddressPhoneNumber: amazonPhoneNumber(order.phone),
     };
     lines.push(csvLine(COLUMNS.map((column) => row[column])));
+    }
   }
 
   return csvResponse(lines, `amazon-gift-orders-${asked}-${today}.csv`);

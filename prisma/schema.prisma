@@ -731,6 +731,7 @@ model Product {
   updatedAt   DateTime @updatedAt
 
   giftOrders    GiftOrder[]
+  giftLines     GiftOrderLine[]
   contentAssets ContentAsset[]
   monthlySales  ProductMonthlySales[]
 
@@ -823,11 +824,30 @@ model GiftOrder {
   campaignCreator CampaignCreator @relation(fields: [campaignCreatorId], references: [id], onDelete: Restrict)
   product         Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
   approvedBy      User?           @relation(fields: [approvedById], references: [id])
+  // Every product in the gift with its units, in order. Empty for gifts made before 19 Nov 2026:
+  // those hold one product (productId, quantity). When lines exist, productId and quantity mirror line 1.
+  lines           GiftOrderLine[]
 
   @@index([mcfSentAt, status])
   @@index([status])
   @@index([campaignCreatorId])
   @@index([orderNumber])
+}
+
+// One product of a gift and how many units (like the rows under "Add items" on Amazon's MCF page).
+model GiftOrderLine {
+  id          String   @id @default(cuid())
+  giftOrderId String
+  productId   String
+  quantity    Int
+  position    Int
+  createdAt   DateTime @default(now())
+
+  giftOrder GiftOrder @relation(fields: [giftOrderId], references: [id], onDelete: Restrict)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([giftOrderId, position])
+  @@index([productId])
 }
 
 // Each time the automation ran, and what it changed.

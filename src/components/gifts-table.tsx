@@ -11,6 +11,7 @@ import { SendToErp } from "@/components/send-to-erp";
 import { Avatar } from "@/components/avatar";
 import { CreatorName } from "@/components/creator-card";
 import { useRachna } from "@/components/rachna/rachna";
+import { EditAddressButton } from "@/components/gift-entry";
 import { GiftTrackingForm } from "@/components/journey-forms";
 import { NoticeText, type Notice } from "@/components/notice-text";
 import { ProductPhoto } from "@/components/product-photo";
@@ -46,6 +47,8 @@ export type GiftRow = {
   country: string;
   phone: string | null;
   product: { title: string; color: string | null; size: string | null; sku: string; amazonUrl: string | null; price: number | null; imageUrl: string | null; stock: number | null };
+  /** The gift's products after the first one (gifts with several products, from 19 Nov 2026). */
+  extraItems: { label: string; sku: string; quantity: number }[];
   creator: { id: string; name: string };
   campaign: string;
   /** The creator's campaign link, for Rachna's nudge after a delivery. */
@@ -231,7 +234,10 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                           <div className="min-w-0">
                             <CreatorName id={order.creator.id} name={order.creator.name} className="font-bold hover:text-primary-text" />
                             <div className="truncate text-xs font-medium text-muted-foreground max-md:hidden">{order.campaign}</div>
-                            <div className="truncate text-xs font-medium text-muted-foreground md:hidden">{order.product.title}</div>
+                            <div className="truncate text-xs font-medium text-muted-foreground md:hidden">
+                              {order.product.title}
+                              {order.extraItems.length > 0 ? ` + ${order.extraItems.length} more` : ""}
+                            </div>
                             <div className="mt-1.5 md:hidden">
                               <Pill tone={GIFT_STATUS_TONES[order.status]}>{GIFT_STATUS_LABELS[order.status]}</Pill>
                             </div>
@@ -246,6 +252,7 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                         <div className="text-xs font-medium whitespace-nowrap text-muted-foreground">
                           {order.product.sku}
                           {order.product.price !== null ? ` · $${order.product.price.toFixed(2)}` : ""}
+                          {order.extraItems.length > 0 ? ` · + ${order.extraItems.length} more` : ""}
                         </div>
                       </td>
                       <td className="px-3 py-3.5 max-md:hidden">
@@ -344,13 +351,34 @@ export function GiftsTable({ orders, sort, footer }: { orders: GiftRow[]; sort: 
                     </>
                   ) : null}
                 </p>
+                {open.extraItems.length > 0 ? (
+                  <ul className="mt-2 grid gap-1 text-xs">
+                    {open.extraItems.map((item) => (
+                      <li key={item.sku}>
+                        <span className="font-semibold">{item.label}</span>
+                        {item.quantity > 1 ? ` × ${item.quantity}` : ""}
+                        <span className="text-muted-foreground"> · SKU {item.sku}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
                 {open.creatorNote ? <p className="mt-1 text-xs text-muted-foreground">Creator&apos;s note: {open.creatorNote}</p> : null}
                 {open.orderNumber ? <p className="mt-1 text-xs text-muted-foreground">Amazon order {open.orderNumber}</p> : null}
               </div>
             </div>
 
             <div>
-              <p className="label mb-1.5">Ship to</p>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <p className="label">Ship to</p>
+                {/* Until the order leaves for the ERP or Amazon, a typo or a wrong state can be fixed here. */}
+                {(open.status === "needs_approval" || open.status === "approved") && !open.erp.sentAt && !open.amazon.sentAt ? (
+                  <EditAddressButton
+                    key={`address-${open.id}`}
+                    giftId={open.id}
+                    address={{ shipName: open.shipName, address1: open.address1, address2: open.address2, city: open.city, state: open.state, postalCode: open.postalCode, country: open.country, phone: open.phone }}
+                  />
+                ) : null}
+              </div>
               <p className="text-sm">
                 {open.shipName}
                 <br />

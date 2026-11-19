@@ -8,6 +8,7 @@ import { DAY_MS, latestDate } from "@/lib/format";
 import { suggestedTemplate } from "@/lib/next-action";
 import { CLOSED_STATUSES } from "@/lib/pipeline";
 import { describeProduct } from "@/lib/product-list";
+import { giftItems, giftValueUsd } from "@/lib/gifts";
 import { topFollowers } from "@/lib/profile-url";
 import { DELIVERED_STATUSES, GIFT_IN_PROGRESS_STATUSES, SEND_BLOCKED_STATUSES } from "@/lib/status";
 
@@ -126,7 +127,16 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
           giftOrders: {
             where: { status: { not: "cancelled" } },
             orderBy: { createdAt: "desc" },
-            select: { id: true, status: true, quantity: true, createdAt: true, shippedAt: true, deliveredAt: true, product: { select: { title: true, color: true, size: true, price: true } } },
+            select: {
+              id: true,
+              status: true,
+              quantity: true,
+              createdAt: true,
+              shippedAt: true,
+              deliveredAt: true,
+              product: { select: { title: true, color: true, size: true, price: true } },
+              lines: { orderBy: { position: "asc" }, select: { quantity: true, product: { select: { title: true, color: true, size: true, price: true } } } },
+            },
           },
           posts: {
             orderBy: { createdAt: "desc" },
@@ -156,15 +166,20 @@ export async function loadCreatorCard(influencerId: string, scope: BrandScope, n
     replyWarmth: link.replyWarmth,
     replyRead: link.replyRead,
     fitScore: link.fitScore,
-    gifts: link.giftOrders.map((gift) => ({
+    gifts: link.giftOrders.map((gift) => {
+      const items = giftItems(gift);
+      // A gift of several products reads "Tablecloth, Napkins × 2" with the value of all of them.
+      const several = items.length > 1;
+      return {
       id: gift.id,
-      product: describeProduct(gift.product),
-      priceUsd: num(gift.product.price),
-      quantity: gift.quantity,
+      product: several ? items.map((item) => `${describeProduct(item.product)}${item.quantity > 1 ? ` × ${item.quantity}` : ""}`).join(", ") : describeProduct(gift.product),
+      priceUsd: several ? giftValueUsd(gift) : num(gift.product.price),
+      quantity: several ? 1 : gift.quantity,
       status: gift.status,
       at: gift.deliveredAt ?? gift.shippedAt ?? gift.createdAt,
       delivered: gift.deliveredAt !== null,
-    })),
+      };
+    }),
     posts: link.posts.map((post) => {
       const latest = post.metrics[0];
       return {
