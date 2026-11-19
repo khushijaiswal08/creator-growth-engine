@@ -2,13 +2,14 @@ import type { GiftOrderStatus } from "@prisma/client";
 import { ClipboardPaste, Download } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { GiftCreatorButton } from "@/components/gift-entry";
 import { GiftsTable, type GiftRow } from "@/components/gifts-table";
 import { TrackingImportForm } from "@/components/journey-forms";
 import { PageHeader } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { openAddress } from "@/lib/address-crypto";
 import { brandsIn, viewed } from "@/lib/brand-scope";
-import { brandsLabel } from "@/lib/brands";
+import { brandShortName, brandsLabel } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { approvalChecksForOrders, GIFT_STATUS_LABELS, GIFT_STATUSES, giftReference, OPEN_GIFT_STATUSES } from "@/lib/gifts";
 import { erpConfigured } from "@/lib/erp";
@@ -40,7 +41,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   const filter = GIFT_STATUSES.includes(raw as GiftOrderStatus) ? (raw as GiftOrderStatus) : null;
   const sort: Sort = params.sort === "oldest" || params.sort === "status" ? params.sort : "newest";
 
-  const [stored, counts, campaignsDelivered, toOrderCounts] = await Promise.all([
+  const [stored, counts, campaignsDelivered, toOrderCounts, giftCampaigns] = await Promise.all([
     db.giftOrder.findMany({
       where: { ...view.gifts, status: filter ?? { not: "cancelled" } },
       orderBy: sort === "status" ? [{ status: "asc" }, { createdAt: "desc" }] : { createdAt: sort === "oldest" ? "asc" : "desc" },
@@ -62,6 +63,8 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         count: await db.giftOrder.count({ where: { status: "approved", campaignCreator: { campaign: { brandId: brand.id } } } }),
       })),
     ),
+    // "Gift a creator": the open campaigns of the brands this person is looking at.
+    db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, brandId: true } }),
   ]);
   const campaignsWithDelivery = new Set(campaignsDelivered.map((row) => row.id));
   const toOrder = toOrderCounts.filter((row) => row.count > 0);
@@ -129,6 +132,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
         title="Gifts"
         meta={`${brandsLabel(view.brandId, "Both brands")} · ${openCount} open · ${countOf.get("needs_approval") ?? 0} to approve`}
       >
+        <GiftCreatorButton campaigns={giftCampaigns.map((campaign) => ({ id: campaign.id, name: campaign.name, brand: brandShortName(campaign.brandId) }))} />
         <Button asChild variant="outline">
           <a href="#tracking">
             <ClipboardPaste strokeWidth={2.4} />

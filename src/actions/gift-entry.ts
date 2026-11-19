@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { logActivity } from "@/lib/activity";
 import { allowed } from "@/lib/brand-scope";
-import { db } from "@/lib/db";
+import { db, isUniqueViolation } from "@/lib/db";
+import { parseProfileUrl, profileLabel } from "@/lib/profile-url";
 import { field, type FormState } from "@/lib/form";
 import { giftableProductsWhere } from "@/lib/gifts";
 import { TERMINAL_STATUSES } from "@/lib/next-action";
@@ -48,18 +50,134 @@ async function loadGiftable(campaignCreatorId: string) {
   return { ok: true as const, user, creator };
 }
 
-/** The products this creator's campaign offers, for the two dropdowns, or why no gift can be entered. */
-export async function productsForGift(campaignCreatorId: string): Promise<{ ok: true; products: GiftProductOption[] } | { ok: false; error: string }> {
-  const loaded = await loadGiftable(campaignCreatorId);
-  if (!loaded.ok) return { ok: false, error: loaded.error };
+type ProductList = { ok: true; products: GiftProductOption[] } | { ok: false; error: string };
+
+/** What a campaign offers as gifts, labelled for the dropdowns: the same list as the creator's link shows. */
+async function giftProductsOf(campaign: { brandId: string; giftArticles: string[] }): Promise<ProductList> {
   const rows = await db.product.findMany({
-    where: giftableProductsWhere(loaded.creator.campaign),
+    where: giftableProductsWhere(campaign),
     select: { id: true, sku: true, title: true, color: true, size: true, listingName: true },
     orderBy: [{ title: "asc" }, { color: "asc" }, { size: "asc" }, { sku: "asc" }],
     take: 3000,
   });
   if (rows.length === 0) return { ok: false, error: "This campaign offers no products right now. Check its Settings tab." };
   return { ok: true, products: distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, type: row.title, label: productLabel(row) }))).map(({ id, type, label }) => ({ id, type, label })) };
+}
+
+/** The products this creator's campaign offers, for the two dropdowns, or why no gift can be entered. */
+export async function productsForGift(campaignCreatorId: string): Promise<ProductList> {
+  const loaded = await loadGiftable(campaignCreatorId);
+  if (!loaded.ok) return { ok: false, error: loaded.error };
+  return giftProductsOf(loaded.creator.campaign);
+}
+
+/** A campaign of this person's brand that can take a new gift (not archived). */
+async function loadOpenCampaign(campaignId: string) {
+  const user = await requireUser();
+  const campaign = campaignId
+    ? await db.campaign.findFirst({
+        where: { id: campaignId, ...allowed(user).campaigns, status: { not: "archived" } },
+        select: { id: true, name: true, brandId: true, giftArticles: true },
+      })
+    : null;
+  return { user, campaign };
+}
+
+/** The products a campaign offers, for "Gift a creator" on the Gifts page. */
+export async function productsForCampaign(campaignId: string): Promise<ProductList> {
+  const { campaign } = await loadOpenCampaign(campaignId);
+  if (!campaign) return { ok: false, error: "Choose a campaign." };
+  return giftProductsOf(campaign);
+}
+
+/** "@handle", "handle" or a profile link -> the Instagram (or other) profile, as the portal stores it. */
+function profileFromInput(raw: string) {
+  const text = raw.trim();
+  if (!text) return { ok: false as const, error: "Type the creator's Instagram handle." };
+  // Instagram handles may contain dots, so only a slash or a scheme makes it a link.
+  const looksLikeLink = /^https?:\/\//i.test(text) || text.includes("/");
+  return parseProfileUrl(looksLikeLink ? text : `https://www.instagram.com/${text.replace(/^@/, "")}/`);
+}
+
+/**
+ * "Gift a creator" on the Gifts page: straight to a gift, with no discovery or outreach
+ * step, for testing a shipment or for a creator the team arranged elsewhere. The creator
+ * is found by handle (or added once), put in the chosen campaign, and the gift then goes
+ * through exactly what a link or a hand-entered gift does: every check in loadGiftable,
+ * then saveGiftChoice with its rules, encryption and one-gift limit.
+ */
+export async function giftNewCreator(_prev: FormState, formData: FormData): Promise<FormState> {
+  if (field(formData, "confirm") !== "yes") return { error: "Tick the box to confirm the creator sent these details for this gift." };
+  const { user, campaign } = await loadOpenCampaign(field(formData, "campaignId"));
+  if (!campaign) return { error: "Choose a campaign of your brand that is not archived." };
+
+  const parsed = profileFromInput(field(formData, "handle"));
+  if (!parsed.ok) return { error: parsed.error };
+  const { platform, handle } = parsed.profile;
+
+  // Checked before anything is written, so a mistake leaves no half-made creator behind.
+  for (const key of ["shipName", "address1", "city", "state", "postalCode", "country"]) {
+    if (!field(formData, key)) return { error: "Fill in the name and the full shipping address." };
+  }
+  const productId = field(formData, "productId");
+  if (!(await db.product.findFirst({ where: { id: productId, ...giftableProductsWhere(campaign) }, select: { id: true } }))) {
+    return { error: "That product is not offered in this campaign. Choose another." };
+  }
+
+  const creatorName = field(formData, "creatorName") || handle;
+  let campaignCreatorId: string;
+  try {
+    campaignCreatorId = await db.$transaction(async (tx) => {
+      const existing = await tx.socialProfile.findUnique({ where: { platform_handle: { platform, handle } }, select: { influencerId: true } });
+      let influencerId = existing?.influencerId;
+      if (!influencerId) {
+        const influencer = await tx.influencer.create({
+          data: { name: creatorName.slice(0, 120), profiles: { create: { platform, handle, source: "manual" } } },
+        });
+        influencerId = influencer.id;
+        await logActivity(tx, { userId: user.id, kind: "influencer_created", influencerId, body: `Added from Gifts by ${user.name} (${profileLabel(platform, handle)}).` });
+      }
+      const inCampaign = await tx.campaignCreator.findUnique({ where: { campaignId_influencerId: { campaignId: campaign.id, influencerId } }, select: { id: true } });
+      if (inCampaign) return inCampaign.id;
+      const created = await tx.campaignCreator.create({ data: { campaignId: campaign.id, influencerId, ownerId: user.id } });
+      await logActivity(tx, { userId: user.id, kind: "added_to_campaign", campaignCreatorId: created.id, influencerId, body: `Added to campaign "${campaign.name}" from Gifts, to be gifted directly.` });
+      return created.id;
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) return { error: `${profileLabel(platform, handle)} was just added by someone else. Try again.` };
+    throw error;
+  }
+
+  // From here it is the same path as "Enter gift by hand" on the creator's page.
+  const loaded = await loadGiftable(campaignCreatorId);
+  if (!loaded.ok) return { error: loaded.error };
+  const result = await saveGiftChoice(
+    loaded.creator,
+    productId,
+    {
+      shipName: field(formData, "shipName"),
+      address1: field(formData, "address1"),
+      address2: field(formData, "address2"),
+      city: field(formData, "city"),
+      state: field(formData, "state"),
+      postalCode: field(formData, "postalCode"),
+      country: field(formData, "country"),
+      phone: field(formData, "phone"),
+      note: field(formData, "note"),
+    },
+    { actor: user.id, by: { name: user.name } },
+  );
+  if (!result.ok) return { error: result.error };
+
+  revalidatePath("/orders");
+  revalidatePath(`/influencers/${loaded.creator.influencerId}`);
+  revalidatePath(`/campaigns/${campaign.id}`);
+  revalidatePath("/today");
+  return {
+    message: result.approved
+      ? `Saved. The gift for ${profileLabel(platform, handle)} passed every rule and is under To order: open it to create the order in the ERP.`
+      : `Saved. The gift for ${profileLabel(platform, handle)} waits under Needs approval, with the reason.`,
+  };
 }
 
 /**

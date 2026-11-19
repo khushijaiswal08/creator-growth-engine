@@ -3631,5 +3631,33 @@ test("A gift typed in by hand from a creator's message goes through the same rul
   const enter = action.slice(action.indexOf("export async function enterGiftByHand"));
   assert.ok(enter.indexOf('field(formData, "confirm") !== "yes"') < enter.indexOf("loadGiftable("), "the person confirms the creator sent the details");
   assert.ok(enter.indexOf("loadGiftable(") < enter.indexOf("saveGiftChoice("), "every check runs before the gift is saved");
-  assert.ok(action.slice(action.indexOf("export async function productsForGift")).indexOf("loadGiftable(") < action.slice(action.indexOf("export async function productsForGift")).indexOf("db.product.findMany"), "products are only listed for a creator this person may gift");
+  const listing = action.slice(action.indexOf("export async function productsForGift"), action.indexOf("async function loadOpenCampaign"));
+  assert.ok(listing.indexOf("loadGiftable(") > 0 && listing.indexOf("loadGiftable(") < listing.indexOf("giftProductsOf("), "products are only listed for a creator this person may gift");
+  assert.ok(action.slice(action.indexOf("async function giftProductsOf")).includes("giftableProductsWhere(campaign)"), "and only what the campaign offers");
+});
+
+test("Gift a creator from the Gifts page: checks the campaign and the product before writing, finds the creator by handle, then takes the same gift path", () => {
+  const action = readFileSync("src/actions/gift-entry.ts", "utf8");
+  const fn = action.slice(action.indexOf("export async function giftNewCreator"));
+  const at = (text: string) => {
+    const index = fn.indexOf(text);
+    assert.ok(index > 0, `giftNewCreator uses ${text}`);
+    return index;
+  };
+  // The person confirms, then the campaign must be one of their brand and not archived.
+  assert.ok(at('field(formData, "confirm") !== "yes"') < at("loadOpenCampaign("));
+  const opener = action.slice(action.indexOf("async function loadOpenCampaign"), action.indexOf("export async function productsForCampaign"));
+  assert.ok(opener.includes("requireUser()") && opener.includes("allowed(user).campaigns") && opener.includes('status: { not: "archived" }'), "only an open campaign of this person's brand");
+  // The address and the product are checked before any creator row is written.
+  assert.ok(at('"Fill in the name and the full shipping address."') < at("db.$transaction("));
+  assert.ok(at("giftableProductsWhere(campaign)") < at("db.$transaction("));
+  // One creator per handle: an existing profile is reused, never duplicated.
+  assert.ok(at("tx.socialProfile.findUnique({ where: { platform_handle: { platform, handle } }") < at("tx.influencer.create("));
+  // Then exactly the hand-entry path: every loadGiftable check (do-not-contact, archived, one gift), then saveGiftChoice.
+  assert.ok(at("loadGiftable(campaignCreatorId)") < at("saveGiftChoice("));
+  const products = action.slice(action.indexOf("export async function productsForCampaign"));
+  assert.ok(products.indexOf("loadOpenCampaign(") < products.indexOf("giftProductsOf("), "products are listed only for a campaign this person may gift from");
+  // The button sits on the Gifts page and offers only open campaigns of the brands in view.
+  const page = readFileSync("src/app/(app)/orders/page.tsx", "utf8");
+  assert.ok(page.includes("<GiftCreatorButton") && page.includes('db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }'));
 });
