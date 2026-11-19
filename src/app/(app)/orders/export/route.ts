@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { isoDay } from "@/lib/format";
 import { amazonPhoneNumber, giftReference } from "@/lib/gifts";
 import { requireUser } from "@/lib/session";
+import { usStateCode } from "@/lib/us-states";
 
 // Column names follow Amazon's Multi-Channel Fulfillment bulk order template.
 // Check them against the template you download from Seller Central before the
@@ -73,7 +74,8 @@ export async function GET(request: Request) {
       AddressFieldTwo: order.address2,
       AddressCity: order.city,
       AddressCountryCode: COUNTRY_CODES[order.country] ?? order.country,
-      AddressStateOrRegion: order.state,
+      // Two letters for a US state; gifts saved before 19 Nov may hold the full name.
+      AddressStateOrRegion: ((COUNTRY_CODES[order.country] ?? order.country) === "US" ? usStateCode(order.state) : null) ?? order.state,
       AddressPostalCode: order.postalCode,
       AddressPhoneNumber: amazonPhoneNumber(order.phone),
     };

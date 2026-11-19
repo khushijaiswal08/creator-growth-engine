@@ -3661,3 +3661,59 @@ test("Gift a creator from the Gifts page: checks the campaign and the product be
   const page = readFileSync("src/app/(app)/orders/page.tsx", "utf8");
   assert.ok(page.includes("<GiftCreatorButton") && page.includes('db.campaign.findMany({ where: { ...view.campaigns, status: { not: "archived" } }'));
 });
+
+test("US states are always two letters for the ERP and Amazon: names become codes, an unknown state is refused, and older gifts are converted when sent", async () => {
+  const { usStateCode, US_STATES } = await import("@/lib/us-states");
+  const { saveGiftChoice } = await import("@/lib/selection-flow");
+  const { openAddress } = await import("@/lib/address-crypto");
+  for (const [raw, code] of [["Florida", "FL"], ["florida", "FL"], ["FL", "FL"], ["fl", "FL"], ["New York", "NY"], ["district of columbia", "DC"], ["Washington DC", "DC"], ["Washington", "WA"]] as const) {
+    assert.equal(usStateCode(raw), code, `${raw} -> ${code}`);
+  }
+  for (const bad of ["Fla.", "Floridaa", "", "Ontario"]) assert.equal(usStateCode(bad), null, `${bad} is not a US state`);
+  assert.ok(US_STATES.every(([code]) => /^[A-Z]{2}$/.test(code)), "every code is two capital letters");
+
+  const { user, campaign } = await makeUserAndCampaign("us-states", ["home decor"]);
+  const product = await db.product.create({ data: { brandId: "test", sku: "US-STATE-1", title: "Tablecloth", color: "Blue", stock: 5, amazonUrl: "https://www.amazon.com/dp/B0STATESTS" } });
+  const load = (id: string) =>
+    db.campaignCreator.findUniqueOrThrow({
+      where: { id },
+      select: { id: true, influencerId: true, status: true, collaborationType: true, approvedFee: true, selectionSentAt: true, campaign: { select: { id: true, brandId: true, giftArticles: true } } },
+    });
+  const by = { actor: user.id, by: { name: user.name } };
+
+  // Typed as a name, stored as the code.
+  const named = await makeCreatorWithLink(campaign.id, "state_named", "token-state-named");
+  assert.equal((await saveGiftChoice(await load(named.id), product.id, usAddress({ state: "Florida" }), by)).ok, true);
+  const order = await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: named.id } });
+  assert.equal(openAddress(order).state, "FL");
+
+  // Not a US state: refused, nothing written.
+  const wrong = await makeCreatorWithLink(campaign.id, "state_wrong", "token-state-wrong");
+  const refused = await saveGiftChoice(await load(wrong.id), product.id, usAddress({ state: "Fla." }), by);
+  assert.equal(refused.ok, false);
+  assert.equal(await db.giftOrder.count({ where: { campaignCreatorId: wrong.id } }), 0);
+
+  // Outside the US the region stays as typed.
+  const abroad = await makeCreatorWithLink(campaign.id, "state_abroad", "token-state-abroad");
+  assert.equal((await saveGiftChoice(await load(abroad.id), product.id, usAddress({ country: "Canada", state: "Ontario" }), by)).ok, true);
+  assert.equal(openAddress(await db.giftOrder.findFirstOrThrow({ where: { campaignCreatorId: abroad.id } })).state, "Ontario");
+
+  // Gifts saved before this change may hold "Florida": every way out sends the two letters.
+  for (const file of ["src/lib/erp.ts", "src/app/(app)/orders/export/route.ts"]) {
+    assert.ok(readFileSync(file, "utf8").includes("usStateCode("), `${file} converts the state to its code`);
+  }
+  // Both forms offer US states as a list of codes.
+  for (const file of ["src/components/gift-entry.tsx", "src/app/select/[token]/selection-form.tsx"]) {
+    assert.ok(/US_STATES\.map\(\(\[code, name\]\)/.test(readFileSync(file, "utf8")), `${file} lists the US states`);
+  }
+});
+
+test("The gift forms take an ASIN: it picks from the campaign's own offered products only, and says so when there is no match", () => {
+  const action = readFileSync("src/actions/gift-entry.ts", "utf8");
+  const listing = action.slice(action.indexOf("async function giftProductsOf"), action.indexOf("export async function productsForGift"));
+  assert.ok(listing.includes("giftableProductsWhere(campaign)") && listing.includes("asin: true"), "the ASIN travels with the campaign's offered products");
+  const form = readFileSync("src/components/gift-entry.tsx", "utf8");
+  assert.ok(form.includes('id="ge-asin"'), "there is an ASIN box");
+  assert.ok(/function withAsin\(\s*products: GiftProductOption\[\]/.test(form), "the ASIN is looked up in the products already offered, not anywhere else");
+  assert.ok(form.includes("No product with this ASIN is offered in this campaign"), "a wrong ASIN is said plainly");
+});

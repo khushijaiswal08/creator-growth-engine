@@ -6,6 +6,7 @@ import { brandName } from "@/lib/brands";
 import { db } from "@/lib/db";
 import { giftReference } from "@/lib/gifts";
 import { countryCode } from "@/lib/mcf";
+import { usStateCode } from "@/lib/us-states";
 
 /*
  * The company ERP (fabricrush-replenish, built by Umesh): an approved gift goes there as a "Content Creators"
@@ -84,7 +85,8 @@ export function erpOrderFor(gift: NonNullable<Awaited<ReturnType<typeof loadOrde
       line1: address.address1.trim(),
       line2: address.address2?.trim() || null,
       city: address.city.trim(),
-      state: address.state.trim().toUpperCase(),
+      // The ERP takes two letters for a US state. Gifts saved before 19 Nov may hold the full name ("Florida").
+      state: (countryCode(address.country) === "US" ? usStateCode(address.state) : null) ?? address.state.trim().toUpperCase(),
       // The ERP takes the 5-digit ZIP: "97205-1234" is sent as "97205".
       zip: /^\d{5}-\d{4}$/.test(address.postalCode.trim()) ? address.postalCode.trim().slice(0, 5) : address.postalCode.trim(),
       country: countryCode(address.country) ?? address.country.trim(),

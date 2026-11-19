@@ -15,7 +15,7 @@ import { loadSuppressions } from "@/lib/suppression";
 import { distinctLabels, productLabel } from "@/lib/template";
 
 /** One product in the "Enter gift by hand" dropdowns, grouped by its type. */
-export type GiftProductOption = { id: string; type: string; label: string };
+export type GiftProductOption = { id: string; type: string; label: string; asin: string | null };
 
 /**
  * The creator, if this person may enter a gift for them: in a campaign of the
@@ -56,12 +56,12 @@ type ProductList = { ok: true; products: GiftProductOption[] } | { ok: false; er
 async function giftProductsOf(campaign: { brandId: string; giftArticles: string[] }): Promise<ProductList> {
   const rows = await db.product.findMany({
     where: giftableProductsWhere(campaign),
-    select: { id: true, sku: true, title: true, color: true, size: true, listingName: true },
+    select: { id: true, sku: true, asin: true, title: true, color: true, size: true, listingName: true },
     orderBy: [{ title: "asc" }, { color: "asc" }, { size: "asc" }, { sku: "asc" }],
     take: 3000,
   });
   if (rows.length === 0) return { ok: false, error: "This campaign offers no products right now. Check its Settings tab." };
-  return { ok: true, products: distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, type: row.title, label: productLabel(row) }))).map(({ id, type, label }) => ({ id, type, label })) };
+  return { ok: true, products: distinctLabels(rows.map((row) => ({ id: row.id, sku: row.sku, asin: row.asin, type: row.title, label: productLabel(row) }))).map(({ id, type, label, asin }) => ({ id, type, label, asin })) };
 }
 
 /** The products this creator's campaign offers, for the two dropdowns, or why no gift can be entered. */

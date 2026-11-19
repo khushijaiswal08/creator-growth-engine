@@ -8,6 +8,7 @@ import { TERMINAL_STATUSES } from "@/lib/next-action";
 import { describeProduct } from "@/lib/product-list";
 import { selectionLinkExpired } from "@/lib/selection";
 import { statusChangeText } from "@/lib/status";
+import { usStateCode } from "@/lib/us-states";
 
 const LIMITS = { shipName: 100, address1: 150, address2: 150, city: 80, state: 60, postalCode: 20, country: 60, phone: 30, note: 500 };
 
@@ -95,6 +96,12 @@ export async function saveGiftChoice(
     if (values[key as keyof SelectionValues].length > max) return { ok: false, error: "One of the fields is too long." };
   }
   if (values.phone && !/^[0-9+()\-.\s]{7,30}$/.test(values.phone)) return { ok: false, error: "Please check the phone number." };
+  // A US state is kept as its two-letter code ("Florida" -> "FL"): the ERP and Amazon take nothing else.
+  if (values.country === "United States") {
+    const code = usStateCode(values.state);
+    if (!code) return { ok: false, error: who.by ? "Choose the US state from the list." : "Please choose your US state from the list." };
+    values.state = code;
+  }
 
   // The product must be one this campaign actually offers, whatever the form says.
   const product = await db.product.findFirst({
